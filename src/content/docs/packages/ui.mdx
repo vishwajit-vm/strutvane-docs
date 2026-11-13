@@ -1,64 +1,131 @@
 ---
 title: '@strutvane/ui'
-description: The Strutvane frontend package, which builds tables, forms, detail pages and sign-in screens from your models or any OpenAPI API, with components you own.
+description: The Strutvane UI package, which draws list pages and create/edit forms for every resource from the API's manifest, with filters, validation, accessible markup and overridable widgets.
 ---
 
 import { Aside, CardGrid, LinkCard } from '@astrojs/starlight/components';
 
 **What you'll learn**
 
-- What the UI package gives you
-- How it works with Strutvane and with other APIs
-- How to customise it
+- What the UI package draws for you, with no per-model screen code
+- A working React example with a list and a form
+- How to swap one column or one input without forking anything
 
-<Aside type="caution" title="Planned, not available yet">
-The name `@strutvane/ui` is reserved on npm. Implementation starts in Phase 3 of the [roadmap](../../community/roadmap/).
+<Aside type="caution" title="Pre-release (0.1.0-next): APIs may still change">
+The renderer core of `@strutvane/ui` (lists, forms, filters, errors and overrides) is implemented and tested at version `0.1.0-next.0`. It isn't on npm yet, and names may still change before `0.1.0`.
 </Aside>
 
 ## What it does
 
-- **Automatic screens** for every model: a table, a form and a detail page ([The UI](../../concepts/the-ui/))
-- **Sign-in and admin screens** when auth is installed
-- **Permission-aware:** shows only what each user is allowed to do
-- **Owned components:** buttons, tables and inputs are copied into your project for you to change
-- **Theming:** colours, fonts and dark mode from one file
-- **Accessible:** designed for keyboard and screen-reader users
-- Built with React, Vite, TanStack and Tailwind CSS: popular, well-documented tools
+Your Strutvane API publishes a **manifest**: a machine-readable description of every resource, its fields and what the current user may do (`GET /.well-known/strutvane.json`). The UI reads it and draws:
 
-## Install (planned)
+- **A list page** (`<ResourceList>`): columns, search, filter chips, sorting and pages. All the searching, filtering and sorting run **on the server**, and the list state lives in the URL, so you can bookmark or share it.
+- **A create/edit form** (`<ResourceForm>`): the right input for each field type, validation as you type, and server errors shown next to the right field.
+- **Buttons that follow permissions:** New, Edit and Delete only appear when the manifest says this user may use them.
+
+The UI only talks to the backend over HTTP. It never imports the framework or auth packages, so it works with any API that publishes a Strutvane manifest.
+
+## When you need it
+
+When you want a web interface. It's part of the **Full-stack** and **UI only** presets.
+
+## Install
 
 ```bash
-# add screens to an existing Strutvane project
-pnpm sv add ui
-
-# or create a UI-only project for an API you already have
-npm create strutvane@latest my-admin -- --preset ui
+npm install @strutvane/ui react react-dom @tanstack/react-query @tanstack/react-table @tanstack/react-form @tanstack/react-virtual
 ```
 
-## Example: UI-only mode for an existing API
+<Aside type="note">
+Available on npm soon as `0.1.0-next` — pre-release. React 19 and the TanStack packages are only needed for `@strutvane/ui/react`. The React-free core lives in `@strutvane/ui/core`.
+</Aside>
 
-Already have an API? If it publishes an **OpenAPI** description (a standard file describing its endpoints), the UI can build screens from it:
+## Example: a list and a form
 
-```dotenv title=".env"
-VITE_API_URL=https://api.example.com
-API_OPENAPI_URL=https://api.example.com/openapi.json
-```
+```tsx title="web/app.tsx"
+import { createHttpClient, fetchManifest } from '@strutvane/ui/core'
+import { ResourceForm, ResourceList, StrutvaneProvider } from '@strutvane/ui/react'
+import { QueryClient } from '@tanstack/react-query'
 
-If the guesses need adjusting, tell it more in one file:
+const api = createHttpClient({ baseUrl: 'https://api.example.com/api/v1', credentials: 'include' })
+const manifest = await fetchManifest({ baseUrl: 'https://api.example.com', credentials: 'include' })
+const invoices = manifest.resources.find((r) => r.name === 'Invoice')!
+const queryClient = new QueryClient()
 
-```ts title="ui.resources.ts"
-export default {
-  orders: { label: 'Orders', titleField: 'reference', list: { columns: ['reference', 'customer', 'total'] } },
+export function App() {
+  return (
+    <StrutvaneProvider api={api} manifest={manifest} queryClient={queryClient}>
+      <ResourceList
+        resource={invoices}
+        initialSearch={location.search}
+        onSearchStringChange={(s) => history.replaceState(null, '', s ? `?${s}` : location.pathname)}
+        onCreate={() => navigate('/invoices/new')}
+        onEdit={(row) => navigate(`/invoices/${row.id}/edit`)}
+        confirmDelete={(row) => confirm(`Delete ${row.number}?`)}
+      />
+    </StrutvaneProvider>
+  )
 }
+
+// /invoices/new  →  <ResourceForm resource={invoices} onSaved={(r) => navigate(`/invoices/${r.id}`)} />
+// /invoices/:id  →  <ResourceForm resource={invoices} recordId={id} onSaved={…} onCancel={…} />
 ```
 
-## Customising
+## Key props
 
-The UI follows the same [levels of control](../../concepts/levels-of-control/) as the rest of Strutvane: change settings, override one column or widget, or eject a whole page with `pnpm sv eject ui`.
+| Component | Prop | What it does |
+|---|---|---|
+| `<StrutvaneProvider>` | `api`, `manifest`, `queryClient` | The HTTP client, the manifest and the React Query client |
+| | `overrides` | Your own cells, widgets and message texts (see below) |
+| `<ResourceList>` | `resource` | Which resource to list |
+| | `initialSearch`, `onSearchStringChange` | Keep filters, sorting and paging in the URL |
+| | `onCreate`, `onEdit`, `confirmDelete` | What New, Edit and Delete do |
+| `<ResourceForm>` | `resource`, `recordId` | Create a record, or edit the one with this id |
+| | `onSaved`, `onCancel` | What happens after saving or cancelling |
+
+## Example: change one column and one input
+
+Override any **cell** (how a value looks in the list) or **widget** (the input in a form) through the provider. Everything else stays automatic:
+
+```tsx
+import type { Cell, Widget } from '@strutvane/ui/react'
+
+const Money: Cell = ({ value, record }) => <>{formatMoney(value, record.currency)}</>
+
+const MoneyInput: Widget = ({ id, value, onChange, onBlur, describedBy, invalid }) => (
+  <input id={id} value={String(value ?? '')} aria-describedby={describedBy} aria-invalid={invalid}
+         onChange={(e) => onChange(e.target.value)} onBlur={onBlur} />
+)
+
+<StrutvaneProvider
+  api={api}
+  manifest={manifest}
+  overrides={{
+    fieldCells: { 'Invoice.amount': Money },              // one column of one resource
+    widgets: { money: MoneyInput },                       // every field using this widget
+    messages: { required: '{attribute} is mandatory.' },  // any message or UI text
+  }}
+/>
+```
+
+## Built in, so you don't have to
+
+- **Accessible:** labels, help text and error messages are wired to every input (including yours). Tables have captions and sort states. Tests run axe-core on lists, forms and error states. WCAG 2.2 AA is a release requirement.
+- **Friendly errors:** a `422` puts each problem next to its field (even `lines[1].amount`), or in a banner. Other errors (`403`, `409`, offline, server errors) show a friendly message, and what you typed is always kept.
+- **Safe retries:** every save sends an `Idempotency-Key`, so pressing Save twice never creates two records.
+- **Big lists stay fast:** rows are virtualised above 100, and the related-record picker searches the server and loads 100 at a time.
+
+## Planned, not available yet
+
+Routing and layouts, detail pages, sign-in screens, themes and design tokens, the copy-into-your-project component registry, ejecting pages, and screens built from an OpenAPI document (the **UI only** preset for non-Strutvane APIs).
+
+## Links
+
+- Source and full README: [strutvane-ui on GitHub](https://github.com/vishwajit-vm/strutvane-ui)
+- Specification: [08-package-ui.md](https://github.com/vishwajit-vm/strutvane/blob/main/docs/08-package-ui.md)
 
 ## Next steps
 
 <CardGrid>
-  <LinkCard title="The UI" description="Screens, widgets and theming in detail." href="../../concepts/the-ui/" />
-  <LinkCard title="strutvane CLI" description="The commands you'll use." href="../cli/" />
+  <LinkCard title="The UI" description="How screens follow your models and permissions." href="../../concepts/the-ui/" />
+  <LinkCard title="Levels of control" description="Change one piece, or take over a whole page." href="../../concepts/levels-of-control/" />
 </CardGrid>

@@ -66,6 +66,7 @@ export default defineConfig({
             { label: '@strutvane/framework', slug: 'packages/framework' },
             { label: '@strutvane/auth', slug: 'packages/auth' },
             { label: '@strutvane/ui', slug: 'packages/ui' },
+            { label: '@strutvane/logs', slug: 'packages/logs' },
             { label: 'strutvane (CLI)', slug: 'packages/cli' },
             { label: 'create-strutvane', slug: 'packages/create-strutvane' },
             { label: '@strutvane/core', slug: 'packages/core' },

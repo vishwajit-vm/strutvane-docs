@@ -11,8 +11,8 @@ import { Aside, CardGrid, LinkCard, Tabs, TabItem } from '@astrojs/starlight/com
 - How to search, filter, sort and page through results, with copy-paste examples
 - What errors look like, and why they're easy to handle
 
-<Aside type="caution" title="Planned, not available yet">
-The URLs and responses below show the planned design.
+<Aside type="caution" title="Pre-release (0.1.0-next): APIs may still change">
+The endpoints, query parameters and responses below are implemented in `@strutvane/framework` `0.1.0-next.0`. Features marked **Planned** aren't built yet.
 </Aside>
 
 ## What's an API?
@@ -31,9 +31,13 @@ For a model called `Invoice`, Strutvane creates:
 | Update | `PATCH /api/v1/invoices/:id` | Change some fields |
 | Delete | `DELETE /api/v1/invoices/:id` | Delete (or move to the bin, if soft deletes are on) |
 | Restore | `POST /api/v1/invoices/:id/restore` | Bring a soft-deleted invoice back |
-| Export | `GET /api/v1/invoices/export` | Download as CSV or Excel |
+| Query | `POST /api/v1/invoices/query` | The same as List, with the filters in the request body (handy for long filters) |
 
-Every request is **validated** (does the data fit the model?) and **authorized** (is this person allowed?).
+Every request is **validated** (does the data fit the model?) and **authorized** (is this person allowed?). Each app also gets `/openapi.json`, the manifest at `/.well-known/strutvane.json`, and the health checks `/health` and `/ready`.
+
+<Aside type="note" title="Planned">
+Export to CSV or Excel, bulk changes and `PUT` (replace a whole record) come in a later release.
+</Aside>
 
 ## Searching, filtering, sorting and paging
 
@@ -43,13 +47,13 @@ Here are real examples you'll be able to paste into your browser or an API tool.
 |---|---|
 | Invoices matching "acme" | `/api/v1/invoices?search=acme` |
 | Only paid invoices | `/api/v1/invoices?filter[status][eq]=paid` |
-| Draft **or** sent | `/api/v1/invoices?filter[status][in]=draft,sent` |
+| Draft **or** sent | `/api/v1/invoices?filter[status][in]=draft&filter[status][in]=sent` |
 | Amount at least 100 | `/api/v1/invoices?filter[amount][gte]=100` |
 | Biggest first | `/api/v1/invoices?sort=-amount` |
 | Biggest first, then by number | `/api/v1/invoices?sort=-amount,number` |
 | 25 per page | `/api/v1/invoices?page[size]=25` |
+| 25 per page, with the total count | `/api/v1/invoices?page[size]=25&page[total]=true` |
 | Include the customer's details | `/api/v1/invoices?include=customer` |
-| Only some fields | `/api/v1/invoices?fields[invoices]=id,number,amount` |
 
 **Filter operators**, in plain words:
 
@@ -58,13 +62,16 @@ Here are real examples you'll be able to paste into your browser or an API tool.
 | `eq` / `ne` | equals / not equal | `filter[status][eq]=paid` |
 | `gt` / `gte` | greater than / at least | `filter[amount][gte]=100` |
 | `lt` / `lte` | less than / at most | `filter[amount][lt]=50` |
-| `in` / `nin` | one of / none of | `filter[status][in]=draft,sent` |
+| `in` / `nin` | one of / none of (repeat the key for each value) | `filter[status][in]=draft&filter[status][in]=sent` |
 | `contains` | text contains | `filter[number][contains]=2026` |
-| `between` | within a range | `filter[dueDate][between]=2026-01-01,2026-03-31` |
-| `isNull` | is empty (or not) | `filter[notes][isNull]=true` |
+| `startsWith` / `endsWith` | text starts / ends with | `filter[number][startsWith]=INV-` |
+| `between` | within a range (repeat the key for both ends) | `filter[dueDate][between]=2026-01-01&filter[dueDate][between]=2026-03-31` |
+| `isNull` / `isNotNull` | is empty / has a value | `filter[notes][isNull]=true` |
+
+Values are **repeated**, never split on commas, so a value like `"Smith, Jones & Co"` is never cut in half. Text matching ignores upper and lower case for the letters A to Z.
 
 <Aside type="note">
-You can only filter, sort or search on fields you marked `.filterable()`, `.sortable()` or `.searchable()` in your model. That keeps queries fast and safe.
+You can only filter, sort or search on fields you marked `.filterable()`, `.sortable()` or `.searchable()` in your model. Anything else, including a typo in a parameter name, is a `422` error that lists **every** problem at once. Filters through relations (`customer.name`) and choosing fields (`fields[invoices]=…`) are **Planned**.
 </Aside>
 
 ## What a response looks like
@@ -78,12 +85,11 @@ You can only filter, sort or search on fields you marked `.filterable()`, `.sort
     { "id": "01J9Z4…", "number": "INV-0042", "amount": "1200.00", "status": "sent" },
     { "id": "01J9Z5…", "number": "INV-0043", "amount": "350.00",  "status": "draft" }
   ],
-  "meta": { "page": { "size": 25, "nextCursor": "eyJpZCI6…", "hasMore": true } },
-  "links": { "next": "/api/v1/invoices?page[cursor]=eyJpZCI6…" }
+  "meta": { "page": { "size": 25, "hasMore": true, "nextCursor": "eyJpZCI6…" } }
 }
 ```
 
-To get the next page, request the `links.next` address.
+To get the next page, add `page[cursor]=` with the `nextCursor` value: `/api/v1/invoices?page[size]=25&page[cursor]=eyJpZCI6…`.
 
   </TabItem>
   <TabItem label="Create">
@@ -106,27 +112,44 @@ Content-Type: application/json
 
 ```json
 {
-  "type": "https://strutvane.dev/errors/validation",
+  "type": "https://strutvane.dev/errors/validation-failed",
   "title": "Validation failed",
   "status": 422,
   "code": "VALIDATION_FAILED",
-  "fieldErrors": { "amount": ["Must be 0 or more"] },
+  "issues": [
+    { "path": ["amount"], "code": "too_small", "params": { "min": 0 }, "message": "Amount must be at least 0." }
+  ],
+  "fieldErrors": { "amount": ["Amount must be at least 0."] },
   "traceId": "4bf92f3577b34da6"
 }
 ```
 
-Every error has the same shape, following a standard called RFC 9457. `fieldErrors` says exactly what to fix, and `traceId` helps you find the request in your logs.
+Every error has the same shape, following a standard called RFC 9457 ("problem details"). Each entry in `issues` says **where** the problem is (`path`), a stable `code` your code can check, and a friendly `message` from the message catalog. `fieldErrors` is the same information grouped by field, ready for a form. `traceId` helps you find the request in your [logs](../../packages/logs/).
 
   </TabItem>
 </Tabs>
 
-## Interactive docs, for free
+## API docs, for free
 
-Visit `/docs` in your running app to get a page listing every endpoint, with **"Try it"** buttons. It's generated from your models, so it's never out of date. There's also a machine-readable version at `/openapi.json`, which other tools can use to generate API clients.
+Your running app publishes an **OpenAPI** description of every endpoint at `/openapi.json`. It's generated from your models, so it's never out of date, and tools like Postman or API client generators can read it.
+
+<Aside type="note" title="Planned">
+An interactive page at `/docs`, with **"Try it"** buttons, comes in a later release.
+</Aside>
 
 ## Your own endpoints
 
-Need something that isn't create/read/update/delete, like "approve invoice" or "revenue report"? Add a custom action or route. It gets the same validation, permissions and documentation. See [Levels of control](../levels-of-control/).
+Need something that isn't create/read/update/delete, like a "revenue report"? Add a **custom route**. It gets the same permission checks and error format:
+
+```ts title="app/http/routes/api.ts"
+import { route } from '@strutvane/framework/http'
+
+export default [
+  route.get('/reports/revenue', { permission: 'report.revenue', handler: ({ query }) => revenue(query) }),
+]
+```
+
+Custom actions on a resource, like "approve invoice", are **Planned**. See [Levels of control](../levels-of-control/).
 
 ## Next steps
 

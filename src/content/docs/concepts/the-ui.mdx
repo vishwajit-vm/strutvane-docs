@@ -1,6 +1,6 @@
 ---
 title: The UI
-description: The screens Strutvane builds from your models (tables, forms, detail pages, sign-in screens) and how to restyle or replace any part of them.
+description: The screens Strutvane builds from your API's manifest (list pages and create/edit forms), how they follow permissions, and how to replace any cell or input.
 ---
 
 import { Aside, CardGrid, LinkCard } from '@astrojs/starlight/components';
@@ -9,24 +9,31 @@ import { Aside, CardGrid, LinkCard } from '@astrojs/starlight/components';
 
 - Which screens you get for every model, without writing them
 - How the screens follow your permissions
-- How to change the look, a single column, or a whole page
+- How to change a single column, input or message
 
-<Aside type="caution" title="Planned, not available yet">
-This describes the planned `@strutvane/ui` package.
+<Aside type="caution" title="Pre-release (0.1.0-next): APIs may still change">
+The list pages, forms, filters, error handling and overrides are implemented in `@strutvane/ui` `0.1.0-next.0`. Everything marked **Planned** below isn't built yet.
 </Aside>
+
+## Where the screens come from
+
+Your API publishes a **manifest** at `/.well-known/strutvane.json`: a description of every resource, its fields, and what **this** user may do. The UI reads it and draws the screens. You don't write a screen per model.
 
 ## What you get for each model
 
-For a model called `Invoice`, the UI creates:
+For a model called `Invoice`:
 
-| Screen | Address | What's on it |
+| Screen | Component | What's on it |
 |---|---|---|
-| List | `/invoices` | A table with search, filter chips, sortable columns, pages, bulk actions, export, and saved views |
-| Create | `/invoices/new` | A form, with the right input for each field and validation as you type |
-| Edit | `/invoices/:id/edit` | The same form, pre-filled |
-| Details | `/invoices/:id` | All the fields, plus tabs for related records and an **Activity** tab showing the change history |
+| List | `<ResourceList>` | A table with search, filter chips, sortable columns and Previous/Next pages. The list state lives in the URL, so you can bookmark or share a filtered list. |
+| Create | `<ResourceForm>` | A form with the right input for each field, and validation as you type |
+| Edit | `<ResourceForm recordId={id}>` | The same form, pre-filled. Only the fields you changed are sent. |
 
-Plus a menu item, breadcrumbs, a global search box, and a dark mode.
+You decide the addresses (`/invoices`, `/invoices/new`…) with your own router.
+
+<Aside type="note" title="Planned">
+Detail pages with related records and an **Activity** tab, a menu, breadcrumbs, global search, bulk actions, export, saved views and dark mode come in later releases.
+</Aside>
 
 ## The right input for each field type
 
@@ -35,53 +42,50 @@ You never pick inputs by hand. The field type decides:
 | Field type | You get |
 |---|---|
 | `string`, `email`, `url` | A text box (with format checks) |
-| `text`, `markdown` | A larger text area or editor |
-| `decimal`, `money` | A number input (money shows its currency) |
-| `boolean` | A switch |
-| `enum` | A dropdown, or radio buttons for short lists |
-| `date`, `datetime` | A date picker |
-| `belongsTo('Company')` | A searchable picker that looks up companies |
+| `text` | A larger text area |
+| `integer`, `decimal` | A number input that keeps exactly what you typed (`1250.` isn't swallowed) and accepts your locale's decimal comma |
+| `boolean` | A checkbox |
+| `enum` | A dropdown |
+| `date` | A date input that only accepts real calendar dates |
+| `belongsTo('Company')` | A picker that searches companies on the server, 100 at a time |
+| `readOnly` fields | A read-only display |
 
 ## It follows your permissions
 
 If a user may not delete invoices, there's no **Delete** button. If a field is hidden from their role, it's not in the table or the form. The API enforces the same rules, so hiding a button is never the only lock.
 
+## When something goes wrong
+
+- A validation problem from the server appears **next to the field** it belongs to, even deep inside a list (`lines[1].amount`). If no field matches, it appears in a banner at the top. No message is ever dropped.
+- Other errors (no permission, a conflict, offline, a server error) show a friendly message. What you typed is always kept.
+- Pressing **Save** twice never creates two records: each save carries an idempotency key.
+
 ## Making it yours
-
-### Change the look
-
-Colours, fonts and corner radius are **design tokens** (named settings) in one CSS file:
-
-```css title="web/theme/tokens.css"
-:root {
-  --primary: 222 47% 31%;   /* your brand colour */
-  --radius: 0.5rem;
-}
-```
 
 ### Change one small thing
 
-Show amounts as money with a currency symbol, and leave everything else automatic:
+Show amounts as money with a currency symbol, and leave everything else automatic. Pass your own **cell** (how a value looks in the list) or **widget** (the input in a form) to the provider:
 
-```tsx title="web/pages/invoices/columns.tsx"
-export const amount = ({ row }) => <Money value={row.amount} currency={row.currency} />
+```tsx title="web/app.tsx"
+import type { Cell } from '@strutvane/ui/react'
+
+const Money: Cell = ({ value, record }) => <>{formatMoney(value, record.currency)}</>
+
+<StrutvaneProvider
+  api={api}
+  manifest={manifest}
+  overrides={{
+    fieldCells: { 'Invoice.amount': Money },
+    messages: { required: '{attribute} is mandatory.' },
+  }}
+/>
 ```
 
-### Replace a whole page
+Your widgets get labels, help text and error wiring for free, so they're accessible too.
 
-```bash
-pnpm sv eject ui Invoice --page form
-```
-
-This copies the full source of the invoice form into `web/pages/invoices/form.tsx`. It's now yours to change in any way.
-
-## The components are yours
-
-The buttons, tables, dialogs and inputs are copied **into your project** (in `web/components/ui`). They aren't hidden inside a library. Want rounder buttons? Open the file and change it. This approach is popularised by a tool called shadcn/ui.
-
-## Using it with a different backend
-
-The UI also works with APIs that weren't built with Strutvane. If an API publishes an OpenAPI description, the UI can read it and build screens from it. See [@strutvane/ui](../../packages/ui/).
+<Aside type="note" title="Planned">
+Theme design tokens (colours, fonts, corner radius in one CSS file), copying ready-made components into `web/components/ui` so you own them, ejecting a whole page with `pnpm sv eject ui`, and building screens from any API's OpenAPI description (for non-Strutvane backends) come in later releases.
+</Aside>
 
 ## Next steps
 

@@ -14,8 +14,9 @@ The public, friendly documentation site for **Strutvane**, built with Astro Star
 
 ## Status
 
-- Phase 0 (foundations) is complete; Phase 1 is next. Nothing is released yet (see ECOSYSTEM.md §7).
-- Every page describing an API, CLI or package MUST carry a caution aside saying "Planned, not available yet".
+- Phase 1 is in progress: every package is implemented and tested at `0.1.0-next.0`, but nothing is on npm yet.
+- Pages describing a built feature carry a caution aside titled "Pre-release (0.1.0-next): APIs may still change". Features that aren't built yet (queue/cache/mail, MySQL, Azure passwordless, SSO/SCIM/MFA, eject, auth CLI, detail pages, themes…) stay marked "Planned".
+- Package pages use the real APIs from each package's README; never document an API the code doesn't have.
 
 ## Source of truth
 

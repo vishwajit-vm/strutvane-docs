@@ -11,8 +11,8 @@ import { Aside, CardGrid, LinkCard } from '@astrojs/starlight/components';
 - Which ones you need for your kind of project
 - How packages work together without depending on each other
 
-<Aside type="caution" title="Planned, not available yet">
-The package names are reserved on npm, but no package contains code yet.
+<Aside type="caution" title="Pre-release (0.1.0-next): APIs may still change">
+Every package below is implemented and tested at version `0.1.0-next.0`, and will be on npm soon as a pre-release. Some features inside each package are still planned; each package page says which.
 </Aside>
 
 ## The packages in one table
@@ -20,13 +20,14 @@ The package names are reserved on npm, but no package contains code yet.
 | Package | In one sentence | You'll use it… |
 |---|---|---|
 | [`@strutvane/framework`](../framework/) | The backend: models, database, migrations and the automatic API | for any app with its own data |
-| [`@strutvane/auth`](../auth/) | Sign-in, roles, permissions, multi-tenancy and audit logs | when people need to log in |
-| [`@strutvane/ui`](../ui/) | The screens: tables, forms, detail pages and sign-in pages | when you want a web interface |
+| [`@strutvane/auth`](../auth/) | Sign-in, permission policies, multi-tenancy and audit records | when people need to log in |
+| [`@strutvane/ui`](../ui/) | The screens: list pages and create/edit forms drawn from your API | when you want a web interface |
+| [`@strutvane/logs`](../logs/) | Zero-config logging with a built-in log viewer | always (it's installed by default) |
 | [`strutvane`](../cli/) | The command-line tool (`pnpm sv …`) | all the time |
 | [`create-strutvane`](../create-strutvane/) | Creates a new project | once, at the start |
 | [`@strutvane/core`](../core/) | The engine room that every package plugs into | indirectly (it comes with the others) |
 | [`@strutvane/contracts`](../contracts/) | Shared definitions that let packages talk to each other | indirectly |
-| [`@strutvane/devkit`](../devkit/) | Tools for writing your own plugins and generators | if you extend Strutvane |
+| [`@strutvane/devkit`](../devkit/) | Tools for writing installers, generators and plugins | if you extend Strutvane |
 
 ## Which packages do I need?
 
@@ -35,28 +36,35 @@ The package names are reserved on npm, but no package contains code yet.
 | A full app with screens and logins | framework + auth + ui (the **Full-stack** preset) |
 | Only an API (for a mobile app, say) | framework (+ auth) (the **API only** preset) |
 | Screens for an API that already exists | ui (the **UI only** preset) |
-| Logins and permissions for an existing Express, Fastify, NestJS or Hono app | auth on its own |
+| Permissions and tenant isolation for an existing Express or Hono app | auth on its own |
+| Better logs for any Node.js app | logs on its own |
 
 ## Independent, but better together
 
 Each package works **on its own**. Together, they connect automatically:
 
-- add **auth** to a framework project, and every API endpoint is protected
-- add **ui** to it, and screens appear for every model, including sign-in pages
-- add them in any order: `pnpm sv add auth`, `pnpm sv add ui`
+- give the framework a permission provider from **auth**, and every API endpoint checks permissions
+- point **ui** at the framework's API, and it draws a list and a form for every model, with buttons that follow each user's permissions
+- **logs** picks up the request id, tenant and user of every request without extra code
 
-For example, starting from an API-only project:
+For example, the framework never imports auth. It just asks for "a permission provider" through the shared contract:
 
-```bash
-pnpm sv add auth   # every endpoint now requires sign-in and checks permissions
-pnpm sv add ui     # screens appear for every model, plus login and user management
+```ts
+import { PermissionProviderToken } from '@strutvane/core'
+import { createPermissionProvider } from '@strutvane/auth'
+
+app.container.singleton(PermissionProviderToken, () => createPermissionProvider([invoicePolicy]))
 ```
 
 How? They never call each other directly. They agree on shared definitions in `@strutvane/contracts`, like LEGO bricks that all use the same studs.
 
+<Aside type="note" title="Planned">
+One-command setup with `pnpm sv add auth` and `pnpm sv add ui` comes with the package installers in a later release. The installer engine itself is ready in [`@strutvane/devkit`](../devkit/).
+</Aside>
+
 ## Coming later
 
-More packages are planned in the same style: **notify** (email, SMS, push), **files** (uploads and storage), **payments** and **billing**, **reports**, **analytics**, **search** and **realtime**. See the [roadmap](../../community/roadmap/).
+More packages are planned in the same style: **files** (uploads and storage, next), **notify** (email, SMS, push), **payments** and **billing**, **reports**, **analytics**, **search** and **realtime**. See the [roadmap](../../community/roadmap/).
 
 ## Next steps
 

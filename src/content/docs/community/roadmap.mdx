@@ -13,15 +13,28 @@ import { Aside, Badge, CardGrid, LinkCard, Steps } from '@astrojs/starlight/comp
 
 ## Where we are now
 
-<Badge text="Phase 0: Foundations, complete · Phase 1 next" variant="success" size="large" />
+<Badge text="Phase 1: Core, CLI and framework, in progress" variant="caution" size="large" />
 
-- ✅ The complete design (the "blueprint") is written and public
-- ✅ Package names are reserved on npm under `@strutvane`
-- ✅ One GitHub repository per package is set up
-- ✅ Shared tooling and automated checks run on Linux, Windows and macOS
-- ✅ The first draft of the shared definitions (contracts) is built and tested
-- ✅ Nine experiments ("spikes", 419 tests) proved the riskiest ideas work before any real code: migrations, permission rules to SQL, tenant isolation, the typed registry, the API client, safe upgrades, sign-in, the generated UI and logging. They also found and fixed real security problems early.
-- 🔨 Next: Phase 1, the core, the CLI, the framework and logging
+**Phase 0 (foundations) is complete.** The blueprint is public, package names are reserved on npm, every package has its own repository, shared tooling and checks run on Linux, Windows and macOS, and nine experiments ("spikes", 419 tests) proved the riskiest ideas before any real code.
+
+**Phase 1 is in progress.** Here's what's built so far. Every package below is implemented and tested at version `0.1.0-next.0`, but **not yet on npm**:
+
+- ✅ [`@strutvane/contracts`](../../packages/contracts/): the shared definitions, including errors with `issues`, logging and file storage
+- ✅ [`@strutvane/core`](../../packages/core/): container, providers, config, validated env, errors, translatable messages, events and hooks
+- ✅ [`@strutvane/logs`](../../packages/logs/): zero-config logging with redaction, daily files, request logging and the built-in viewer
+- ✅ [`@strutvane/framework`](../../packages/framework/): models, safe migrations, the automatic API with OpenAPI, tenancy with row-level security, file storage and testing helpers
+- ✅ [`@strutvane/auth`](../../packages/auth/): policies that compile to SQL, tenant resolvers and row-level security, the Better Auth adapter and audit records
+- ✅ [`@strutvane/ui`](../../packages/ui/): list pages and forms drawn from the manifest, with filters, validation, accessibility and overrides
+- ✅ [`strutvane` and `@strutvane/cli`](../../packages/cli/): the commands, generators, registry compiler, `sv add` and safe upgrades
+- ✅ [`@strutvane/devkit`](../../packages/devkit/): installers, generators and three-way merges
+- ✅ [`create-strutvane`](../../packages/create-strutvane/): the project starter with `full`, `api` and `ui` presets
+
+**What's next:**
+
+- 🔨 **Publishing** the `0.1.0-next` pre-releases to npm
+- 🔨 **Integration**: wiring the packages together end to end, so `npm create strutvane` gives you a running app
+- 🔨 **The files package** (`@strutvane/files`): uploads, image handling and storage drivers on top of the framework's storage core
+- 🔨 **Deferred items**, in later phases: background jobs, cache and email; MySQL and Azure passwordless databases; single sign-on, SCIM and two-factor sign-in; the `sv add auth` / `sv add ui` installers and the auth CLI commands; detail pages, sign-in screens and themes
 
 <Aside type="note">
 Timings assume a small core team and may change. Each phase only ends when its quality checks pass. We'd rather be late than broken.
@@ -31,21 +44,21 @@ Timings assume a small core team and may change. Each phase only ends when its q
 
 <Steps>
 
-1. **Phase 0: Foundations** (weeks 0–4)
+1. **Phase 0: Foundations** (weeks 0–4) · **complete**
 
    Names reserved, repositories, shared tooling and automated checks, and experiments ("spikes") for the hardest problems: turning models into migrations, turning permission rules into database queries, and database-level tenant isolation.
 
-2. **Phase 1: Core, CLI and framework → version 0.1** (months 1–3)
+2. **Phase 1: Core, CLI and framework → version 0.1** (months 1–3) · **in progress**
 
-   You'll be able to create a project, write models, run migrations, and get a working, documented API. **This is the first version you can try.**
+   You'll be able to create a project, write models, run migrations, and get a working, documented API. **This is the first version you can try.** The packages are built and tested; publishing and integration are next.
 
 3. **Phase 2: Auth → version 0.2** (months 3–5)
 
-   Sign-in, roles, permissions, policies, multi-tenancy and the audit log.
+   Sign-in, roles, permissions, policies, multi-tenancy and the audit log. The authorization, tenancy and identity core is already built; this phase adds the sign-in API, the installer and the auth commands.
 
 4. **Phase 3: UI → version 0.3** (months 5–7)
 
-   Automatic screens, sign-in pages and theming. Full-stack apps in one command.
+   Automatic screens, sign-in pages and theming. Full-stack apps in one command. The renderer core (lists, forms, filters) is already built; this phase adds routing, layouts, detail pages, sign-in screens and themes.
 
 5. **Phase 4: Enterprise features → version 0.9 beta** (months 7–9)
 

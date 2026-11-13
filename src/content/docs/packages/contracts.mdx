@@ -1,65 +1,97 @@
 ---
 title: '@strutvane/contracts'
-description: The shared TypeScript types and wire formats that let Strutvane packages work together without depending on each other.
+description: The shared types and wire formats that let Strutvane packages work together without depending on each other, with zero runtime dependencies.
 ---
 
 import { Aside, CardGrid, LinkCard } from '@astrojs/starlight/components';
 
 **What you'll learn**
 
-- Why Strutvane has a "contracts" package
-- The main shared definitions, in plain words
-- When you might use it yourself
+- Why Strutvane has a package of shared definitions
+- What's inside, in plain words
+- How to use a contract in your own code
 
-<Aside type="caution" title="Planned, not available yet">
-The name `@strutvane/contracts` is reserved on npm. A first draft of the contracts is being written in Phase 0 of the [roadmap](../../community/roadmap/).
+<Aside type="caution" title="Pre-release (0.1.0-next): APIs may still change">
+`@strutvane/contracts` (v0) is implemented and tested at version `0.1.0-next.0`. It isn't on npm yet, and the types may still change before `0.1.0`.
 </Aside>
 
-## Why it exists
+## What it does
 
-Strutvane's packages are **independent**: `auth` never imports `framework`, and `ui` never imports `auth`. Yet they work together perfectly. How?
+Think of **LEGO bricks**. Bricks from different sets fit together because they all use the same studs. `@strutvane/contracts` defines those studs.
 
-They all speak the **same language**, defined in this package. Think of the standard size of LEGO studs: every brick fits every other brick, even bricks made years apart.
+`@strutvane/framework`, `@strutvane/auth` and `@strutvane/ui` **never import each other**. They all speak these shared definitions instead, so each works alone and all of them work together.
 
-The package contains **only type definitions and agreed formats**. It has no code that runs and no dependencies, so it's tiny and stable.
+## What's inside
 
-## The main definitions
-
-| Name | Plain meaning |
+| Contract | In plain words |
 |---|---|
-| `Actor` | Who is doing something: a user, a service, or the system itself |
-| `TenantContext` | Which customer company the request is for |
-| `PermissionProvider` / `Decision` | "May this actor do this action?", answered with yes or no, plus the reason |
-| `QueryFilter` | A filter like "status is paid AND amount ≥ 100", in a shape every package understands |
-| `ListQuery` | How lists are searched, filtered, sorted and paged in API requests |
-| `ResourceManifest` | A description of your models, which the UI reads to build screens |
-| `Problem` | The standard shape of every error |
-| `AuditEvent` | One entry in the "who did what" history |
-| `DomainEvent` | "Something happened", such as an invoice being paid |
+| `Actor`, `Permission` | Who is making the request, and permission names like `"invoice.approve"` |
+| `TenantContext` | Which customer company (tenant) the request belongs to |
+| `QueryFilter` | A portable "which rows?" description, shared by permission rules, UI filters and SQL |
+| `ListQuery`, `ListResult` | How a client asks for a page of records, and what comes back |
+| `PermissionProvider`, `Decision` | What auth implements and the framework calls. Deny by default. |
+| `Problem`, `ValidationIssue` | The one shape of every API error, with a stable `code` and `issues` for each field |
+| `ResourceManifest` | A description of every resource, which the UI reads to build screens |
+| `Logger`, `LogRecord` | The logging interface every package uses |
+| `StorageDisk`, `StoredFile` | The file storage interface |
+| `AuditEvent`, `DomainEvent` | "Who changed what" records, and business events like `invoice.sent` |
+| `Installer`, `FieldType` | Extension points for `sv add <package>` and custom field types (draft) |
+| `StandardSchemaV1` | Lets any validator (Zod, Valibot, ArkType…) plug in |
 
-## When you'd use it yourself
+**Promises:** zero runtime dependencies (types plus a few tiny constants), strict semantic versioning, and type tests that prove misuse **fails to compile**, such as comparing with `null` or a permission without a dot.
 
-Mostly when you **build a plugin** or connect your own system. For example, to plug in your own permission service:
+## When you need it
+
+Mostly indirectly: it comes with every other package. You'll import it yourself when you write a plugin, or connect your own code to a Strutvane package.
+
+## Install
+
+```bash
+npm install -D @strutvane/contracts
+```
+
+<Aside type="note">
+Available on npm soon as `0.1.0-next` — pre-release.
+</Aside>
+
+## Example: a filter and a tiny permission provider
 
 ```ts
-import type { PermissionProvider } from '@strutvane/contracts'
+import type { Actor, PermissionProvider, QueryFilter } from '@strutvane/contracts'
 
-export const myPermissions: PermissionProvider = {
-  async can(actor, action) {
-    const allowed = await myCompanyRulesService.check(actor.id, action)
-    return { allowed, reason: allowed ? 'company-rules:allow' : 'company-rules:deny' }
+// "Invoices I own that are not void": one filter, usable in SQL and in memory.
+const mine: QueryFilter = {
+  op: 'and',
+  filters: [
+    { op: 'eq', field: 'ownerId', value: { $actor: 'id' } },
+    { op: 'ne', field: 'status', value: 'void' },
+  ],
+}
+
+// A deliberately simple permission provider. Real apps use @strutvane/auth.
+export const adminsOnly: PermissionProvider = {
+  async can(actor: Actor | null) {
+    const allowed = actor?.roles.includes('admin') ?? false
+    return { allowed, reason: allowed ? 'allow:role=admin' : 'default-deny' }
   },
-  /* … */
+  async filterFor(actor: Actor | null): Promise<QueryFilter> {
+    return actor?.roles.includes('admin') ? { op: 'true' } : { op: 'false' }
+  },
 }
 ```
 
-## Stability promise
+<Aside type="tip" title="NULL rules, spelled out">
+`ne` also matches rows with **no value**, so "status is not void" includes rows without a status. The rules are written down, so the in-memory check and the database query always pick the same rows.
+</Aside>
 
-Contracts change very rarely: at most one breaking release per year, with the previous version supported for 12 months.
+## Links
+
+- Source and full README: [strutvane-contracts on GitHub](https://github.com/vishwajit-vm/strutvane-contracts)
+- Design: [RFC-0001](https://github.com/vishwajit-vm/strutvane/blob/main/docs/rfcs/0001-contracts-v0.md)
 
 ## Next steps
 
 <CardGrid>
-  <LinkCard title="@strutvane/devkit" description="Tools for plugin authors." href="../devkit/" />
-  <LinkCard title="Glossary" description="Terms like tenant and actor, explained." href="../../reference/glossary/" />
+  <LinkCard title="@strutvane/core" description="The kernel that wires contracts together." href="../core/" />
+  <LinkCard title="Packages overview" description="How all the packages fit together." href="../overview/" />
 </CardGrid>

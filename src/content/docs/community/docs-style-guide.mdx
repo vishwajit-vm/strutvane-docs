@@ -19,7 +19,7 @@ import { Aside, CardGrid, LinkCard } from '@astrojs/starlight/components';
 4. **An example everywhere.** Every concept gets a code sample, a table row, or a concrete scenario.
 5. **Explain jargon on first use**, or link to the [glossary](../../reference/glossary/).
 6. **Analogies help.** A keycard for permissions, an apartment building for tenancy, a car for levels of control.
-7. **Be honest about status.** Anything not built yet gets a "Planned, not available yet" notice.
+7. **Be honest about status.** A feature that is built but not released yet gets a "Pre-release (0.1.0-next): APIs may still change" caution. Anything not built yet is clearly marked "Planned".
 8. **Never contradict the blueprint.** The [blueprint](https://github.com/vishwajit-vm/strutvane/tree/main/docs) is the source of truth. If you spot a conflict, raise an issue.
 
 ## Page template
@@ -39,8 +39,8 @@ import { Aside, CardGrid, LinkCard } from '@astrojs/starlight/components';
 - Point one
 - Point two
 
-<Aside type="caution" title="Planned, not available yet">
-…only if the feature isn't released yet…
+<Aside type="caution" title="Pre-release (0.1.0-next): APIs may still change">
+…while the feature is built but not released yet (use "Planned, not available yet" if it isn't built)…
 </Aside>
 
 ## Plain explanation (with an analogy if it helps)
@@ -74,7 +74,7 @@ import { Aside, CardGrid, LinkCard } from '@astrojs/starlight/components';
 | Code blocks with a `title=` | Any file the reader creates or edits |
 | `<Steps>` | Instructions done in order |
 | `<Aside type="tip">` | Helpful extras |
-| `<Aside type="caution">` | "Planned, not available yet" and gotchas |
+| `<Aside type="caution">` | "Pre-release" and "Planned" notices, and gotchas |
 | `<Aside type="danger">` | Anything that can lose data or leak secrets |
 
 ## Links

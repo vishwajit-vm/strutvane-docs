@@ -11,8 +11,8 @@ import { Aside, CardGrid, LinkCard } from '@astrojs/starlight/components';
 - The three ways to separate tenants' data, and which to pick
 - How Strutvane makes sure one company never sees another's data
 
-<Aside type="caution" title="Planned, not available yet">
-This describes the planned tenancy features.
+<Aside type="caution" title="Pre-release (0.1.0-next): APIs may still change">
+Shared-database tenancy with row-level security is implemented in `@strutvane/framework` and `@strutvane/auth` `0.1.0-next.0`. The other strategies are **Planned**, and marked as such below.
 </Aside>
 
 ## The apartment building analogy
@@ -43,42 +43,52 @@ You can answer "no" when you create a project and switch it on later.
 Mark a model as belonging to a tenant:
 
 ```ts title="app/models/invoice.model.ts" ins={3}
-export default defineModel('Invoice', {
+export const Invoice = defineModel('Invoice', {
   /* fields */
 }, { tenant: true })
 ```
 
 That's it. Strutvane:
 
-1. adds a hidden `tenant_id` column to the table
-2. automatically limits every query to the current tenant
+1. adds a `tenant_id` column to the table, and makes `.unique()` fields unique **per tenant**
+2. automatically limits every query to the current tenant, and fills in the tenant on create
 3. adds a **database-level lock** (on PostgreSQL) as a second line of defence
-4. generates a test that **tries to read another tenant's data** and checks it fails
+4. answers `404` for another tenant's records, exactly as if they didn't exist, so nobody can even find out they're there
+
+A tenant id sent in the request body is ignored, and a `belongsTo` link to another tenant's record is refused.
 
 ## How does Strutvane know which tenant you are?
 
-You choose, in `.env`. It checks these in order:
+`@strutvane/auth` checks a list of **resolvers**, in order, and uses the first answer:
 
-```dotenv
-TENANCY_RESOLVE=subdomain,header,session
+```ts
+import { headerResolver, sessionResolver, subdomainResolver } from '@strutvane/auth'
+import { authMiddleware } from '@strutvane/auth/hono'
+
+app.use(authMiddleware({
+  engine,
+  tenancy: { resolvers: [subdomainResolver(/* … */), headerResolver(/* … */), sessionResolver()] },
+}))
 ```
 
-| Method | Example |
+| Resolver | Example |
 |---|---|
-| Subdomain | `acme.yourapp.com` → tenant "acme" |
-| Custom domain | `portal.acme.com` → tenant "acme" |
-| Header | `X-Tenant-Id: …`, for trusted services only |
-| Session | The company the signed-in user picked in the tenant switcher |
+| `subdomainResolver` | `acme.yourapp.com` → tenant "acme" |
+| `pathResolver` | `yourapp.com/t/acme/…` → tenant "acme" |
+| `headerResolver` | `X-Tenant-Id: …`, for trusted services only |
+| `sessionResolver` | The company the signed-in user picked |
+
+If the signed-in person isn't a member of the tenant they asked for, the request is refused with `403`. New projects created with `--tenancy` list the order in `.env` as `TENANCY_RESOLVE=subdomain,header,session`.
 
 ## Three ways to separate data
 
 | Strategy | Analogy | Best for |
 |---|---|---|
 | **Shared** (the default) | Everyone in one building, with locked apartment doors | Most SaaS apps. Thousands of small tenants. |
-| **Schema per tenant** | One floor per company | Hundreds of mid-size tenants |
-| **Database per tenant** | A separate building per company | Big enterprise or regulated customers who need full separation |
+| **Schema per tenant** (Planned) | One floor per company | Hundreds of mid-size tenants |
+| **Database per tenant** (Planned) | A separate building per company | Big enterprise or regulated customers who need full separation |
 
-You can even **mix** them: most tenants shared, and your biggest customer in its own database.
+Only **shared** is built today. The other two, and mixing them (most tenants shared, your biggest customer in its own database), are planned.
 
 ## Two locks, not one
 
@@ -88,13 +98,18 @@ On PostgreSQL, Strutvane uses two independent protections:
 2. **Row-level security (RLS) in the database.** Even if a bug skipped the first filter, the database itself refuses to return another tenant's rows.
 
 ```sql
--- what the database lock looks like (Strutvane writes this for you)
-CREATE POLICY tenant_isolation ON invoices
-  USING (tenant_id = current_setting('app.tenant_id', true)::uuid);
+-- what the database lock looks like (Strutvane writes this into your migration)
+ALTER TABLE invoices ENABLE ROW LEVEL SECURITY;
+ALTER TABLE invoices FORCE ROW LEVEL SECURITY;
+CREATE POLICY "tenant_isolation" ON invoices AS RESTRICTIVE FOR ALL
+  USING ("tenant_id" = NULLIF(current_setting('app.tenant_id', true), '')::uuid)
+  WITH CHECK ("tenant_id" = NULLIF(current_setting('app.tenant_id', true), '')::uuid);
 ```
 
+The tenant is set **inside each transaction**, so a pooled database connection can never carry one tenant's setting over to the next request. `tenancyAudit()` checks for tables without the lock and for database roles that could bypass it.
+
 <Aside type="note">
-MySQL and SQLite don't support row-level security. There, Strutvane uses the app filter only. `pnpm sv doctor` tells you so, so you can decide.
+SQLite (and MySQL, once supported) don't have row-level security. There, Strutvane uses the app filter only. For production multi-tenant apps, use PostgreSQL.
 </Aside>
 
 ## Next steps
