@@ -1,0 +1,87 @@
+---
+title: '@strutvane/framework'
+description: The Strutvane backend and database package, which covers models, migrations, the automatic CRUD API, API docs, background jobs, cache and email.
+---
+
+import { Aside, CardGrid, LinkCard } from '@astrojs/starlight/components';
+
+**What you'll learn**
+
+- What the framework package does
+- When you need it
+- What it looks like in use
+
+<Aside type="caution" title="Planned, not available yet">
+The name `@strutvane/framework` is reserved on npm. Implementation starts in Phase 1 of the [roadmap](../../community/roadmap/).
+</Aside>
+
+## What it does
+
+The framework is the **backend**: the part of your app that runs on a server and handles data. It gives you:
+
+- **Models:** describe your data once ([Models and fields](../../concepts/models-and-fields/))
+- **Migrations:** database changes written for you ([Migrations](../../concepts/migrations/))
+- **The automatic API:** list, search, filter, create, update and delete endpoints ([The automatic API](../../concepts/auto-api/))
+- **API documentation** at `/docs`, generated from your models
+- **Background jobs and schedules:** "send this report every Monday at 8:00"
+- **Cache:** remember slow answers to make your app faster
+- **Email:** send messages, with a test mailbox while you develop
+- **Testing helpers:** fake data, "act as this user", and an HTTP test client
+
+## When you need it
+
+Whenever your app stores its own data. It's the heart of the **Full-stack** and **API only** presets.
+
+## Install (planned)
+
+```bash
+# new project
+npm create strutvane@latest my-api -- --preset api
+
+# or install the package directly
+npm install @strutvane/framework
+```
+
+## Example: a model plus a custom endpoint
+
+```ts title="app/models/order.model.ts"
+import { defineModel, field } from '@strutvane/framework'
+
+export default defineModel('Order', {
+  reference: field.string().unique(),
+  customer:  field.belongsTo('Customer').filterable(),
+  total:     field.money('USD').sortable(),
+  status:    field.enum(['open', 'shipped', 'cancelled']).default('open').filterable(),
+}, { timestamps: true })
+```
+
+```ts title="app/http/routes/api.ts"
+import { route } from '@strutvane/framework/http'
+import { z } from 'zod'
+
+export default [
+  route.post('/reports/revenue', {
+    permission: 'report.revenue',
+    input: z.object({ from: z.coerce.date(), to: z.coerce.date() }),
+    handler: async ({ input, actor }) => reports.revenue(actor.tenantId, input),
+  }),
+]
+```
+
+The custom endpoint gets validation, a permission check and an entry in `/docs`, just like the automatic ones.
+
+## Databases
+
+| Database | Support |
+|---|---|
+| PostgreSQL (including Azure Database for PostgreSQL, Neon, Supabase, AWS RDS) | Full support, the recommended choice |
+| MySQL 8.4 (including Azure Database for MySQL) | Supported |
+| SQLite | Supported; great for trying things out and for tests |
+| Microsoft SQL Server / Azure SQL | Planned after version 1.0 |
+
+## Next steps
+
+<CardGrid>
+  <LinkCard title="@strutvane/auth" description="Add sign-in and permissions." href="../auth/" />
+  <LinkCard title="The automatic API" description="Everything the API can do." href="../../concepts/auto-api/" />
+</CardGrid>

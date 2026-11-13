@@ -1,0 +1,105 @@
+---
+title: Multi-tenancy
+description: What multi-tenancy means, explained with an apartment building analogy, and how Strutvane keeps each customer company's data separate.
+---
+
+import { Aside, CardGrid, LinkCard } from '@astrojs/starlight/components';
+
+**What you'll learn**
+
+- What a "tenant" is, and when you need multi-tenancy
+- The three ways to separate tenants' data, and which to pick
+- How Strutvane makes sure one company never sees another's data
+
+<Aside type="caution" title="Planned, not available yet">
+This describes the planned tenancy features.
+</Aside>
+
+## The apartment building analogy
+
+You're building a SaaS app: many **companies** sign up and use it. Each company is a **tenant**.
+
+Think of an apartment building:
+
+- The **building** is your app.
+- Each **apartment** is one tenant (one customer company).
+- Tenants share the building, with the same lifts and the same plumbing (your code and servers).
+- But nobody can walk into somebody else's apartment and read their mail (their data).
+
+**Multi-tenancy** is the set of locks that makes this safe.
+
+## When do you need it?
+
+| Your app | Multi-tenant? |
+|---|---|
+| An internal tool for one company | No |
+| A SaaS product many companies sign up for | **Yes** |
+| A portal where each client company sees only its own orders | **Yes** |
+
+You can answer "no" when you create a project and switch it on later.
+
+## Turning it on
+
+Mark a model as belonging to a tenant:
+
+```ts title="app/models/invoice.model.ts" ins={3}
+export default defineModel('Invoice', {
+  /* fields */
+}, { tenant: true })
+```
+
+That's it. Strutvane:
+
+1. adds a hidden `tenant_id` column to the table
+2. automatically limits every query to the current tenant
+3. adds a **database-level lock** (on PostgreSQL) as a second line of defence
+4. generates a test that **tries to read another tenant's data** and checks it fails
+
+## How does Strutvane know which tenant you are?
+
+You choose, in `.env`. It checks these in order:
+
+```dotenv
+TENANCY_RESOLVE=subdomain,header,session
+```
+
+| Method | Example |
+|---|---|
+| Subdomain | `acme.yourapp.com` → tenant "acme" |
+| Custom domain | `portal.acme.com` → tenant "acme" |
+| Header | `X-Tenant-Id: …`, for trusted services only |
+| Session | The company the signed-in user picked in the tenant switcher |
+
+## Three ways to separate data
+
+| Strategy | Analogy | Best for |
+|---|---|---|
+| **Shared** (the default) | Everyone in one building, with locked apartment doors | Most SaaS apps. Thousands of small tenants. |
+| **Schema per tenant** | One floor per company | Hundreds of mid-size tenants |
+| **Database per tenant** | A separate building per company | Big enterprise or regulated customers who need full separation |
+
+You can even **mix** them: most tenants shared, and your biggest customer in its own database.
+
+## Two locks, not one
+
+On PostgreSQL, Strutvane uses two independent protections:
+
+1. **The app's own filter.** Every query includes "only this tenant's rows".
+2. **Row-level security (RLS) in the database.** Even if a bug skipped the first filter, the database itself refuses to return another tenant's rows.
+
+```sql
+-- what the database lock looks like (Strutvane writes this for you)
+CREATE POLICY tenant_isolation ON invoices
+  USING (tenant_id = current_setting('app.tenant_id', true)::uuid);
+```
+
+<Aside type="note">
+MySQL and SQLite don't support row-level security. There, Strutvane uses the app filter only. `pnpm sv doctor` tells you so, so you can decide.
+</Aside>
+
+## Next steps
+
+<CardGrid>
+  <LinkCard title="Auth and permissions" description="Roles and rules within a tenant." href="../auth-and-permissions/" />
+  <LinkCard title="Environment variables" description="Where tenancy settings live." href="../environment-variables/" />
+</CardGrid>

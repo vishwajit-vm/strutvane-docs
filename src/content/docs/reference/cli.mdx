@@ -1,0 +1,142 @@
+---
+title: CLI commands
+description: A friendly list of the planned Strutvane CLI commands, grouped by task, each with a plain explanation and an example.
+---
+
+import { Aside, CardGrid, LinkCard } from '@astrojs/starlight/components';
+
+**What you'll learn**
+
+- Every planned command, grouped by what you're trying to do
+- An example for each
+- Flags that work on every command
+
+<Aside type="caution" title="Planned, not available yet">
+These commands are the planned design. The complete technical reference lives in the [blueprint](https://github.com/vishwajit-vm/strutvane/blob/main/docs/09-cli-reference.md).
+</Aside>
+
+## How to run commands
+
+Inside a project, use `pnpm sv <command>`. Outside a project, use `npx strutvane <command>`.
+
+Both `make:model` and `make model` work, so use whichever feels natural.
+
+## Flags that work everywhere
+
+| Flag | What it does | Example |
+|---|---|---|
+| `--dry-run --diff` | Show what would change, without changing anything | `pnpm sv make:model Tag name:string --dry-run --diff` |
+| `--yes` | Accept the defaults; don't ask questions | `pnpm sv add auth --yes` |
+| `--json` | Machine-readable output, for scripts and CI | `pnpm sv routes --json` |
+| `--help` | Explain a command | `pnpm sv migrate --help` |
+
+## Starting and running
+
+| Command | Plain meaning | Example |
+|---|---|---|
+| `strutvane new` | Create a new project (same as `npm create strutvane`) | `npx strutvane new acme` |
+| `sv up` / `sv down` | Start / stop local services (database, cache, mailbox) in Docker | `pnpm sv up` |
+| `sv dev` | Run the app with live reload (same as `pnpm dev`) | `pnpm sv dev` |
+| `sv build` / `sv start` | Production build / run it | `pnpm sv build && pnpm sv start` |
+| `sv doctor` | Check the project for problems and suggest fixes | `pnpm sv doctor` |
+| `sv about` | Show versions and settings (handy for bug reports) | `pnpm sv about` |
+| `sv upgrade` | Upgrade Strutvane safely, with automatic code fixes | `pnpm sv upgrade` |
+
+## Packages
+
+| Command | Plain meaning | Example |
+|---|---|---|
+| `sv add <package>` | Install and set up a package | `pnpm sv add auth` |
+| `sv remove <package>` | Undo it (keeps files you edited) | `pnpm sv remove ui` |
+
+## Making things (generators)
+
+| Command | Creates | Example |
+|---|---|---|
+| `sv make:model` | A model (plus factory, seeder and test with `--all`) | `pnpm sv make:model Invoice number:string amount:decimal(12,2) --all` |
+| `sv make:resource` | Extra behaviour for a model: hooks and actions | `pnpm sv make:resource Invoice` |
+| `sv make:policy` | Authorization rules for a model | `pnpm sv make:policy Invoice` |
+| `sv make:action` | A custom action, like "approve" | `pnpm sv make:action Invoice approve` |
+| `sv make:migration` | A hand-written migration | `pnpm sv make:migration backfill_invoice_numbers` |
+| `sv make:seeder` / `sv make:factory` | Starting data / fake-data recipes | `pnpm sv make:seeder DemoData` |
+| `sv make:job` | A background task | `pnpm sv make:job SendWeeklyReport` |
+| `sv make:event` / `sv make:listener` | Something that happens / a reaction to it | `pnpm sv make:listener EmailOnInvoicePaid` |
+| `sv make:mail` | An email template | `pnpm sv make:mail InvoiceReminder` |
+| `sv make:command` | Your own CLI command | `pnpm sv make:command CleanupOldDrafts` |
+| `sv make:test` / `sv make:page` | A test / a custom UI page | `pnpm sv make:page reports/revenue` |
+
+**Field syntax** for `make:model`: `name:type[:modifier...]`, for example:
+
+```bash
+pnpm sv make:model Deal title:string:unique "company:belongsTo(Company)" \
+  amount:decimal(12,2) "stage:enum(lead,won,lost):default(lead)" closeDate:date:optional
+```
+
+<Aside type="tip">
+Put quotes around fields that contain brackets or commas, like `"stage:enum(lead,won,lost)"`, so your terminal doesn't misread them.
+</Aside>
+
+## Database
+
+| Command | Plain meaning | Example |
+|---|---|---|
+| `sv migrate` | Bring the database up to date with your models | `pnpm sv migrate` |
+| `sv migrate:status` | Which migrations have run | `pnpm sv migrate:status` |
+| `sv migrate:rollback` | Undo the last batch | `pnpm sv migrate:rollback` |
+| `sv migrate:fresh` | **Dev only:** wipe and rebuild (add `--seed` for fake data) | `pnpm sv migrate:fresh --seed` |
+| `sv db:seed` | Fill the database with seed data | `pnpm sv db:seed` |
+| `sv db:pull` | Create models from an existing database | `pnpm sv db:pull` |
+| `sv db:shell` | Open a database prompt | `pnpm sv db:shell` |
+
+Destructive commands refuse to run in production unless you explicitly force them.
+
+## API
+
+| Command | Plain meaning | Example |
+|---|---|---|
+| `sv routes` | List every endpoint, its permission and the file it comes from | `pnpm sv routes` |
+| `sv models` | List models and their fields | `pnpm sv models` |
+| `sv api:docs` | Export the OpenAPI file | `pnpm sv api:docs --out openapi.json` |
+| `sv api:client` | Generate a typed client for another app | `pnpm sv api:client --out ../mobile/src/api` |
+| `sv api:version` | Start a new API version (`v2`) | `pnpm sv api:version v2` |
+
+## Auth, tenants and audit
+
+| Command | Plain meaning | Example |
+|---|---|---|
+| `sv auth:user:create` | Create a user | `pnpm sv auth:user:create --email ana@acme.test --role admin` |
+| `sv auth:role:create` | Create a role | `pnpm sv auth:role:create accountant` |
+| `sv auth:permissions:sync` | Sync model permissions into the database | `pnpm sv auth:permissions:sync --dry-run` |
+| `sv auth:matrix` | Print who can do what | `pnpm sv auth:matrix --format md` |
+| `sv auth:explain` | Explain why something was allowed or denied | `pnpm sv auth:explain --actor ana@acme.test --action invoice.approve --resource invoice:42` |
+| `sv auth:token:create` | Create an API key for a program | `pnpm sv auth:token:create --name billing-sync` |
+| `sv auth:sso:add` | Connect a company's single sign-on | `pnpm sv auth:sso:add --tenant acme --type saml --metadata-url https://…` |
+| `sv tenant:create` | Create a tenant (customer company) | `pnpm sv tenant:create acme` |
+| `sv audit:verify` | Check the audit log hasn't been tampered with | `pnpm sv audit:verify` |
+
+## UI
+
+| Command | Plain meaning | Example |
+|---|---|---|
+| `sv ui:add` | Copy a ready-made component into your project | `pnpm sv ui:add date-range-picker` |
+| `sv ui:theme` | Change colours and fonts | `pnpm sv ui:theme` |
+| `sv eject ui` | Take full ownership of a page | `pnpm sv eject ui Invoice --page form` |
+| `sv eject api` | Take full ownership of a model's endpoints | `pnpm sv eject api Invoice` |
+
+## Everyday helpers
+
+| Command | Plain meaning | Example |
+|---|---|---|
+| `sv env:check` | Compare `.env` with `.env.example` | `pnpm sv env:check` |
+| `sv key:generate` | Create a secure `APP_KEY` | `pnpm sv key:generate` |
+| `sv tinker` | An interactive prompt with your app loaded, for experiments | `pnpm sv tinker` |
+| `sv queue:work` | Process background jobs | `pnpm sv queue:work` |
+| `sv cache:clear` | Empty the cache | `pnpm sv cache:clear` |
+| `sv test` | Run your tests | `pnpm sv test` |
+
+## Next steps
+
+<CardGrid>
+  <LinkCard title="Glossary" description="Plain explanations of every term." href="../glossary/" />
+  <LinkCard title="Tutorial" description="See these commands in action." href="../../tutorial/build-a-crm-in-2-hours/" />
+</CardGrid>

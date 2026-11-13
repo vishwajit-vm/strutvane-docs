@@ -1,0 +1,65 @@
+---
+title: '@strutvane/contracts'
+description: The shared TypeScript types and wire formats that let Strutvane packages work together without depending on each other.
+---
+
+import { Aside, CardGrid, LinkCard } from '@astrojs/starlight/components';
+
+**What you'll learn**
+
+- Why Strutvane has a "contracts" package
+- The main shared definitions, in plain words
+- When you might use it yourself
+
+<Aside type="caution" title="Planned, not available yet">
+The name `@strutvane/contracts` is reserved on npm. A first draft of the contracts is being written in Phase 0 of the [roadmap](../../community/roadmap/).
+</Aside>
+
+## Why it exists
+
+Strutvane's packages are **independent**: `auth` never imports `framework`, and `ui` never imports `auth`. Yet they work together perfectly. How?
+
+They all speak the **same language**, defined in this package. Think of the standard size of LEGO studs: every brick fits every other brick, even bricks made years apart.
+
+The package contains **only type definitions and agreed formats**. It has no code that runs and no dependencies, so it's tiny and stable.
+
+## The main definitions
+
+| Name | Plain meaning |
+|---|---|
+| `Actor` | Who is doing something: a user, a service, or the system itself |
+| `TenantContext` | Which customer company the request is for |
+| `PermissionProvider` / `Decision` | "May this actor do this action?", answered with yes or no, plus the reason |
+| `QueryFilter` | A filter like "status is paid AND amount ≥ 100", in a shape every package understands |
+| `ListQuery` | How lists are searched, filtered, sorted and paged in API requests |
+| `ResourceManifest` | A description of your models, which the UI reads to build screens |
+| `Problem` | The standard shape of every error |
+| `AuditEvent` | One entry in the "who did what" history |
+| `DomainEvent` | "Something happened", such as an invoice being paid |
+
+## When you'd use it yourself
+
+Mostly when you **build a plugin** or connect your own system. For example, to plug in your own permission service:
+
+```ts
+import type { PermissionProvider } from '@strutvane/contracts'
+
+export const myPermissions: PermissionProvider = {
+  async can(actor, action) {
+    const allowed = await myCompanyRulesService.check(actor.id, action)
+    return { allowed, reason: allowed ? 'company-rules:allow' : 'company-rules:deny' }
+  },
+  /* … */
+}
+```
+
+## Stability promise
+
+Contracts change very rarely: at most one breaking release per year, with the previous version supported for 12 months.
+
+## Next steps
+
+<CardGrid>
+  <LinkCard title="@strutvane/devkit" description="Tools for plugin authors." href="../devkit/" />
+  <LinkCard title="Glossary" description="Terms like tenant and actor, explained." href="../../reference/glossary/" />
+</CardGrid>

@@ -1,0 +1,29 @@
+{
+  "name": "strutvane-docs",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Friendly, example-first documentation for Strutvane, the TypeScript framework for enterprise B2B apps.",
+  "license": "MIT AND CC-BY-4.0",
+  "packageManager": "pnpm@12.18.0",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build && node scripts/check-links.mjs dist",
+    "preview": "astro preview",
+    "check": "astro check",
+    "check:links": "node scripts/check-links.mjs dist"
+  },
+  "dependencies": {
+    "@astrojs/starlight": "0.43.0",
+    "astro": "7.4.11",
+    "sharp": "0.35.5"
+  },
+  "devDependencies": {
+    "@astrojs/check": "0.9.12",
+    "starlight-links-validator": "0.27.0",
+    "typescript": "6.0.3"
+  }
+}

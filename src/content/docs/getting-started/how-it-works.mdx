@@ -1,0 +1,104 @@
+---
+title: How it works
+description: The big picture of Strutvane in five simple steps, from a model file to a working app with API, permissions and screens.
+---
+
+import { Aside, LinkCard, CardGrid, Steps } from '@astrojs/starlight/components';
+
+**What you'll learn**
+
+- The five steps from "I wrote a model" to "I have a working app"
+- What happens behind the scenes at each step
+- Why you can change the result at any point
+
+<Aside type="caution" title="Planned, not available yet">
+This describes how Strutvane is designed to work. It isn't released yet.
+</Aside>
+
+## The big picture
+
+Everything starts with **one model file**. Strutvane reads it and builds the other pieces from it.
+
+```text
+                    ┌───────────────────────────┐
+                    │  app/models/product.ts    │   ← you write this
+                    │  name, price, status ...  │
+                    └─────────────┬─────────────┘
+                                  │  Strutvane reads it
+      ┌──────────────┬────────────┼─────────────┬──────────────┐
+      ▼              ▼            ▼             ▼              ▼
+ ┌──────────┐  ┌──────────┐ ┌───────────┐ ┌───────────┐ ┌────────────┐
+ │ Database │  │   API    │ │ Permission│ │  API docs │ │  Screens   │
+ │ migration│  │ endpoints│ │   rules   │ │  (/docs)  │ │ table/form │
+ └──────────┘  └──────────┘ └───────────┘ └───────────┘ └────────────┘
+```
+
+One source of truth means the pieces can't drift apart. If you rename a field, every piece learns about it.
+
+## The five steps
+
+<Steps>
+
+1. **You describe your data (the model).**
+
+   ```ts title="app/models/product.model.ts"
+   export default defineModel('Product', {
+     name:   field.string().required(),
+     price:  field.decimal(10, 2).min(0),
+     status: field.enum(['draft', 'active']).default('draft'),
+   })
+   ```
+
+2. **Strutvane updates the database (the migration).**
+
+   Run `pnpm sv migrate`. Strutvane compares your models with the database and writes a small SQL file describing the change, such as "create a `products` table". It shows you the file, then applies it. The file goes into your project, so your teammates get the same change.
+
+3. **The API appears automatically.**
+
+   While `pnpm dev` is running, these addresses start working:
+
+   ```text
+   GET    /api/v1/products          → list products (search, filter, sort, paginate)
+   GET    /api/v1/products/:id      → one product
+   POST   /api/v1/products          → create a product
+   PATCH  /api/v1/products/:id      → update a product
+   DELETE /api/v1/products/:id      → delete a product
+   ```
+
+   Every request is checked against your model. A negative price, for example, is rejected with a clear error message.
+
+4. **Permissions are created and enforced.**
+
+   If you use the auth package, Strutvane creates permissions like `product.view`, `product.create`, `product.update` and `product.delete`. You decide which roles get which. Every API call checks them, so a "viewer" can look but not change anything.
+
+5. **Screens are ready.**
+
+   If you use the UI package, you get a **Products** menu item, a table with search and filters, a form for creating and editing, and a detail page. All of it respects the permissions from step 4.
+
+</Steps>
+
+## What happens when you change something?
+
+Say you add a field:
+
+```ts ins={4}
+export default defineModel('Product', {
+  name:   field.string().required(),
+  price:  field.decimal(10, 2).min(0),
+  sku:    field.string().unique(),
+  status: field.enum(['draft', 'active']).default('draft'),
+})
+```
+
+Run `pnpm sv migrate` again. The database gets a new `sku` column, and the API, docs, form and table all show the new field. **You don't regenerate or copy-paste anything.**
+
+## "But what if I need something special?"
+
+You can step in at any level, from changing a label to rewriting a whole screen. That idea is called [Levels of control](../../concepts/levels-of-control/), and it's the most important concept in Strutvane.
+
+## Next steps
+
+<CardGrid>
+  <LinkCard title="Quick start" description="What creating a project will look like." href="../quick-start/" />
+  <LinkCard title="Models and fields" description="Every field type, explained with examples." href="../../concepts/models-and-fields/" />
+</CardGrid>

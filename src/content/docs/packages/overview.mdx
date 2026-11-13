@@ -1,0 +1,66 @@
+---
+title: Packages overview
+description: The Strutvane packages, what each one does, and which ones you need for an API-only, UI-only or full-stack app.
+---
+
+import { Aside, CardGrid, LinkCard } from '@astrojs/starlight/components';
+
+**What you'll learn**
+
+- The Strutvane packages, in one sentence each
+- Which ones you need for your kind of project
+- How packages work together without depending on each other
+
+<Aside type="caution" title="Planned, not available yet">
+The package names are reserved on npm, but no package contains code yet.
+</Aside>
+
+## The packages in one table
+
+| Package | In one sentence | You'll use it… |
+|---|---|---|
+| [`@strutvane/framework`](../framework/) | The backend: models, database, migrations and the automatic API | for any app with its own data |
+| [`@strutvane/auth`](../auth/) | Sign-in, roles, permissions, multi-tenancy and audit logs | when people need to log in |
+| [`@strutvane/ui`](../ui/) | The screens: tables, forms, detail pages and sign-in pages | when you want a web interface |
+| [`strutvane`](../cli/) | The command-line tool (`pnpm sv …`) | all the time |
+| [`create-strutvane`](../create-strutvane/) | Creates a new project | once, at the start |
+| [`@strutvane/core`](../core/) | The engine room that every package plugs into | indirectly (it comes with the others) |
+| [`@strutvane/contracts`](../contracts/) | Shared definitions that let packages talk to each other | indirectly |
+| [`@strutvane/devkit`](../devkit/) | Tools for writing your own plugins and generators | if you extend Strutvane |
+
+## Which packages do I need?
+
+| I'm building… | Packages |
+|---|---|
+| A full app with screens and logins | framework + auth + ui (the **Full-stack** preset) |
+| Only an API (for a mobile app, say) | framework (+ auth) (the **API only** preset) |
+| Screens for an API that already exists | ui (the **UI only** preset) |
+| Logins and permissions for an existing Express, Fastify, NestJS or Hono app | auth on its own |
+
+## Independent, but better together
+
+Each package works **on its own**. Together, they connect automatically:
+
+- add **auth** to a framework project, and every API endpoint is protected
+- add **ui** to it, and screens appear for every model, including sign-in pages
+- add them in any order: `pnpm sv add auth`, `pnpm sv add ui`
+
+For example, starting from an API-only project:
+
+```bash
+pnpm sv add auth   # every endpoint now requires sign-in and checks permissions
+pnpm sv add ui     # screens appear for every model, plus login and user management
+```
+
+How? They never call each other directly. They agree on shared definitions in `@strutvane/contracts`, like LEGO bricks that all use the same studs.
+
+## Coming later
+
+More packages are planned in the same style: **notify** (email, SMS, push), **files** (uploads and storage), **payments** and **billing**, **reports**, **analytics**, **search** and **realtime**. See the [roadmap](../../community/roadmap/).
+
+## Next steps
+
+<CardGrid>
+  <LinkCard title="@strutvane/framework" description="Start with the backend." href="../framework/" />
+  <LinkCard title="CLI commands" description="How you'll drive everything." href="../../reference/cli/" />
+</CardGrid>

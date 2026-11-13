@@ -1,0 +1,111 @@
+---
+title: Levels of control
+description: The four levels of control in Strutvane (declare, configure, override, eject), explained with a car analogy and examples, so you are never stuck.
+---
+
+import { Aside, CardGrid, LinkCard } from '@astrojs/starlight/components';
+
+**What you'll learn**
+
+- The four levels of control, and when to use each
+- How to customise one small piece without losing the automatic features
+- Why you can never get "stuck" with Strutvane
+
+<Aside type="caution" title="Planned, not available yet">
+This describes the planned design.
+</Aside>
+
+## The car analogy
+
+| Level | Car | Strutvane | You write |
+|---|---|---|---|
+| **L0: Declare** | Autopilot. Tell it the destination. | Write the model and get everything. | Field names and types |
+| **L1: Configure** | Adjust the settings: seat, mirrors, driving mode | Change options: labels, page size, columns | A few options |
+| **L2: Override** | Swap one part: better tyres, new radio | Replace one action, hook, column or page | Just that one piece |
+| **L3: Eject** | Build your own custom part from the blueprints | Copy the full source code and change anything | Whatever you need |
+
+Most of your app stays at L0 and L1. You drop to L2 or L3 only where your business is special.
+
+## L0: Declare
+
+```ts title="app/models/invoice.model.ts"
+export default defineModel('Invoice', {
+  number: field.string().unique(),
+  amount: field.decimal(12, 2),
+  status: field.enum(['draft', 'sent', 'paid']).default('draft'),
+})
+```
+
+You get the full API, permissions, docs and screens.
+
+## L1: Configure
+
+Same engine, different settings:
+
+```ts title="app/resources/invoice.resource.ts"
+export default defineResource(Invoice, {
+  api: { defaultSort: '-dueDate', pageSize: 50, except: ['replace'] },
+  ui:  { icon: 'receipt', group: 'Billing',
+         list: { columns: ['number', 'customer', 'amount', 'status'] } },
+})
+```
+
+## L2: Override
+
+Add your business rules at exactly the right moment, using **hooks**:
+
+```ts title="app/resources/invoice.resource.ts"
+export default defineResource(Invoice, {
+  hooks: {
+    // runs before an invoice is saved for the first time
+    beforeCreate: async ({ data, actor }) => ({
+      ...data,
+      number: await nextInvoiceNumber(actor.tenantId),
+    }),
+    // runs after an update
+    afterUpdate: async ({ record, changes, events }) => {
+      if (changes.status === 'sent') events.emit('invoice.sent', record)
+    },
+  },
+})
+```
+
+Or add a **custom action**. It gets its own endpoint, button, permission and docs:
+
+```ts
+actions: {
+  approve: {
+    permission: 'invoice.approve',
+    handler: async ({ record }) => invoiceService.approve(record),
+    ui: { label: 'Approve', confirm: true },
+  },
+}
+```
+
+Everything else stays automatic.
+
+## L3: Eject
+
+For a truly custom screen or endpoint, take full ownership:
+
+```bash
+pnpm sv eject api Invoice            # full CRUD code → app/http/controllers/invoice.controller.ts
+pnpm sv eject ui Invoice --page form # full form code → web/pages/invoices/form.tsx
+```
+
+It's ordinary code in your project now. Change anything you like.
+
+<Aside type="tip" title="What about updates after ejecting?">
+When Strutvane improves its templates, `pnpm sv upgrade` offers the improvements for your ejected files using a **three-way merge**, like Git does. It compares the original template, the new template and your edited file. Your changes are never silently overwritten. If something conflicts, you see exactly where.
+</Aside>
+
+## Why this matters
+
+Many tools force a choice. Either they generate lots of code you must maintain forever, or they run a "black box" you can't change. Strutvane gives you both ends, plus everything in between, **one piece at a time**.
+
+## Next steps
+
+<CardGrid>
+  <LinkCard title="Project structure" description="Where each kind of file lives." href="../project-structure/" />
+  <LinkCard title="Tutorial" description="See L0 to L2 in a real app." href="../../tutorial/build-a-crm-in-2-hours/" />
+</CardGrid>

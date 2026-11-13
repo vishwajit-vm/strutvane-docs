@@ -1,0 +1,113 @@
+---
+title: Migrations
+description: What database migrations are, how Strutvane writes them for you from your models, and how it keeps your data safe while doing it.
+---
+
+import { Aside, CardGrid, LinkCard, Steps } from '@astrojs/starlight/components';
+
+**What you'll learn**
+
+- What a migration is, in plain words
+- How Strutvane creates migrations from your models
+- How it protects you from losing data by accident
+
+<Aside type="caution" title="Planned, not available yet">
+This is the planned migration workflow.
+</Aside>
+
+## What is a migration?
+
+Your database has a **shape**: which tables exist and which columns they have. When you change your models, the database shape must change too.
+
+A **migration** is a small file that says "change the database like this". For example:
+
+```sql
+CREATE TABLE products (
+  id uuid PRIMARY KEY,
+  name varchar(255) NOT NULL,
+  price numeric(10, 2) NOT NULL
+);
+```
+
+Think of migrations as **renovation instructions for a house**. Each one is a step: "add a window here", "build a new room". Anyone who follows the same instructions in order ends up with the same house. That's how your laptop, your teammate's laptop and the production server all end up with the same database.
+
+## How Strutvane does it
+
+<Steps>
+
+1. **You change a model**, for example by adding a `sku` field to `Product`.
+
+2. **You run the migrate command:**
+
+   ```bash
+   pnpm sv migrate
+   ```
+
+3. **Strutvane compares** your models with the real database and shows the difference:
+
+   ```text
+   ◇ Comparing models with database "acme" (postgres)…
+   │  ~ alter table products add column sku varchar(64) null
+   ◇ Wrote database/migrations/2026_11_13_143012_add_sku_to_products.sql
+   ◆ Apply now? › Yes
+   ✔ Applied 1 migration (48 ms)
+   ```
+
+4. **The migration file is saved in your project.** You commit it to Git like any other code, so teammates and servers apply exactly the same change.
+
+</Steps>
+
+## Safety features
+
+| Situation | What Strutvane does |
+|---|---|
+| A change could **delete data** (dropping a column, for example) | Stops and asks you to confirm. In automated pipelines it refuses unless you pass `--allow-destructive`. |
+| A field **looks renamed** (`phone` → `phoneNumber`) | **Asks** whether it's a rename or a delete-plus-add. It never guesses, because guessing wrong loses data. |
+| Someone **edits a migration** that's already been applied | Detects it and warns you. Applied migrations must never change. |
+| Two servers try to migrate **at the same time** | Only one goes ahead. The database is locked during the migration. |
+
+## Preview without changing anything
+
+```bash
+pnpm sv migrate --dry-run
+```
+
+This shows the SQL it *would* run, and changes nothing.
+
+## Handy commands
+
+| Command | What it does |
+|---|---|
+| `pnpm sv migrate` | Create and apply migrations from your models |
+| `pnpm sv migrate:status` | List which migrations have run |
+| `pnpm sv migrate:rollback` | Undo the last batch of migrations |
+| `pnpm sv migrate:fresh --seed` | **Development only:** wipe the database, rebuild it and fill it with fake data |
+| `pnpm sv db:pull` | Read an **existing** database and write models for it (handy for old projects) |
+
+## When you need a hand-written migration
+
+Sometimes you need to **move data**, not just change the shape. For example: "copy every old `phone` value into the new `phoneNumber` column". For that, create a manual migration:
+
+```bash
+pnpm sv make:migration copy_phone_numbers
+```
+
+```ts title="database/migrations/2026_11_13_150000_copy_phone_numbers.ts"
+import { defineMigration } from '@strutvane/framework/database'
+
+export default defineMigration({
+  async up({ db, sql }) {
+    await db.update('customers').set({ phone_number: sql`phone` })
+  },
+  async down() {
+    // nothing to undo: the old column still has the data
+  },
+})
+```
+
+## Next steps
+
+<CardGrid>
+  <LinkCard title="The automatic API" description="What you get once your tables exist." href="../auto-api/" />
+  <LinkCard title="Environment variables" description="How Strutvane knows which database to use." href="../environment-variables/" />
+</CardGrid>

@@ -1,0 +1,91 @@
+---
+title: The UI
+description: The screens Strutvane builds from your models (tables, forms, detail pages, sign-in screens) and how to restyle or replace any part of them.
+---
+
+import { Aside, CardGrid, LinkCard } from '@astrojs/starlight/components';
+
+**What you'll learn**
+
+- Which screens you get for every model, without writing them
+- How the screens follow your permissions
+- How to change the look, a single column, or a whole page
+
+<Aside type="caution" title="Planned, not available yet">
+This describes the planned `@strutvane/ui` package.
+</Aside>
+
+## What you get for each model
+
+For a model called `Invoice`, the UI creates:
+
+| Screen | Address | What's on it |
+|---|---|---|
+| List | `/invoices` | A table with search, filter chips, sortable columns, pages, bulk actions, export, and saved views |
+| Create | `/invoices/new` | A form, with the right input for each field and validation as you type |
+| Edit | `/invoices/:id/edit` | The same form, pre-filled |
+| Details | `/invoices/:id` | All the fields, plus tabs for related records and an **Activity** tab showing the change history |
+
+Plus a menu item, breadcrumbs, a global search box, and a dark mode.
+
+## The right input for each field type
+
+You never pick inputs by hand. The field type decides:
+
+| Field type | You get |
+|---|---|
+| `string`, `email`, `url` | A text box (with format checks) |
+| `text`, `markdown` | A larger text area or editor |
+| `decimal`, `money` | A number input (money shows its currency) |
+| `boolean` | A switch |
+| `enum` | A dropdown, or radio buttons for short lists |
+| `date`, `datetime` | A date picker |
+| `belongsTo('Company')` | A searchable picker that looks up companies |
+
+## It follows your permissions
+
+If a user may not delete invoices, there's no **Delete** button. If a field is hidden from their role, it's not in the table or the form. The API enforces the same rules, so hiding a button is never the only lock.
+
+## Making it yours
+
+### Change the look
+
+Colours, fonts and corner radius are **design tokens** (named settings) in one CSS file:
+
+```css title="web/theme/tokens.css"
+:root {
+  --primary: 222 47% 31%;   /* your brand colour */
+  --radius: 0.5rem;
+}
+```
+
+### Change one small thing
+
+Show amounts as money with a currency symbol, and leave everything else automatic:
+
+```tsx title="web/pages/invoices/columns.tsx"
+export const amount = ({ row }) => <Money value={row.amount} currency={row.currency} />
+```
+
+### Replace a whole page
+
+```bash
+pnpm sv eject ui Invoice --page form
+```
+
+This copies the full source of the invoice form into `web/pages/invoices/form.tsx`. It's now yours to change in any way.
+
+## The components are yours
+
+The buttons, tables, dialogs and inputs are copied **into your project** (in `web/components/ui`). They aren't hidden inside a library. Want rounder buttons? Open the file and change it. This approach is popularised by a tool called shadcn/ui.
+
+## Using it with a different backend
+
+The UI also works with APIs that weren't built with Strutvane. If an API publishes an OpenAPI description, the UI can read it and build screens from it. See [@strutvane/ui](../../packages/ui/).
+
+## Next steps
+
+<CardGrid>
+  <LinkCard title="Levels of control" description="The four ways to customise anything." href="../levels-of-control/" />
+  <LinkCard title="Project structure" description="Where the UI files live." href="../project-structure/" />
+</CardGrid>

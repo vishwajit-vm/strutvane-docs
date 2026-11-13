@@ -1,0 +1,70 @@
+---
+title: '@strutvane/auth'
+description: The Strutvane authentication and authorization package, covering sign-in, roles, permissions, policies, multi-tenancy, audit logs and single sign-on.
+---
+
+import { Aside, CardGrid, LinkCard, Tabs, TabItem } from '@astrojs/starlight/components';
+
+**What you'll learn**
+
+- What the auth package gives you
+- How to add it to a Strutvane project, or to an app you already have
+- A short example of a permission rule
+
+<Aside type="caution" title="Planned, not available yet">
+The name `@strutvane/auth` is reserved on npm. Implementation starts in Phase 2 of the [roadmap](../../community/roadmap/).
+</Aside>
+
+## What it does
+
+- **Sign-in:** email and password, magic links, Google, Microsoft, GitHub, passkeys and two-factor authentication
+- **Company single sign-on (SSO)** with Microsoft Entra ID, Okta, Keycloak and others, plus automatic user provisioning (SCIM)
+- **Roles and permissions**, created automatically for every model
+- **Policies:** rules with conditions, enforced in the API *and* in database queries
+- **Multi-tenancy:** keeps each customer company's data separate
+- **Audit log:** who did what, and when
+- **API keys** for programs that call your API
+- **Ready-made screens** for login, registration, password reset, profile, and user and role management
+
+See [Auth and permissions](../../concepts/auth-and-permissions/) and [Multi-tenancy](../../concepts/multi-tenancy/) for the full explanation.
+
+## Install (planned)
+
+<Tabs>
+  <TabItem label="In a Strutvane project">
+  ```bash
+  pnpm sv add auth
+  ```
+  This adds `config/auth.ts`, the database tables, the `/api/v1/auth/*` endpoints, the sign-in screens (if you use the UI), an admin user, and the new settings in `.env` and `.env.example`.
+  </TabItem>
+  <TabItem label="In an existing app">
+  ```bash
+  npx strutvane add auth
+  ```
+  Works with Express, Fastify, NestJS and Hono apps. You get middleware and helpers to protect your existing routes.
+  </TabItem>
+</Tabs>
+
+## Example: protect a route in an existing Express app
+
+```ts
+import express from 'express'
+import { createAuth, requirePermission } from '@strutvane/auth'
+
+const app = express()
+const auth = createAuth({ /* settings come from config/auth.ts */ })
+
+app.use(auth.middleware())
+app.get('/invoices', requirePermission('invoice.viewAny'), listInvoices)
+```
+
+## Under the hood (for the curious)
+
+Strutvane builds its permission system, tenancy and audit log itself, because that's where it adds the most value. For the delicate job of storing passwords and handling sign-in flows, it uses a proven open-source engine called **Better Auth** by default, behind a swappable "adapter". That keeps the security-critical parts battle-tested and lets you swap the engine if you ever need to.
+
+## Next steps
+
+<CardGrid>
+  <LinkCard title="Auth and permissions" description="Roles, permissions and policies, explained." href="../../concepts/auth-and-permissions/" />
+  <LinkCard title="@strutvane/ui" description="The screens, including sign-in pages." href="../ui/" />
+</CardGrid>

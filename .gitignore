@@ -1,0 +1,29 @@
+# Dependencies & build output
+node_modules/
+dist/
+.astro/
+
+# Environment & secrets: never commit
+.env
+.env.*
+!.env.example
+
+# Docker: local development only, never committed (ADR-0006)
+docker/
+Dockerfile*
+.dockerignore
+compose.yaml
+compose.*.yaml
+docker-compose*.yml
+docker-compose*.yaml
+
+# Logs, OS and editor files
+*.log
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# Claude Code: personal, machine-local settings
+.claude/settings.local.json

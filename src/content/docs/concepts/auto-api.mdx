@@ -1,0 +1,136 @@
+---
+title: The automatic API
+description: The API endpoints every Strutvane model gets, and how to search, filter, sort and paginate, with example URLs and responses.
+---
+
+import { Aside, CardGrid, LinkCard, Tabs, TabItem } from '@astrojs/starlight/components';
+
+**What you'll learn**
+
+- What an API is, and which endpoints Strutvane creates for each model
+- How to search, filter, sort and page through results, with copy-paste examples
+- What errors look like, and why they're easy to handle
+
+<Aside type="caution" title="Planned, not available yet">
+The URLs and responses below show the planned design.
+</Aside>
+
+## What's an API?
+
+An **API** is a doorway that lets other programs, such as your website, a mobile app or a partner's system, read and save your app's data over the internet. Each doorway has an address (an **endpoint**) and an action, such as "get" or "create".
+
+## The endpoints every model gets
+
+For a model called `Invoice`, Strutvane creates:
+
+| Action | Request | What it does |
+|---|---|---|
+| List | `GET /api/v1/invoices` | Many invoices, with search, filters, sorting and pages |
+| Show | `GET /api/v1/invoices/:id` | One invoice |
+| Create | `POST /api/v1/invoices` | Make a new invoice (checked against your model) |
+| Update | `PATCH /api/v1/invoices/:id` | Change some fields |
+| Delete | `DELETE /api/v1/invoices/:id` | Delete (or move to the bin, if soft deletes are on) |
+| Restore | `POST /api/v1/invoices/:id/restore` | Bring a soft-deleted invoice back |
+| Export | `GET /api/v1/invoices/export` | Download as CSV or Excel |
+
+Every request is **validated** (does the data fit the model?) and **authorized** (is this person allowed?).
+
+## Searching, filtering, sorting and paging
+
+Here are real examples you'll be able to paste into your browser or an API tool.
+
+| I want… | URL |
+|---|---|
+| Invoices matching "acme" | `/api/v1/invoices?search=acme` |
+| Only paid invoices | `/api/v1/invoices?filter[status][eq]=paid` |
+| Draft **or** sent | `/api/v1/invoices?filter[status][in]=draft,sent` |
+| Amount at least 100 | `/api/v1/invoices?filter[amount][gte]=100` |
+| Biggest first | `/api/v1/invoices?sort=-amount` |
+| Biggest first, then by number | `/api/v1/invoices?sort=-amount,number` |
+| 25 per page | `/api/v1/invoices?page[size]=25` |
+| Include the customer's details | `/api/v1/invoices?include=customer` |
+| Only some fields | `/api/v1/invoices?fields[invoices]=id,number,amount` |
+
+**Filter operators**, in plain words:
+
+| Operator | Means | Example |
+|---|---|---|
+| `eq` / `ne` | equals / not equal | `filter[status][eq]=paid` |
+| `gt` / `gte` | greater than / at least | `filter[amount][gte]=100` |
+| `lt` / `lte` | less than / at most | `filter[amount][lt]=50` |
+| `in` / `nin` | one of / none of | `filter[status][in]=draft,sent` |
+| `contains` | text contains | `filter[number][contains]=2026` |
+| `between` | within a range | `filter[dueDate][between]=2026-01-01,2026-03-31` |
+| `isNull` | is empty (or not) | `filter[notes][isNull]=true` |
+
+<Aside type="note">
+You can only filter, sort or search on fields you marked `.filterable()`, `.sortable()` or `.searchable()` in your model. That keeps queries fast and safe.
+</Aside>
+
+## What a response looks like
+
+<Tabs>
+  <TabItem label="List">
+
+```json
+{
+  "data": [
+    { "id": "01J9Z4…", "number": "INV-0042", "amount": "1200.00", "status": "sent" },
+    { "id": "01J9Z5…", "number": "INV-0043", "amount": "350.00",  "status": "draft" }
+  ],
+  "meta": { "page": { "size": 25, "nextCursor": "eyJpZCI6…", "hasMore": true } },
+  "links": { "next": "/api/v1/invoices?page[cursor]=eyJpZCI6…" }
+}
+```
+
+To get the next page, request the `links.next` address.
+
+  </TabItem>
+  <TabItem label="Create">
+
+```http
+POST /api/v1/invoices
+Content-Type: application/json
+
+{ "number": "INV-0044", "amount": "99.90", "customer": "01J9Z1…" }
+```
+
+```json
+{ "data": { "id": "01J9Z6…", "number": "INV-0044", "amount": "99.90", "status": "draft" } }
+```
+
+`status` was filled in from the model's default (`draft`).
+
+  </TabItem>
+  <TabItem label="Error">
+
+```json
+{
+  "type": "https://strutvane.dev/errors/validation",
+  "title": "Validation failed",
+  "status": 422,
+  "code": "VALIDATION_FAILED",
+  "fieldErrors": { "amount": ["Must be 0 or more"] },
+  "traceId": "4bf92f3577b34da6"
+}
+```
+
+Every error has the same shape, following a standard called RFC 9457. `fieldErrors` says exactly what to fix, and `traceId` helps you find the request in your logs.
+
+  </TabItem>
+</Tabs>
+
+## Interactive docs, for free
+
+Visit `/docs` in your running app to get a page listing every endpoint, with **"Try it"** buttons. It's generated from your models, so it's never out of date. There's also a machine-readable version at `/openapi.json`, which other tools can use to generate API clients.
+
+## Your own endpoints
+
+Need something that isn't create/read/update/delete, like "approve invoice" or "revenue report"? Add a custom action or route. It gets the same validation, permissions and documentation. See [Levels of control](../levels-of-control/).
+
+## Next steps
+
+<CardGrid>
+  <LinkCard title="Auth and permissions" description="Who may call which endpoint." href="../auth-and-permissions/" />
+  <LinkCard title="The UI" description="The screens built on top of this API." href="../the-ui/" />
+</CardGrid>

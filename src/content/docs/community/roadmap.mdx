@@ -1,0 +1,72 @@
+---
+title: Roadmap
+description: Where Strutvane is today and what comes next, phase by phase, in plain words.
+---
+
+import { Aside, Badge, CardGrid, LinkCard, Steps } from '@astrojs/starlight/components';
+
+**What you'll learn**
+
+- Where Strutvane is right now
+- What each phase delivers, in plain words
+- When you'll be able to use it
+
+## Where we are now
+
+<Badge text="Phase 0: Foundations, in progress" variant="caution" size="large" />
+
+- ✅ The complete design (the "blueprint") is written and public
+- ✅ Package names are reserved on npm under `@strutvane`
+- ✅ One GitHub repository per package is set up
+- 🔨 Now: shared tooling, the first draft of the shared definitions (contracts), and small experiments that prove the riskiest ideas work
+
+<Aside type="note">
+Timings assume a small core team and may change. Each phase only ends when its quality checks pass. We'd rather be late than broken.
+</Aside>
+
+## The phases
+
+<Steps>
+
+1. **Phase 0: Foundations** (weeks 0–4)
+
+   Names reserved, repositories, shared tooling and automated checks, and experiments ("spikes") for the hardest problems: turning models into migrations, turning permission rules into database queries, and database-level tenant isolation.
+
+2. **Phase 1: Core, CLI and framework → version 0.1** (months 1–3)
+
+   You'll be able to create a project, write models, run migrations, and get a working, documented API. **This is the first version you can try.**
+
+3. **Phase 2: Auth → version 0.2** (months 3–5)
+
+   Sign-in, roles, permissions, policies, multi-tenancy and the audit log.
+
+4. **Phase 3: UI → version 0.3** (months 5–7)
+
+   Automatic screens, sign-in pages and theming. Full-stack apps in one command.
+
+5. **Phase 4: Enterprise features → version 0.9 beta** (months 7–9)
+
+   MySQL and Azure databases, single sign-on, background jobs, caching, monitoring and API versioning.
+
+6. **Phase 5: Hardening → version 1.0** (months 9–12)
+
+   An independent security audit, complete docs and example apps, and a long-term support promise. **Ready for production.**
+
+7. **Phase 6: More packages** (year 2)
+
+   Notifications, file uploads, payments and billing, reports, analytics, search and real-time updates.
+
+</Steps>
+
+## How you can help right now
+
+- ⭐ Star the [GitHub repository](https://github.com/vishwajit-vm/strutvane)
+- 💬 Share what slows you down when building business apps
+- 📖 Read the [blueprint](https://github.com/vishwajit-vm/strutvane/tree/main/docs) and tell us what you'd change
+
+## Next steps
+
+<CardGrid>
+  <LinkCard title="FAQ" description="Common questions, answered." href="../faq/" />
+  <LinkCard title="Contributing" description="How to get involved." href="../contributing/" />
+</CardGrid>

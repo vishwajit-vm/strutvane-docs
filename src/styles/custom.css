@@ -1,0 +1,49 @@
+/*
+ * Strutvane brand colours for Starlight.
+ * Steel blue = structure, amber = direction (the "vane").
+ * Starlight uses --sl-color-accent-* for links, buttons and highlights.
+ */
+
+/* Dark mode (Starlight default) */
+:root {
+  --sl-color-accent-low: #3a2a07;
+  --sl-color-accent: #f5a524;
+  --sl-color-accent-high: #ffd98a;
+  --sl-color-white: #ffffff;
+  --sl-color-gray-1: #eaf0f7;
+  --sl-color-gray-2: #c4d0de;
+  --sl-color-gray-3: #8fa2b8;
+  --sl-color-gray-4: #4c6079;
+  --sl-color-gray-5: #2b3d55;
+  --sl-color-gray-6: #172a43;
+  --sl-color-black: #0b1628;
+}
+
+/* Light mode */
+:root[data-theme='light'] {
+  --sl-color-accent-low: #fde9c4;
+  --sl-color-accent: #a86500;
+  --sl-color-accent-high: #4d2e00;
+  --sl-color-white: #0b1628;
+  --sl-color-gray-1: #172a43;
+  --sl-color-gray-2: #2b3d55;
+  --sl-color-gray-3: #4c6079;
+  --sl-color-gray-4: #8fa2b8;
+  --sl-color-gray-5: #c4d0de;
+  --sl-color-gray-6: #eaf0f7;
+  --sl-color-gray-7: #f5f8fb;
+  --sl-color-black: #ffffff;
+}
+
+/* Slightly roomier reading width and line height for beginners */
+:root {
+  --sl-content-width: 48rem;
+}
+.sl-markdown-content {
+  line-height: 1.75;
+}
+
+/* "Planned" notices stand out a little more */
+.starlight-aside--caution {
+  border-inline-start-width: 0.35rem;
+}

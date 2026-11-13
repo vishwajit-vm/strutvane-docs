@@ -1,0 +1,135 @@
+---
+title: Auth and permissions
+description: Sign-in, roles, permissions and policies in Strutvane, explained with an office keycard analogy and real examples.
+---
+
+import { Aside, CardGrid, LinkCard } from '@astrojs/starlight/components';
+
+**What you'll learn**
+
+- The difference between **authentication** ("who are you?") and **authorization** ("what may you do?")
+- How roles, permissions and policies fit together
+- How to write a rule like "managers can approve invoices up to 10,000"
+
+<Aside type="caution" title="Planned, not available yet">
+This describes the planned `@strutvane/auth` package.
+</Aside>
+
+## The office keycard analogy
+
+Picture an office building:
+
+| In the office | In Strutvane | Example |
+|---|---|---|
+| Showing your ID at the front desk | **Authentication** (signing in) | Email and password, Google, Microsoft, a passkey |
+| Your keycard | Your **session** or **token** | Proves you're signed in on every request |
+| Your job title | Your **role** | `admin`, `manager`, `member`, `viewer` |
+| Which doors your card opens | **Permissions** | `invoice.view`, `invoice.approve` |
+| Special rules on a door | **Policies** | "Managers can approve invoices, but only up to 10,000" |
+| The security camera log | The **audit log** | "Ana approved INV-42 at 14:03" |
+
+## Authentication: who are you?
+
+When you add the auth package (`pnpm sv add auth`), you get working sign-in straight away:
+
+- Email and password, with secure storage, email verification and password reset
+- "Magic link" sign-in by email
+- Sign in with Google, Microsoft or GitHub
+- **Two-factor authentication** (an authenticator app or passkeys)
+- Company **single sign-on** (Microsoft Entra ID, Okta and others) for enterprise customers
+- API keys, so other programs can call your API
+
+The sign-in screens are ready-made: login, register, forgot password, reset password, verify email, profile and two-factor setup.
+
+## Permissions: what may you do?
+
+Every model automatically gets a set of permissions:
+
+```text
+invoice.viewAny   see the list of invoices
+invoice.view      open one invoice
+invoice.create    create an invoice
+invoice.update    edit an invoice
+invoice.delete    delete an invoice
+invoice.export    download invoices as CSV/Excel
+```
+
+Custom actions you add, like "approve", get one too: `invoice.approve`.
+
+## Roles: bundles of permissions
+
+A role is a named bundle of permissions. Four sensible roles come ready-made: **owner**, **admin**, **member** and **viewer**. You can rename them or add your own:
+
+```bash
+pnpm sv auth:role:create accountant
+```
+
+To see who can do what, print the permission matrix:
+
+```bash
+pnpm sv auth:matrix
+```
+
+```text
+permission         admin   accountant   viewer
+invoice.view         ✔         ✔          ✔
+invoice.create       ✔         ✔          ✘
+invoice.approve      ✔         ✘          ✘
+```
+
+## Policies: rules with conditions
+
+Sometimes "has the permission" isn't enough. **Policies** add conditions:
+
+```ts title="app/policies/invoice.policy.ts"
+import { definePolicy } from '@strutvane/auth'
+
+export default definePolicy('invoice', ({ allow, deny, field }) => {
+  // Accountants and managers can read all invoices
+  allow('read', { role: ['accountant', 'manager'] })
+
+  // Anyone can read invoices they own
+  allow('read', { when: ({ actor, row }) => row.ownerId.eq(actor.id) })
+
+  // Managers can approve invoices up to 10,000; directors can approve any
+  allow('approve', { role: 'manager', when: ({ row }) => row.amount.lte(10_000) })
+  allow('approve', { role: 'director' })
+
+  // Nobody can delete a paid invoice (a "deny" always wins)
+  deny('delete', { when: ({ row }) => row.status.eq('paid') })
+
+  // Only managers can see the internal notes field
+  field('internalNotes').readable({ role: ['manager', 'director'] })
+})
+```
+
+**Three rules to remember:**
+
+1. **Deny by default.** If no rule allows something, it's not allowed.
+2. **Deny wins.** If one rule allows something and another denies it, it's denied.
+3. **Lists are filtered too.** The condition `row.ownerId.eq(actor.id)` doesn't just block opening one invoice. It also means the invoice *list* only contains your own invoices. Strutvane turns the rule into a database query, so nothing leaks.
+
+## "Why was this denied?"
+
+Strutvane can explain any decision:
+
+```bash
+pnpm sv auth:explain --actor ana@acme.test --action invoice.approve --resource invoice:42
+```
+
+```text
+✘ denied: no allow rule matched
+  - allow approve {role: manager, amount <= 10000}: role matched, amount 12500 > 10000
+  - allow approve {role: director}: role did not match
+```
+
+## The screens respect it too
+
+If you can't delete an invoice, you won't see a Delete button. The API checks every request independently as well, so a hidden button is never the only protection.
+
+## Next steps
+
+<CardGrid>
+  <LinkCard title="Multi-tenancy" description="Keep each customer company's data separate." href="../multi-tenancy/" />
+  <LinkCard title="@strutvane/auth" description="The package in detail." href="../../packages/auth/" />
+</CardGrid>

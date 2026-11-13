@@ -1,0 +1,142 @@
+---
+title: Models and fields
+description: What a model is, every planned field type explained in plain words with an example, and the modifiers that change how a field behaves.
+---
+
+import { Aside, CardGrid, LinkCard } from '@astrojs/starlight/components';
+
+**What you'll learn**
+
+- What a "model" is, and why it's the heart of a Strutvane app
+- Every field type, with a plain explanation and an example
+- Modifiers like `required`, `unique` and `filterable`
+
+<Aside type="caution" title="Planned, not available yet">
+The field types and modifiers below are the planned design for version 1.
+</Aside>
+
+## What is a model?
+
+A **model** describes one kind of thing your app keeps track of: a customer, an invoice, a product. Think of it as the **column headings of a spreadsheet**:
+
+| name | email | tier |
+|---|---|---|
+| Ada Ltd | hi@ada.dev | pro |
+| Bob & Co | bob@bob.co | free |
+
+As a Strutvane model, that spreadsheet looks like this:
+
+```ts title="app/models/customer.model.ts"
+import { defineModel, field } from '@strutvane/framework'
+
+export default defineModel('Customer', {
+  name:  field.string().required(),
+  email: field.email().unique(),
+  tier:  field.enum(['free', 'pro', 'enterprise']).default('free'),
+})
+```
+
+Each line is a **field**: a name (`email`) plus a type (`field.email()`). That one file is enough for Strutvane to create the database table, the API, the validation, the permissions and the screens.
+
+## Field types
+
+### Text
+
+| Type | Plain meaning | Example |
+|---|---|---|
+| `field.string(max?)` | Short text, like a name or title | `title: field.string(200)` |
+| `field.text()` | Long text, like notes or a description | `notes: field.text()` |
+| `field.email()` | An email address, checked automatically | `email: field.email()` |
+| `field.url()` | A web address | `website: field.url()` |
+| `field.phone()` | A phone number | `phone: field.phone()` |
+| `field.slug('title')` | A URL-friendly version of another field ("My Post" → `my-post`) | `slug: field.slug('title')` |
+| `field.password()` | A password. It's stored scrambled (hashed) and never sent back by the API. | `password: field.password()` |
+| `field.richText()` / `field.markdown()` | Formatted text | `body: field.markdown()` |
+| `field.color()` | A colour like `#F5A524` | `brandColor: field.color()` |
+
+### Numbers and money
+
+| Type | Plain meaning | Example |
+|---|---|---|
+| `field.integer()` | Whole numbers | `quantity: field.integer().min(0)` |
+| `field.decimal(p, s)` | Exact decimals. `decimal(10, 2)` means up to 10 digits, 2 after the dot. | `price: field.decimal(10, 2)` |
+| `field.money('USD')` | Money, stored safely in cents together with the currency | `total: field.money('EUR')` |
+| `field.percent()` | A percentage | `discount: field.percent()` |
+| `field.float()` | Approximate decimals (fine for measurements, **not** for money) | `weightKg: field.float()` |
+
+### Choices and yes/no
+
+| Type | Plain meaning | Example |
+|---|---|---|
+| `field.boolean()` | Yes or no | `active: field.boolean().default(true)` |
+| `field.enum([...])` | Exactly one value from a fixed list | `status: field.enum(['draft', 'paid'])` |
+| `field.set([...])` | Several values from a fixed list | `tags: field.set(['urgent', 'vip'])` |
+
+### Dates and times
+
+| Type | Plain meaning | Example |
+|---|---|---|
+| `field.date()` | A calendar date | `dueDate: field.date()` |
+| `field.time()` | A time of day | `opensAt: field.time()` |
+| `field.datetime()` | A moment in time, stored in UTC and shown in each user's timezone | `startsAt: field.datetime()` |
+| `field.duration()` | A length of time | `estimate: field.duration()` |
+
+### Links between models (relations)
+
+| Type | Plain meaning | Example |
+|---|---|---|
+| `field.belongsTo('Company')` | "This contact works at one company" | `company: field.belongsTo('Company')` |
+| `field.hasMany('Contact')` | "This company has many contacts" | `contacts: field.hasMany('Contact')` |
+| `field.hasOne('Profile')` | "This user has one profile" | `profile: field.hasOne('Profile')` |
+| `field.manyToMany('Tag')` | "Posts have many tags, and tags have many posts" | `tags: field.manyToMany('Tag')` |
+
+### Structured data
+
+| Type | Plain meaning | Example |
+|---|---|---|
+| `field.json(schema?)` | Flexible structured data, optionally checked against a shape | `settings: field.json()` |
+| `field.address()` | A postal address | `billing: field.address()` |
+| `field.geoPoint()` | A location on a map | `location: field.geoPoint()` |
+
+## Modifiers: fine-tuning a field
+
+Modifiers are chained after the type, like `field.string().required().unique()`.
+
+| Modifier | What it does | Example |
+|---|---|---|
+| `.required()` / `.optional()` | Must have a value / may be empty | `name: field.string().required()` |
+| `.unique()` | No two records may share this value | `email: field.email().unique()` |
+| `.default(value)` | The value used when none is given | `.default('draft')` |
+| `.min()` / `.max()` | Limits for numbers or text length | `.min(0).max(100)` |
+| `.searchable()` | Included when someone types in the search box | `title: field.string().searchable()` |
+| `.filterable()` | Can be used in filters (`?filter[status][eq]=paid`) | `status: field.enum([...]).filterable()` |
+| `.sortable()` | Can be used for sorting (`?sort=-amount`) | `amount: field.decimal(12, 2).sortable()` |
+| `.hidden()` | Never sent out by the API | `internalCode: field.string().hidden()` |
+| `.readOnly()` | Shown, but can't be changed through the API | `invoiceNo: field.string().readOnly()` |
+| `.sensitive()` | Masked in logs and the audit history | `taxId: field.string().sensitive()` |
+| `.label('…')` / `.help('…')` | The friendly name and hint text shown in forms | `.label('Due date').help('When payment is expected')` |
+
+<Aside type="tip" title="Safe by default">
+Nothing is searchable, filterable or sortable unless you say so. That keeps the API fast and stops people from filtering on fields they shouldn't.
+</Aside>
+
+## Model options
+
+The second argument switches on extra behaviour for the whole model:
+
+```ts
+defineModel('Invoice', { /* fields */ }, {
+  timestamps: true,   // adds created_at and updated_at automatically
+  softDeletes: true,  // "delete" moves records to a bin you can restore from
+  tenant: true,       // each customer company sees only its own invoices
+  audit: true,        // records who changed what, and when
+  title: 'number',    // which field to show in breadcrumbs and dropdowns
+})
+```
+
+## Next steps
+
+<CardGrid>
+  <LinkCard title="Migrations" description="How your models become database tables." href="../migrations/" />
+  <LinkCard title="The automatic API" description="The endpoints every model gets." href="../auto-api/" />
+</CardGrid>

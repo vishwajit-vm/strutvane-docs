@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Strutvane">
+  <!-- Strut: the diagonal structural beam -->
+  <line x1="12" y1="52" x2="44" y2="20" stroke="#4F7CB3" stroke-width="7" stroke-linecap="round"/>
+  <circle cx="12" cy="52" r="6" fill="#4F7CB3"/>
+  <!-- Vane: the amber blade that points the way -->
+  <polygon points="34,8 60,8 46,26" fill="#F5A524"/>
+</svg>

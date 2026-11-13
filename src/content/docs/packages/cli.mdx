@@ -1,0 +1,61 @@
+---
+title: strutvane (CLI)
+description: The Strutvane command-line tool (pnpm sv), what it does, how it stays in sync with your project, and the commands you will use most.
+---
+
+import { Aside, CardGrid, LinkCard } from '@astrojs/starlight/components';
+
+**What you'll learn**
+
+- What the CLI is and how you run it
+- Why it always matches your project's version
+- The commands you'll use every day
+
+<Aside type="caution" title="Planned, not available yet">
+The names `strutvane` and `@strutvane/cli` are reserved on npm. The CLI is built in Phase 1 of the [roadmap](../../community/roadmap/).
+</Aside>
+
+## What it is
+
+A **CLI** (command-line interface) is a tool you use by typing commands in a terminal. Strutvane's CLI creates files, runs migrations, lists your routes, and much more.
+
+In a project you run it as `pnpm sv` ("sv" is short for Strutvane):
+
+```bash
+pnpm sv make:model Product name:string price:decimal(10,2)
+```
+
+Outside a project, run it as `npx strutvane`.
+
+## It always matches your project
+
+If you install the CLI globally (`npm install -g strutvane`), it still **hands over to the version installed in your project**. That way, a project built with version 1.2 is always handled by version 1.2's commands, with no surprises.
+
+## The commands you'll use most
+
+| Command | What it does |
+|---|---|
+| `pnpm sv make:model Invoice …` | Create a new model |
+| `pnpm sv migrate` | Update the database to match your models |
+| `pnpm sv add auth` | Add a package (here, auth) |
+| `pnpm sv routes` | List every API endpoint and where it comes from |
+| `pnpm sv doctor` | Check your project for problems, with suggested fixes |
+| `pnpm sv up` / `pnpm sv down` | Start / stop the local database and services (Docker) |
+
+Every command that changes files supports `--dry-run --diff`, so you can see the changes first.
+
+See the full list in [CLI commands](../../reference/cli/).
+
+## Friendly by design
+
+- Error messages say **what happened, why, and how to fix it**, with a link to the docs.
+- Works the same on Windows, macOS and Linux.
+- `--json` output for automation and CI.
+- No usage tracking unless you explicitly opt in.
+
+## Next steps
+
+<CardGrid>
+  <LinkCard title="CLI commands" description="Every command with an example." href="../../reference/cli/" />
+  <LinkCard title="create-strutvane" description="Start a new project." href="../create-strutvane/" />
+</CardGrid>

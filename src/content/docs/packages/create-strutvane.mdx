@@ -1,0 +1,60 @@
+---
+title: create-strutvane
+description: The project starter for Strutvane (npm create strutvane@latest), with its presets and flags, and what it generates.
+---
+
+import { Aside, CardGrid, LinkCard } from '@astrojs/starlight/components';
+
+**What you'll learn**
+
+- How to start a new Strutvane project
+- The three presets, and which to choose
+- How to skip the questions in scripts or CI
+
+<Aside type="caution" title="Planned, not available yet">
+The name `create-strutvane` is reserved on npm. It's built in Phase 1 of the [roadmap](../../community/roadmap/).
+</Aside>
+
+## Start a project
+
+```bash
+npm create strutvane@latest acme
+```
+
+You'll be asked a few questions. Each one is explained in the [Quick start](../../getting-started/quick-start/).
+
+## The three presets
+
+| Preset | You get | Pick it when… |
+|---|---|---|
+| `full` | framework + auth + ui | you want a complete app with screens and logins |
+| `api` | framework (+ auth if you choose it) | screens live elsewhere, such as a mobile app or another frontend |
+| `ui` | ui only | you already have an API and want screens for it |
+
+## No questions, please (for scripts)
+
+Pass everything as flags and add `--yes`:
+
+```bash
+npm create strutvane@latest acme -- \
+  --preset full --db postgres --auth email,google --tenancy shared \
+  --extras queue,cache,mail,audit --docker --pm pnpm --yes
+```
+
+## What it creates
+
+A complete project, ready to run:
+
+- `app/`, `config/`, `database/`, `web/` and `tests/` ([Project structure](../../concepts/project-structure/))
+- `.env` with generated secrets, plus a fully documented `.env.example` ([Environment variables](../../concepts/environment-variables/))
+- an admin user, whose password is printed once
+- local Docker services (database, cache, test mailbox), kept out of Git
+- tests, lint and type-check setup, and a GitHub Actions workflow
+- a `README.md` for **your** project listing every command
+
+## Next steps
+
+<CardGrid>
+  <LinkCard title="Quick start" description="The full first-run walkthrough." href="../../getting-started/quick-start/" />
+  <LinkCard title="Tutorial" description="Build a CRM in 2 hours." href="../../tutorial/build-a-crm-in-2-hours/" />
+</CardGrid>

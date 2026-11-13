@@ -1,0 +1,62 @@
+---
+title: '@strutvane/devkit'
+description: The toolkit for building Strutvane plugins, installers and code generators safely, with previews, undo and env-file handling built in.
+---
+
+import { Aside, CardGrid, LinkCard } from '@astrojs/starlight/components';
+
+**What you'll learn**
+
+- What the devkit is for
+- What an "installer" is, and why it's safe
+- A small example of one
+
+<Aside type="caution" title="Planned, not available yet">
+The name `@strutvane/devkit` is reserved on npm. It's built in Phase 1 of the [roadmap](../../community/roadmap/).
+</Aside>
+
+## What it is
+
+The devkit is for people who **extend Strutvane**: plugin authors, companies building internal presets, and the Strutvane team itself. Every official package uses it.
+
+## Installers: how `pnpm sv add <package>` works
+
+When you run `pnpm sv add auth`, the auth package's **installer** runs. It:
+
+- adds the right dependencies
+- writes the config file
+- adds settings to `.env` **and** `.env.example`
+- creates database migrations
+- registers itself in `strutvane.config.ts`
+
+The devkit makes installers **safe**:
+
+| Safety feature | What it means for you |
+|---|---|
+| Preview | `--dry-run --diff` shows every change before it happens |
+| All-or-nothing | If anything fails halfway, no files are changed |
+| Run twice, no harm | Running an installer again just repairs anything missing |
+| Undo | `pnpm sv remove <package>` reverses it and keeps any files you edited |
+
+## Example: an installer for a "notify" plugin
+
+```ts title="installer.ts"
+import { defineInstaller } from '@strutvane/devkit'
+
+export default defineInstaller({
+  name: 'notify',
+  async install({ deps, fs, env, config }) {
+    await deps.add({ '@acme/strutvane-notify': '^1' })
+    await fs.template('config/notify.ts', templates.config)
+    await env.add('Notifications', { NOTIFY_DEFAULT_CHANNEL: 'mail' }) // → .env and .env.example
+    await config.registerProvider('@acme/strutvane-notify/provider')
+  },
+})
+```
+
+## Next steps
+
+<CardGrid>
+  <LinkCard title="Contributing" description="Help build Strutvane." href="../../community/contributing/" />
+  <LinkCard title="Packages overview" description="All packages in one place." href="../overview/" />
+</CardGrid>

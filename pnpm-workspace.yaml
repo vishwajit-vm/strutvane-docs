@@ -1,0 +1,8 @@
+# pnpm settings for this repo.
+#
+# pnpm blocks packages published less than a day ago (supply-chain protection,
+# "minimumReleaseAge"). @astrojs/starlight 0.43.0 was brand new when this site
+# was set up, so pnpm recorded a narrow, exact-version exception. Remove this
+# entry when Starlight is next upgraded (the newer version will be old enough).
+minimumReleaseAgeExclude:
+  - '@astrojs/starlight@0.43.0'

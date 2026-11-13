@@ -1,0 +1,61 @@
+---
+title: Contributing
+description: How to help build Strutvane, from design feedback to docs fixes and, later, code, with the ground rules we follow.
+---
+
+import { Aside, CardGrid, LinkCard, Steps } from '@astrojs/starlight/components';
+
+**What you'll learn**
+
+- The most useful ways to help right now
+- How to fix or improve a docs page in a few minutes
+- The ground rules we all follow
+
+## Most useful right now
+
+Strutvane is in its design phase, so **ideas and feedback** are the most valuable contributions:
+
+- 💡 **Tell us your pain points.** What's slow or annoying when you build business apps?
+- 📐 **Review the design.** Read the [blueprint](https://github.com/vishwajit-vm/strutvane/tree/main/docs) and open an issue with your thoughts.
+- 📖 **Improve these docs.** Fix a typo, clarify a sentence, add an example.
+
+## Fix a docs page in 3 minutes
+
+<Steps>
+
+1. Scroll to the bottom of any page and click **Edit page**.
+2. GitHub opens the page's file. Make your change; it's written in Markdown, which is mostly plain text.
+3. Click **Propose changes** and describe what you changed and why.
+4. We'll review it, and you'll be credited as a contributor.
+
+</Steps>
+
+Want to work on the docs on your own computer?
+
+```bash
+git clone https://github.com/vishwajit-vm/strutvane-docs.git
+cd strutvane-docs
+corepack pnpm install
+corepack pnpm dev      # opens the docs at http://localhost:4321/strutvane-docs/
+```
+
+Before writing, read the [docs style guide](../docs-style-guide/).
+
+## Ground rules
+
+- **Be kind.** We follow the [Contributor Covenant](https://www.contributor-covenant.org/version/2/1/code_of_conduct/).
+- **Big changes start as a discussion.** Changes to how Strutvane works go through a short proposal (an "RFC") first.
+- **Every change comes with tests and docs.** If it's not tested and explained, it's not done.
+- **Sign your commits** (`git commit -s`). It confirms you have the right to contribute the code.
+- **Security problems are reported privately.** Use the repository's **Security** tab, never a public issue.
+
+<Aside type="tip">
+New to open source? Look for issues labelled **good first issue**. They're picked to be friendly starting points.
+</Aside>
+
+## Next steps
+
+<CardGrid>
+  <LinkCard title="Docs style guide" description="How we write these docs." href="../docs-style-guide/" />
+  <LinkCard title="Roadmap" description="What we're building next." href="../roadmap/" />
+</CardGrid>

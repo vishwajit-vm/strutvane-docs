@@ -1,0 +1,64 @@
+---
+title: '@strutvane/ui'
+description: The Strutvane frontend package, which builds tables, forms, detail pages and sign-in screens from your models or any OpenAPI API, with components you own.
+---
+
+import { Aside, CardGrid, LinkCard } from '@astrojs/starlight/components';
+
+**What you'll learn**
+
+- What the UI package gives you
+- How it works with Strutvane and with other APIs
+- How to customise it
+
+<Aside type="caution" title="Planned, not available yet">
+The name `@strutvane/ui` is reserved on npm. Implementation starts in Phase 3 of the [roadmap](../../community/roadmap/).
+</Aside>
+
+## What it does
+
+- **Automatic screens** for every model: a table, a form and a detail page ([The UI](../../concepts/the-ui/))
+- **Sign-in and admin screens** when auth is installed
+- **Permission-aware:** shows only what each user is allowed to do
+- **Owned components:** buttons, tables and inputs are copied into your project for you to change
+- **Theming:** colours, fonts and dark mode from one file
+- **Accessible:** designed for keyboard and screen-reader users
+- Built with React, Vite, TanStack and Tailwind CSS: popular, well-documented tools
+
+## Install (planned)
+
+```bash
+# add screens to an existing Strutvane project
+pnpm sv add ui
+
+# or create a UI-only project for an API you already have
+npm create strutvane@latest my-admin -- --preset ui
+```
+
+## Example: UI-only mode for an existing API
+
+Already have an API? If it publishes an **OpenAPI** description (a standard file describing its endpoints), the UI can build screens from it:
+
+```dotenv title=".env"
+VITE_API_URL=https://api.example.com
+API_OPENAPI_URL=https://api.example.com/openapi.json
+```
+
+If the guesses need adjusting, tell it more in one file:
+
+```ts title="ui.resources.ts"
+export default {
+  orders: { label: 'Orders', titleField: 'reference', list: { columns: ['reference', 'customer', 'total'] } },
+}
+```
+
+## Customising
+
+The UI follows the same [levels of control](../../concepts/levels-of-control/) as the rest of Strutvane: change settings, override one column or widget, or eject a whole page with `pnpm sv eject ui`.
+
+## Next steps
+
+<CardGrid>
+  <LinkCard title="The UI" description="Screens, widgets and theming in detail." href="../../concepts/the-ui/" />
+  <LinkCard title="strutvane CLI" description="The commands you'll use." href="../cli/" />
+</CardGrid>

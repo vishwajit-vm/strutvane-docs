@@ -1,0 +1,60 @@
+---
+title: '@strutvane/core'
+description: The Strutvane kernel, which provides the app lifecycle, service container, providers, configuration, request context, events and plugins.
+---
+
+import { Aside, CardGrid, LinkCard } from '@astrojs/starlight/components';
+
+**What you'll learn**
+
+- What "core" is, and why you rarely touch it directly
+- The few ideas it provides that you'll meet in your code
+- A small example of a service provider
+
+<Aside type="caution" title="Planned, not available yet">
+The name `@strutvane/core` is reserved on npm. It's built in Phase 1 of the [roadmap](../../community/roadmap/).
+</Aside>
+
+## What it is
+
+Core is the **engine room**. Every other Strutvane package plugs into it. You usually get it automatically with the framework, so you don't install it yourself.
+
+## Ideas you'll meet
+
+| Idea | Plain meaning | Example |
+|---|---|---|
+| **App lifecycle** | Your app starts in clear steps: set up, then run | `createApp(config)` then `app.boot()` |
+| **Container** | A shelf of shared tools (mailer, cache…) your code can ask for by name | `app.make(Mailer)` |
+| **Service provider** | A small file that puts tools on the shelf when the app starts | see below |
+| **Config** | Typed settings from `config/*.ts` | `config('database.default')` |
+| **Context** | "Who is making this request, for which company?", available anywhere | `currentActor()`, `currentTenant()` |
+| **Events** | "Something happened", which other code can react to | `events.emit('invoice.paid', invoice)` |
+| **Hooks** | Points where you can step in before or after something happens | `beforeCreate`, `afterUpdate` |
+
+## Example: a service provider
+
+```ts title="app/providers/app.provider.ts"
+import { defineProvider, token } from '@strutvane/core'
+
+export const Mailer = token<Mailer>('mailer')
+
+export default defineProvider({
+  register(app) {
+    // put a tool on the shelf
+    app.singleton(Mailer, () => new SmtpMailer(app.config('mail')))
+  },
+  boot(app) {
+    // react to an event once everything is ready
+    app.events.on('user.registered', (e) => app.make(Mailer).welcome(e.user))
+  },
+})
+```
+
+There are no decorators and no "magic": just plain functions you can read.
+
+## Next steps
+
+<CardGrid>
+  <LinkCard title="@strutvane/contracts" description="The shared language between packages." href="../contracts/" />
+  <LinkCard title="@strutvane/devkit" description="Build your own plugins." href="../devkit/" />
+</CardGrid>

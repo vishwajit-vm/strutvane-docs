@@ -1,0 +1,160 @@
+---
+title: Glossary
+description: Every technical term used in the Strutvane docs, explained in plain words with a small example.
+---
+
+import { Aside, CardGrid, LinkCard } from '@astrojs/starlight/components';
+
+**What you'll learn**
+
+- What the technical words in these docs mean, in plain language
+- A tiny example for each
+
+<Aside type="caution" title="Planned, not available yet">
+Strutvane commands and code in the examples below (like `pnpm sv migrate`) show the planned design. The general terms apply everywhere.
+</Aside>
+
+Terms are in alphabetical order.
+
+## API
+
+**A doorway that lets programs talk to your app.** Your website, a mobile app or a partner's system sends a request ("give me invoice 42") and gets data back.
+*Example:* `GET /api/v1/invoices/42`
+
+## Audit log
+
+**A diary of who did what, and when.**
+*Example:* "Ana changed invoice INV-42's status from *sent* to *paid* at 14:03."
+
+## Authentication
+
+**Proving who you are.** Signing in with a password, Google or a passkey.
+
+## Authorization
+
+**Deciding what you're allowed to do.** "Ana may view invoices but not delete them."
+
+## CI (continuous integration)
+
+**A robot that checks every change.** When someone pushes code, CI automatically runs the tests and reports problems.
+
+## CLI
+
+**A command-line interface: a tool you use by typing commands.**
+*Example:* `pnpm sv migrate`
+
+## CRUD
+
+**Create, Read, Update, Delete.** The four basic things you do with data. Strutvane gives every model CRUD endpoints and screens automatically.
+
+## Docker
+
+**A way to run software in a sealed box on your computer.** Strutvane uses it to run a local database without installing one. It's for local development only.
+
+## Endpoint
+
+**One specific address in an API.**
+*Example:* `POST /api/v1/invoices` is the "create an invoice" endpoint.
+
+## Environment variable
+
+**A named setting kept outside your code**, often a secret.
+*Example:* `DB_PASSWORD=…` in your `.env` file. See [Environment variables](../../concepts/environment-variables/).
+
+## Field
+
+**One piece of information in a model**, like a column in a spreadsheet.
+*Example:* `email: field.email()`
+
+## Hook
+
+**A spot where your code can step in** before or after something happens.
+*Example:* `beforeCreate` runs just before a record is saved for the first time.
+
+## Migration
+
+**A small file of instructions for changing the database's shape.**
+*Example:* "add a `sku` column to `products`." See [Migrations](../../concepts/migrations/).
+
+## Model
+
+**A description of one kind of thing your app stores**, like Customer or Invoice. See [Models and fields](../../concepts/models-and-fields/).
+
+## Monorepo vs polyrepo
+
+A **monorepo** keeps many projects in one Git repository. A **polyrepo** setup gives each project its own repository. Strutvane uses a **polyrepo**: each package has its own repository, like Laravel's packages.
+
+## Multi-tenancy
+
+**One app serving many customer companies, each seeing only its own data.** See [Multi-tenancy](../../concepts/multi-tenancy/).
+
+## npm
+
+**The public library of JavaScript packages**, and the tool that downloads them. Strutvane's packages are published there under the name `@strutvane`.
+
+## OpenAPI
+
+**A standard way to describe an API in a file**, so tools can read it. Strutvane generates one at `/openapi.json` and turns it into interactive docs at `/docs`.
+
+## ORM
+
+**Object-Relational Mapper: a library that lets code work with database rows as objects.** Strutvane uses a well-known one called Drizzle under the hood, so you mostly don't need to think about it.
+
+## Package manager
+
+**The tool that downloads and updates libraries for your project.**
+*Examples:* pnpm, npm, yarn, bun.
+
+## Permission
+
+**A named ability**, like `invoice.delete`. Roles are bundles of permissions.
+
+## Policy
+
+**A permission rule with a condition.**
+*Example:* "Managers may approve invoices *up to 10,000*."
+
+## RBAC
+
+**Role-Based Access Control: deciding what people can do based on their role** (admin, manager, viewer…).
+
+## Relation
+
+**A link between two models.**
+*Example:* a Contact *belongs to* a Company, and a Company *has many* Contacts.
+
+## RLS (row-level security)
+
+**A lock inside the database (PostgreSQL) that hides rows you shouldn't see**, even if the app has a bug. Strutvane uses it for multi-tenancy.
+
+## Seeder
+
+**A script that fills the database with starting or fake data**, handy for demos and development.
+
+## Soft delete
+
+**"Deleting" by moving a record to a bin instead of erasing it**, so it can be restored.
+
+## SSO (single sign-on)
+
+**Signing in to many apps with one company account**, such as Microsoft Entra ID or Okta. Enterprise customers often require it.
+
+## Tenant
+
+**One customer company** in a multi-tenant app. Like one apartment in an apartment building.
+
+## TypeScript
+
+**JavaScript with types.** Types help your editor catch mistakes, like passing text where a number is expected, before you run the code.
+
+## Validation
+
+**Checking that data makes sense before saving it.**
+*Example:* rejecting `amount: -5` when the model says `min(0)`.
+
+## Next steps
+
+<CardGrid>
+  <LinkCard title="What is Strutvane?" description="Back to the beginning." href="../../getting-started/what-is-strutvane/" />
+  <LinkCard title="FAQ" description="Common questions, answered." href="../../community/faq/" />
+</CardGrid>
