@@ -13,12 +13,15 @@ import { Aside, Badge, CardGrid, LinkCard, Steps } from '@astrojs/starlight/comp
 
 ## Where we are now
 
-<Badge text="Phase 0: Foundations, in progress" variant="caution" size="large" />
+<Badge text="Phase 0: Foundations, complete · Phase 1 next" variant="success" size="large" />
 
 - ✅ The complete design (the "blueprint") is written and public
 - ✅ Package names are reserved on npm under `@strutvane`
 - ✅ One GitHub repository per package is set up
-- 🔨 Now: shared tooling, the first draft of the shared definitions (contracts), and small experiments that prove the riskiest ideas work
+- ✅ Shared tooling and automated checks run on Linux, Windows and macOS
+- ✅ The first draft of the shared definitions (contracts) is built and tested
+- ✅ Nine experiments ("spikes", 419 tests) proved the riskiest ideas work before any real code: migrations, permission rules to SQL, tenant isolation, the typed registry, the API client, safe upgrades, sign-in, the generated UI and logging. They also found and fixed real security problems early.
+- 🔨 Next: Phase 1, the core, the CLI, the framework and logging
 
 <Aside type="note">
 Timings assume a small core team and may change. Each phase only ends when its quality checks pass. We'd rather be late than broken.

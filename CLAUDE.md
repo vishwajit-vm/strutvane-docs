@@ -10,16 +10,16 @@ The file below is synced from strutvane-tooling and is identical in every repo. 
 
 ## What this repo is
 
-The public, friendly documentation site for **Strutvane**, built with Astro Starlight. It's published to GitHub Pages at `https://vishwajit-vm.github.io/strutvane-docs/`. The planned repo is `vishwajit-vm/strutvane-docs`. Locally it lives at `packages/docs/` inside the umbrella folder.
+The public, friendly documentation site for **Strutvane**, built with Astro Starlight. It's published to GitHub Pages at `https://vishwajit-vm.github.io/strutvane-docs/`. The repo is `vishwajit-vm/strutvane-docs` (live). Locally it lives at `packages/docs/` inside the umbrella folder.
 
 ## Status
 
-- Strutvane is in **Phase 0 (design and foundations)**. Nothing is released yet.
+- Phase 0 (foundations) is complete; Phase 1 is next. Nothing is released yet (see ECOSYSTEM.md §7).
 - Every page describing an API, CLI or package MUST carry a caution aside saying "Planned, not available yet".
 
 ## Source of truth
 
-- `../../docs/00-executive-summary.md` (decisions D1–D20) and the rest of `../../docs/`.
+- `../../docs/00-executive-summary.md` (decisions D1–D24) and the rest of `../../docs/`.
 - The docs explain the blueprint in plain words and must **never contradict it**. If the blueprint changes, update the matching pages.
 
 ## Style rules (non-negotiable)
