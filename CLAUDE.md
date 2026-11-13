@@ -2,6 +2,12 @@
 
 Project memory for Claude Code. Keep it short and current.
 
+## Ecosystem memory (shared by every Strutvane repo)
+
+The file below is synced from strutvane-tooling and is identical in every repo. It covers how the whole ecosystem fits together: repo map, decisions, connection rules, standards, workflow and current status. Read it before changing anything.
+
+@.claude/ECOSYSTEM.md
+
 ## What this repo is
 
 The public, friendly documentation site for **Strutvane**, built with Astro Starlight. It's published to GitHub Pages at `https://vishwajit-vm.github.io/strutvane-docs/`. The planned repo is `vishwajit-vm/strutvane-docs`. Locally it lives at `packages/docs/` inside the umbrella folder.
