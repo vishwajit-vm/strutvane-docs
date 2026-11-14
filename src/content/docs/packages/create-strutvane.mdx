@@ -24,11 +24,11 @@ import { Aside, CardGrid, LinkCard } from '@astrojs/starlight/components';
 You don't install it. You run it once, with your package manager's `create` command:
 
 ```bash
-npm create strutvane@latest
+npm create strutvane@next
 ```
 
 <Aside type="note">
-Available on npm soon as `0.1.0-next` — pre-release.
+Coming to npm shortly as a pre-release (`0.1.0-next.0` under the `next` tag); the rest of the packages it installs are already published. Use `@next`, because the `latest` tag still points at an empty name placeholder until 1.0.
 </Aside>
 
 ## Example: a full app, no questions asked
@@ -36,7 +36,7 @@ Available on npm soon as `0.1.0-next` — pre-release.
 Every question also has a flag, so you can skip the prompts:
 
 ```bash
-npm create strutvane@latest acme -- --preset full --db postgres --auth email,google --tenancy --yes
+npm create strutvane@next acme -- --preset full --db postgres --auth email,google --tenancy --yes
 cd acme
 pnpm install
 pnpm services:up     # start the local Postgres in Docker
