@@ -8,14 +8,14 @@ Most bugs live where your code meets the database: a row that should be soft-del
 :::tip[Coming from Laravel?]
 - `use RefreshDatabase;` → `await refreshDatabase(app)` (and, in 0.2, a transaction per test, like Laravel's `DatabaseTransactions`);
 - `Post::factory()->count(10)->for($user)->create()` → `Post.factory().count(10).for(user).create()`;
-- `$this->seed(PostSeeder::class)` → `await app.run(() => new PostSeeder().run())`;
+- `$this->seed(PostSeeder::class)` → `await seed(app, 'PostSeeder')`;
 - `assertDatabaseHas('posts', [...])` → `assertDatabaseHas('posts', {...})`.
 
 What's different: the test database is the **same engine as production** (MySQL or PostgreSQL), not SQLite in memory, unless your app uses SQLite. Factories never create a new parent per row by accident (`recycle`).
 :::
 
 :::caution[What exists, and when]
-- **Proven in a prototype:** `refreshDatabase(app)` loading the schema dump your migrations produce (spike 12), and the ORM on real MySQL 8.4, PostgreSQL (PGlite) and SQLite (spike 11, 184 tests). Seeders run with `app.run()` (spike 12's example app).
+- **Proven in a prototype:** `refreshDatabase(app)` loading the schema dump your migrations produce (spike 12), and the ORM on real MySQL 8.4, PostgreSQL (PGlite) and SQLite (spike 11, 184 tests). Seeders run in tests (spike 12's example app, as `new DatabaseSeeder().run()`; the decided seeder shape is `defineSeeder()` and the test helper `seed(app)`).
 - **Coming in 0.2:** a transaction per test that's rolled back, a test database per Vitest worker on your app's engine, factories (`Post.factory()…`, with states, sequences, `for`, `has` and `recycle`), `assertDatabaseHas`-style assertions, and `asTenant()`. 0.1 has factories in another shape (`defineFactory`, `createTestApp`); they're being rebuilt on the new ORM.
 
 Names marked "planned" may change.
@@ -24,23 +24,24 @@ Names marked "planned" may change.
 ## The smallest example
 
 ```ts title="tests/feature/post-store.test.ts"
+import { randomBytes } from 'node:crypto'
 import { beforeEach, expect, it } from 'vitest'
 import type { Application } from '@strutvane/framework'
-import { client, refreshDatabase } from '@strutvane/framework/testing'
+import { client, refreshDatabase, seed } from '@strutvane/framework/testing'
 import { createApp } from '../../bootstrap/app.ts'
 import { Post } from '../../app/models/post.ts'
-import { DatabaseSeeder, demoTokens } from '../../database/seeders/database.seeder.ts'
+import { demoTokens } from '../../database/seeders/database.seeder.ts'
 
 let app: Application
 
 beforeEach(async () => {
-  app = createApp({ APP_ENV: 'testing', APP_KEY: 'base64:dGVzdGluZy1rZXktdGVzdGluZy1rZXktdGVzdGluZy0=', DB_CONNECTION: 'sqlite', DB_DATABASE: ':memory:' })
+  app = createApp({ APP_ENV: 'testing', APP_KEY: 'base64:' + randomBytes(32).toString('base64'), DB_CONNECTION: 'sqlite', DB_DATABASE: ':memory:' })
   await refreshDatabase(app)
-  await app.run(() => new DatabaseSeeder().run())
+  await seed(app)
 })
 
 it('stores a new post as a draft owned by its author', async () => {
-  await client(app).actingAs(demoTokens.alice).postJson('/api/posts', { title: 'Database testing' })
+  await client(app).withToken(demoTokens.alice).postJson('/api/posts', { title: 'Database testing' })
 
   const post = await app.run(() => Post.query().where('slug', 'database-testing').first())
   expect(post?.status).toBe('draft')
@@ -98,7 +99,7 @@ const titled = await Post.factory().create({ title: 'Exactly this title' })     
 const unsaved = Post.factory().make()                                                  // built, not stored
 ```
 
-**What you'll see:** rows in the test database, returned as `Post` models with ids, slugs and timestamps filled in. Slugs follow the real rules (random suffix on a clash), because factories go through the model.
+**What you'll see:** rows in the test database, returned as `Post` models with ids, slugs and timestamps filled in. Slugs follow the real rules (`-2`, `-3` on a clash), because factories go through the model.
 
 ### Sequences
 
@@ -121,11 +122,14 @@ Without `recycle`, a factory that needs a parent makes a **new** parent for ever
 
 ## Seeders in tests
 
-Run a seeder when a test needs the app's standard data:
+Run the seeders when a test needs the app's standard data:
 
 ```ts
-await app.run(() => new DatabaseSeeder().run())
+await seed(app)                  // database/seeders/database.seeder.ts, which runs every registered seeder
+await seed(app, 'PostSeeder')    // one seeder, like node strut db:seed --class=PostSeeder
 ```
+
+A seeder is a `defineSeeder({ after?, async run({ db, factory, env }) { … } })` file in `database/seeders/`; see [Seeding](../seeding/). `seed()` is the testing kit's planned helper (names may change).
 
 Seeders are tracked once per database in development, but tests start from an empty database each time, so they always run here. Prefer factories for data a test depends on: a test that says `Post.factory().create({ title: 'X' })` explains itself; a test that relies on "the third seeded post" doesn't.
 
@@ -157,7 +161,7 @@ A failure prints the rows that **are** in the table, so you see what's there ins
 
 ```ts
 it('soft deletes a post', async () => {
-  await client(app).actingAs(demoTokens.alice).deleteJson('/api/posts/hello-world')
+  await client(app).withToken(demoTokens.alice).deleteJson('/api/posts/hello-world')
 
   const visible = await app.run(() => Post.query().where('slug', 'hello-world').first())
   const trashed = await app.run(() => Post.query().withTrashed().where('slug', 'hello-world').first())
@@ -176,7 +180,7 @@ With teams, every query is scoped to the current team. Database tests must set o
 TenantRequiredError: "projects" is tenant-scoped, but no tenant is active. Wrap the work in runWithTenant(tenantId, () => …) (the HTTP layer does this for you per request). Deliberate cross-tenant jobs use .unsafeWithoutTenancy(reason), which is audited.
 ```
 
-The error code is `TENANT_REQUIRED` (answered as 403 over HTTP). Set the team for a block of code with the ORM's `runWithTenant()` (proven in spike 11):
+The error code is `tenant_required` (answered as 403 over HTTP). Set the team for a block of code with the ORM's `runWithTenant()` (proven in spike 11):
 
 ```ts
 import { runWithTenant } from '@strutvane/framework'

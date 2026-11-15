@@ -52,6 +52,10 @@
         {
           "slug": "helpers",
           "label": "Helpers"
+        },
+        {
+          "slug": "contracts",
+          "label": "Contracts"
         }
       ]
     },
@@ -63,12 +67,20 @@
         "csrf",
         "controllers",
         "requests",
+        {
+          "slug": "session",
+          "label": "Session"
+        },
         "validation",
         {
           "slug": "precognition",
           "label": "Precognition"
         },
         "responses",
+        {
+          "slug": "urls",
+          "label": "URL Generation"
+        },
         "errors",
         "logging"
       ]
@@ -77,10 +89,18 @@
       "label": "Digging Deeper",
       "items": [
         "strut-console",
+        {
+          "slug": "broadcasting",
+          "label": "Broadcasting"
+        },
         "cache",
         {
           "slug": "concurrency",
           "label": "Concurrency"
+        },
+        {
+          "slug": "context",
+          "label": "Context"
         },
         "events",
         "storage",
@@ -138,7 +158,11 @@
         "queries",
         "pagination",
         "migrations",
-        "seeding"
+        "seeding",
+        {
+          "slug": "redis",
+          "label": "Redis"
+        }
       ]
     },
     {
@@ -155,6 +179,10 @@
         "orm-relationships",
         "orm-scopes",
         "orm-casts",
+        {
+          "slug": "orm-events",
+          "label": "Events & Observers"
+        },
         "orm-mass-assignment",
         "orm-pagination",
         "orm-soft-deletes",
@@ -163,7 +191,11 @@
         "orm-tenancy",
         "orm-collections",
         "orm-factories",
-        "orm-resources"
+        "orm-resources",
+        {
+          "slug": "orm-serialization",
+          "label": "Serialization"
+        }
       ]
     },
     {
@@ -185,6 +217,10 @@
           "label": "Getting Started"
         },
         "http-tests",
+        {
+          "slug": "console-tests",
+          "label": "Console Tests"
+        },
         "database-testing",
         "mocking",
         "browser-tests"
@@ -192,40 +228,7 @@
     },
     {
       "label": "Packages",
-      "items": [
-        {
-          "slug": "packages/catalogue",
-          "label": "Package Catalogue"
-        },
-        "packages/framework",
-        "packages/auth",
-        "packages/ui",
-        "packages/create-strutvane",
-        "packages/strutvane",
-        "packages/log-viewer",
-        "packages/files",
-        "packages/redis",
-        "packages/queue-dashboard",
-        "packages/inspector",
-        "packages/observability",
-        "packages/search",
-        "packages/import-export",
-        "packages/agent-tools",
-        "packages/social-login",
-        "packages/sso",
-        "packages/oauth-server",
-        "packages/mcp-server",
-        "packages/feature-flags",
-        "packages/webhooks",
-        "packages/billing",
-        "packages/realtime",
-        "packages/notification-channels",
-        "packages/dashboards",
-        "packages/ai",
-        "packages/workflows",
-        "packages/browser-testing",
-        "packages/backup"
-      ]
+      "generate": "packages"
     },
     {
       "label": "CLI Reference",

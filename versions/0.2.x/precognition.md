@@ -26,7 +26,7 @@ The generated forms (proven in spike 14) already give quick feedback in two ways
 {
   "status": 422,
   "code": "validation_failed",
-  "issues": [{ "field": "slug", "code": "taken", "message": "Slug \"engineering\" is already taken." }]
+  "issues": [{ "path": ["slug"], "field": "slug", "code": "taken", "message": "Slug \"engineering\" is already taken." }]
 }
 ```
 

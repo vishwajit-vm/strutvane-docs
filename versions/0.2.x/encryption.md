@@ -8,7 +8,7 @@ description: "Encrypt values you need to read back later (API secrets, notes, to
 Strutvane encrypts with your app's **`APP_KEY`**, the secret the installer wrote into `.env`. You call `encrypt(value)` to lock a value and `decrypt(payload)` to unlock it. Anyone who steals your database but not your `APP_KEY` sees only scrambled text.
 
 :::tip[Coming from Laravel?]
-It's Laravel's `Crypt`: `encrypt($value)` and `decrypt($payload)` work the same way, with the same `APP_KEY` and `APP_PREVIOUS_KEYS` for key rotation, and `php artisan key:generate` becomes `node strut key:generate`.
+It's Laravel's `Crypt`: `encrypt($value)` and `decrypt($payload)` work the same way (and a `Crypt` accessor with `Crypt.encrypt()` / `Crypt.decrypt()` is planned for 0.2), with the same `APP_KEY` and `APP_PREVIOUS_KEYS` for key rotation, and `php artisan key:generate` becomes `node strut key:generate`.
 
 What's different:
 - The cipher is **AES-256-GCM** (Laravel defaults to AES-256-CBC with a separate MAC).
@@ -17,7 +17,7 @@ What's different:
 :::
 
 :::caution[Coming in 0.2]
-`encrypt()`, `decrypt()`, the `Encrypter` class and key rotation are **proven in a prototype** (spike 12, with tests for tampering, truncated tags, wrong purposes and rotation). They aren't released yet. `node strut key:generate`, `key:rotate`, `env:encrypt`, `env:decrypt` and the `encrypted()` model cast are designed, not built. Names may still change before 0.2.
+`encrypt()`, `decrypt()`, the `Encrypter` class, key rotation and the `key:rotate`, `env:encrypt` and `env:decrypt` commands are **built in the prototype** (spike 12, with tests for tampering, truncated tags, wrong purposes and rotation) and ship in 0.2. They aren't released yet. `node strut key:generate` and the `encrypted()` model cast are designed, not built. Names may still change before 0.2.
 :::
 
 ## The smallest example
@@ -219,8 +219,8 @@ A key should be replaced if it may have leaked, when someone with access leaves,
 3. Your `.env` now looks like this:
 
    ```ini title=".env"
-   APP_KEY=base64:Zm9vYmFyYmF6cXV4cXV1eGNvcmdlZ3JhdWx0Z2FycGx5
-   APP_PREVIOUS_KEYS=base64:b2xkIGtleSBvbGQga2V5IG9sZCBrZXkgb2xkIGtleSA=
+   APP_KEY=base64:TRCz9LNT…   (the new key, made for you)
+   APP_PREVIOUS_KEYS=base64:Hk3w0Pq…   (your old key)
    ```
 
 4. Deploy the new `.env` to **every** server at once.
@@ -234,7 +234,7 @@ From then on:
 `APP_PREVIOUS_KEYS` takes several keys, separated by commas, newest first:
 
 ```ini title=".env"
-APP_PREVIOUS_KEYS=base64:b2xk…,base64:b2xkZXI…
+APP_PREVIOUS_KEYS=base64:N2r0Qw…,base64:x8VbLs…
 ```
 
 :::caution[Coming in 0.2: sessions and API tokens after a rotation]
@@ -270,10 +270,14 @@ If you'd rather not use the command, or you're on a server without the CLI:
 
 | Form | Example | Notes |
 |---|---|---|
-| `base64:` + base64 | `base64:Zm9vYmFy…` (44 characters after the prefix) | Laravel's format, and what `key:generate` writes. Recommended. |
-| plain text | a random string of 32+ characters | Used as UTF-8 bytes. Fine for tests. |
+| `base64:` + base64 | `base64:qUXgZwZVTFOLD…` (44 characters after the prefix) | Laravel's format, and what `key:generate` writes. Recommended. |
+| plain text | a random string of 32+ characters | Used as UTF-8 bytes. Prefer a generated `base64:` key, even in tests. |
 
-Each use of the key gets its **own subkey**: a separate key derived from `APP_KEY` with a purpose label (HKDF-SHA-256). Encryption, signed URLs and cookies never share the raw key, so a weakness in one can't spill into another.
+Each use of the key gets its **own subkey** from the framework's one **keyring**: `keyring.derive(purpose)` is HKDF-SHA-256 over `APP_KEY`, with salt `strutvane` and info `strutvane:<purpose>:v1`, and it knows `APP_PREVIOUS_KEYS` too. Encryption, signed links, cookies and the auth engine all derive through it, so they never share the raw key, and a weakness in one can't spill into another.
+
+:::note
+The one keyring is decided for 0.2. Today the prototypes each derive their own way (spike 12 with info `strutvane:<purpose>`, the auth prototype with `strutvane/auth/<purpose>`).
+:::
 
 ## With Docker or without Docker
 
@@ -285,7 +289,7 @@ Encryption works the same in both. Only where `APP_KEY` lives differs:
 
 ## Encrypted environment files
 
-`node strut env:encrypt` encrypts `.env.production` so you can commit it, and `env:decrypt` turns it back on the server, like Laravel's commands. They're designed, not built; the exact options aren't decided. See [Configuration](../configuration/).
+`node strut env:encrypt` encrypts `.env.production` so you can commit it, and `env:decrypt` turns it back on the server, like Laravel's commands. Both are built in the prototype and ship in 0.2. See [Configuration](../configuration/) for their options.
 
 ## When decryption fails
 
@@ -295,7 +299,7 @@ Every failure gives the **same** error, on purpose. Telling an attacker *why* a 
 DecryptError: The value could not be decrypted: it was tampered with, truncated, or made with another key.
 ```
 
-The error's `code` is `DECRYPT_FAILED`. It happens when:
+The error's `code` is `decrypt_failed` (the prototype writes it in uppercase; lowercase codes are decided). It happens when:
 
 - any character of the payload was changed, removed or added;
 - the payload was made for another purpose;
@@ -338,7 +342,7 @@ function readSecret(payload: string): string | null {
 → Run `node strut key:generate` to create a strong key (32 random bytes, base64).
 ```
 
-**Why:** the key in `.env` is shorter than 32 bytes, so AES-256 can't use it. The error code is `INVALID_APP_KEY`; a missing key says "APP_KEY is missing", and a broken one says `starts with "base64:" but the rest is not valid base64`.
+**Why:** the key in `.env` is shorter than 32 bytes, so AES-256 can't use it. The error code is `invalid_app_key`; a missing key says "APP_KEY is missing", and a broken one says `starts with "base64:" but the rest is not valid base64`.
 **Fix:** generate a real key:
 
 ```bash
@@ -376,13 +380,15 @@ decrypt(payload, WEBHOOK_SECRET)
 → Call it from a controller, middleware or command, or wrap the code in app.run(() => …) (tests: await app.run(async () => …)).
 ```
 
-**Why:** you called `encrypt()` at the top level of a file, or in a script that never started the app, so there is no current app to read the key from (the error code is `NO_CURRENT_APPLICATION`).
+**Why:** you called `encrypt()` at the top level of a file, or in a script that never started the app, so there is no current app to read the key from (the error code is `no_current_application`).
 **Fix:** call it inside a request, command or seeder. In a test, run it inside the app (`app.run(() => encrypt('x'))`), or build an `Encrypter` yourself:
 
 ```ts title="tests/unit/webhook-secret.test.ts"
+import { randomBytes } from 'node:crypto'
 import { Encrypter, Keyring } from '@strutvane/framework'
 
-const encrypter = new Encrypter(Keyring.from('base64:' + Buffer.alloc(32, 7).toString('base64')))
+// A fresh, generated 32-byte key for this test only.
+const encrypter = new Encrypter(Keyring.from('base64:' + randomBytes(32).toString('base64')))
 encrypter.decryptString(encrypter.encryptString('hi'))   // → 'hi'
 ```
 

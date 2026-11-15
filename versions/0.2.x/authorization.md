@@ -337,7 +337,7 @@ A React `can()` hook for your own screens is planned (parity checklist: "a UI `c
 
 ## Where policies live
 
-One file per model, `app/policies/<model>.policy.ts`, exporting `<Model>Policy`. In the prototype, a controller names its policy (`protected readonly policy = new PostPolicy()`). The blueprint plans **automatic discovery by name**, like Laravel, so a `PostPolicy` in `post.policy.ts` is found for `Post` without that line; that's coming in 0.2. `node strut make:policy` writes a deny-all policy.
+One file per model, `app/policies/<model>.policy.ts`, exporting `<Model>Policy`. Policies are **discovered by name**, like Laravel: model `Post` → `app/policies/post.policy.ts`, with no registration. A controller that names a policy explicitly (`protected readonly policy = new PostPolicy()`) overrides discovery. Discovery is decided and coming in 0.2; the prototype needs the explicit line. `node strut make:policy` writes a deny-all policy.
 
 See which routes are protected by what:
 

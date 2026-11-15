@@ -17,7 +17,7 @@
  */
 import context from 'virtual:strutvane-docs/context'
 import { pagePath } from '../../scripts/lib/paths.ts'
-import { displayName, PACKAGE_STATUS_LABELS, PACKAGE_STATUSES, packageGroups, phaseText } from '../../scripts/lib/packages-data.ts'
+import { displayName, PACKAGE_STATUS_LABELS, PACKAGE_STATUSES, packageGroups, packageSlug, phaseText } from '../../scripts/lib/packages-data.ts'
 import { packagesData } from '../lib/packages.ts'
 
 const groups = packageGroups(packagesData)
@@ -60,7 +60,8 @@ const usedStatuses = PACKAGE_STATUSES.filter((status) => packagesData.packages.s
             {entry.replacement !== null && <p class="docs-package-replacement"><strong>Use instead:</strong> {entry.replacement}</p>}
             {entry.note !== undefined && <p class="docs-package-note">{entry.note}</p>}
             <p class="docs-package-links">
-              {entry.docs !== null && <a href={docsHref(entry.docs)}>Docs</a>}
+              <a href={docsHref(packageSlug(entry))}>Page</a>
+              {entry.docs !== null && entry.docs !== packageSlug(entry) && <a href={docsHref(entry.docs)}>Guide</a>}
               {entry.repo !== null && <a href={entry.repo}>Repository</a>}
               {entry.since !== null && <span>Since {entry.since}</span>}
             </p>

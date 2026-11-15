@@ -19,8 +19,10 @@ A Strutvane admin is split into two parts:
 
 | Part | Package | What it holds |
 |---|---|---|
-| **Behaviour** | `@strutvane/ui` | The auto CRUD screens, tables, forms, filters, the sidebar, the command palette, keyboard shortcuts, chart data and accessibility. No colours or layout chrome of its own. |
+| **Behaviour** | `@strutvane/ui` | The auto CRUD screens, tables, forms, filters, the sidebar, the command palette, keyboard shortcuts and accessibility. No colours or layout chrome of its own. |
 | **Look** | a **design package**, such as `@strutvane/design-crisp` | **Tokens** (named values for colour, type, spacing, radius, shadow and density, in light and dark), fonts, the **shell** (sidebar, top bar and the sign-in layout), component skins, the chart palette, empty-state illustrations, and its own `DESIGN.md`. |
+
+Charts are a separate package, `@strutvane/charts`, not part of `@strutvane/ui`. When it's installed, it takes its palette from the design.
 
 A **token** is a named setting, written as a CSS variable such as `--radius`, that every component reads instead of a hard-coded value. Change the token and every button, card and input follows.
 
@@ -45,7 +47,7 @@ The smallest example: create an app and press <kbd>Enter</kbd> on the design que
 npm create strutvane@latest my-app
 ```
 
-**What you'll see** (the design is one of the 7 Recommended questions, asked for full apps only):
+**What you'll see** (the design is one of the Recommended questions, asked for full apps only):
 
 ```text
 ? Which design should your app use?
@@ -118,8 +120,19 @@ Why two files: switching design rewrites one line in `config/ui.ts`, so a brand 
 
 `theme.css` loads **after** the design, so whatever you set there wins. Uncomment a line and change its value.
 
+You restyle through four **public override tokens**, the same in every design:
+
+| Token | What it changes |
+|---|---|
+| `--brand-hue` | The brand colour (buttons, links, focus rings, the active menu item) |
+| `--font-sans` | The font of the whole UI |
+| `--radius` | How round the corners of cards, inputs and buttons are |
+| `--density` | How much room tables, forms and menus take |
+
+Each design maps these four onto its own internal tokens. Crisp, for example, maps them onto its `--accent*`, `--font-ui` and `--shape-*` tokens. Set the public token, never a design's internal one, and your override works in every design.
+
 :::caution[Coming in 0.2]
-The override names below (`--brand-hue`, `--font-sans`, `--radius`) are the ones the installer prototype writes today. The final shared names come with the design contract, `defineDesign()`, which isn't written yet: the Crisp mockup currently names its tokens differently (`--accent`, `--shape-md`, `--font-ui`). Expect these names to change before 0.2 is released.
+The four public tokens are decided as part of the design contract, and the conformance kit will check that setting each one really changes the rendering. The installer prototype (spike 13) writes `--brand-hue`, `--font-sans` and `--radius` into `theme.css` today, not `--density` yet. The Crisp and Vivid mockups don't map the public tokens yet (Crisp still reads its own `--accent`, `--font-ui` and `--shape-*` directly), and the values `--density` takes aren't final.
 :::
 
 ### Your brand colour
@@ -205,6 +218,7 @@ node strut design:eject
 Every design, first-party or from the community, is built with `defineDesign()` from `@strutvane/ui` and must pass its test kit, `designConformance()`:
 
 - every **slot** (a named place a design fills, such as the sidebar or the sign-in layout) is provided;
+- every public override token (`--brand-hue`, `--font-sans`, `--radius`, `--density`) is mapped, and setting it really changes the rendering;
 - every token pair meets **WCAG AA** contrast (the accessibility standard for readable text) in both themes;
 - there are no hard-coded colours;
 - **axe** (an automatic accessibility checker) finds 0 violations on the reference screens;
@@ -251,9 +265,9 @@ One known gap in Crisp: input outlines are below 3:1 against the page, a deliber
 
 ### My override in `theme.css` does nothing
 
-**Why:** usually one of two things. The line is still commented out (`/* --brand-hue: 250; */`), or the token name isn't one the design reads (the final names come with `defineDesign()`, see the box above).
+**Why:** usually one of two things. The line is still commented out (`/* --brand-hue: 250; */`), or you set a token that isn't one of the four public override tokens, such as Crisp's internal `--accent`.
 
-**Fix:** remove the `/*` and `*/` around the line, reload the page, and check the design's `DESIGN.md` for the token names it reads.
+**Fix:** remove the `/*` and `*/` around the line, use `--brand-hue`, `--font-sans`, `--radius` or `--density`, and reload the page. See [Restyling with `theme.css`](#restyling-with-themecss).
 
 ### The installer refuses `--design`
 

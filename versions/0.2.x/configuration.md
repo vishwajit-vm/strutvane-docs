@@ -82,7 +82,7 @@ import { defineConfig } from '@strutvane/framework'
 
 export default defineConfig((env) => ({
   name: env.string('APP_NAME', 'My App'),
-  env: env.oneOf('APP_ENV', ['local', 'testing', 'production'], 'production'),
+  env: env.oneOf('APP_ENV', ['local', 'testing', 'staging', 'production'], 'production'),
   debug: env.boolean('APP_DEBUG', false),
   url: env.url('APP_URL', 'http://localhost:3000'),
   key: env.string('APP_KEY'), // no default: the app refuses to start without it
@@ -120,7 +120,7 @@ const title = config('app.name')   // string
 const debug = config('app.debug')  // boolean
 ```
 
-**What you'll see:** the values from your config files, already typed. A typo like `config('app.debg')` is a **compile error**, not a silent `undefined`. See [Helpers, Not Facades](../helpers/) for how `config()` finds the current app.
+**What you'll see:** the values from your config files, already typed. A typo like `config('app.debg')` is a **compile error**, not a silent `undefined`. See [Helpers](../helpers/) for how `config()` finds the current app.
 
 ### An advanced config file: one setting, several connections
 
@@ -178,9 +178,9 @@ The installer and its `.env` writer are proven in a prototype (spike 13). Keys m
 | Key | What it's for | Default in a new app |
 |---|---|---|
 | `APP_NAME` | Your app's name, shown in the UI and in emails. | the project name |
-| `APP_ENV` | `local`, `testing` or `production`. Seeders don't run by themselves in production, and the debug error page only appears in `local` and `testing`. | `local` (`.env.example`: `production`) |
-| `APP_KEY` | The key that signs cookies and CSRF tokens and encrypts data. 32 random bytes, **generated**. Keep it secret. | generated |
-| `APP_DEBUG` | `true` shows detailed error pages, in `local`/`testing` only. The debug page is never shown in production, whatever this says. | `true` (`.env.example`: `false`) |
+| `APP_ENV` | `local`, `testing`, `staging` or `production`. In production, seeders don't run by themselves, and `node strut migrate` asks for confirmation unless you pass `--force` (as in Laravel). The debug error page only appears in `local` and `testing`. | `local` (`.env.example`: `production`) |
+| `APP_KEY` | The root secret: it signs cookies and CSRF tokens and encrypts data, and every other key is derived from it. 32 random bytes, **generated**. Keep it secret. | generated |
+| `APP_DEBUG` | `true` shows detailed error pages, in `local`/`testing` only. With `APP_ENV=production`, `APP_DEBUG=true` stops the app from starting unless you pass `--force-debug`, and even then the debug page stays off. | `true` (`.env.example`: `false`) |
 | `APP_URL` | The address people use to reach the app. Also the origin the CSRF check trusts. | `http://localhost:3000` |
 | `APP_PORT` | The port `npm run dev` listens on. The installer picks the next free one if 3000 is taken. | `3000` |
 | `APP_PREVIOUS_KEYS` | Old keys kept by `node strut key:rotate`, so existing cookies and encrypted values still open. *Designed.* | not set |
@@ -209,7 +209,7 @@ DB_SSL_CA=storage/certs/provider-ca.pem
 ```
 
 :::caution[Coming in 0.2]
-Decided on 2026-11-15 and not built yet: `mariadb` (and detecting it), `pgsql` as the written name (the installer prototype still writes `postgres`), `DB_URL`, `DB_SOCKET`, `DB_SSLMODE`, `DB_SSL_CA`, the empty-password warning and the PostgreSQL roles on your own server. The values accepted by `DB_SSLMODE` follow Laravel's PostgreSQL setting; how they map onto MySQL and MariaDB isn't written down yet.
+Decided on 2026-11-15 and not built yet: `mariadb` (and detecting it), `DB_URL`, `DB_SOCKET`, `DB_SSLMODE`, `DB_SSL_CA`, the empty-password warning and the PostgreSQL roles on your own server. The values accepted by `DB_SSLMODE` follow Laravel's PostgreSQL setting; how they map onto MySQL and MariaDB isn't written down yet.
 :::
 
 ### Mail
@@ -248,7 +248,7 @@ The installer prototype (spike 13) still writes `AUTH_SECRET`, `AUTH_MODE`, `AUT
 
 | Key | What it's for | Default in a new app |
 |---|---|---|
-| `TENANCY_ENABLED` | Written when you chose teams. | `true` |
+| `TENANCY_ENABLED` | **Prototype only.** The installer prototype writes it when you chose teams. Decided instead: teams are switched on in `config/tenancy.ts` (`{ enabled, column: 'tenant_id' }`), where `enabled` is `false` unless you answered yes to teams; the ORM's tenant scope is active only when it's on. *Coming in 0.2.* | `true` (prototype) |
 | `AI_PROVIDER` | Written when you chose AI features: `anthropic`, `openai`, `google` or `ollama`. | your choice |
 | `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GOOGLE_API_KEY` | The provider's key. Written **empty**: the installer never asks for it, so it can't end up in your shell history or a CI log. Paste it in yourself. | empty |
 | `OLLAMA_HOST` | For local models with Ollama. | `http://127.0.0.1:11434` |
@@ -261,11 +261,11 @@ The logging keys are decided (ADR-0022) but **designed, not built yet**: the ins
 
 | Key | What it's for | Default |
 |---|---|---|
-| `LOG_CHANNEL` | Where logs go: `single`, `daily`, `stack`, `stderr`, `stdout`, `slack`, `null`, or a channel you define. | `stack` |
+| `LOG_CHANNEL` | Where logs go: `single`, `daily`, `stack`, `stderr`, `stdout`, `slack`, `null`, or a channel you define. | `stack` (the [production Dockerfile](../docker/#the-production-dockerfile) sets `stderr`) |
 | `LOG_STACK` | The channels `stack` writes to, comma-separated (`daily,slack`). | `daily` |
 | `LOG_LEVEL` | The least important level that's still written. | `debug` in local, `info` otherwise |
 | `LOG_DAILY_DAYS` | How many days of daily files to keep. | `14` |
-| `LOG_FORMAT` | `line` (readable) or `json` (one JSON object per line). | `line` |
+| `LOG_FORMAT` | `line` (readable) or `json` (one JSON object per line). | `line` (the production Dockerfile sets `json`) |
 | `LOG_MAX_FILE_SIZE` | A file grows to this size, then a new part file starts. | `100mb` |
 | `LOG_PATH` | The folder for log files. | `storage/logs` |
 | `LOG_SLACK_WEBHOOK_URL` | The Slack webhook for the `slack` channel. A secret. | not set |
@@ -292,7 +292,8 @@ You don't edit the Docker values by hand: the installer writes the values that m
 
 - **`strutvane.json`** (committed) records every installer answer, defaults included, plus the packages they brought, so `node strut install:<name>` later knows what you picked. It **never holds a secret**.
 - **`config/ui.ts`** (full-stack apps) names your design (`design: 'crisp'`), the default appearance, the UI languages and a few UI switches. See [Designs](../designs/).
-- **`.strutvane/setup.json`** (git-ignored) tracks the installer's steps so `npm run setup` can resume. It holds no secret either.
+- **`.strutvane/`** (committed) holds generated types, resources and the API client.
+- **`.strutvane/local/setup.json`** (git-ignored, like everything in `.strutvane/local/`) tracks the installer's steps on this computer, so `npm run setup` can skip what's done. It's optional: a fresh clone sets up from `strutvane.json` alone. It holds no secret either.
 
 ## Setting a variable for one command
 
@@ -406,4 +407,4 @@ error TS2345: Argument of type '"app.nmae"' is not assignable to parameter of ty
 - [Docker](../docker/): what the Docker keys do.
 - [Logging](../logging/): the `LOG_*` keys in action.
 - [Directory Structure](../structure/): where `config/` and everything else lives.
-- [Helpers, Not Facades](../helpers/): `config()`, `route()` and friends.
+- [Helpers](../helpers/): `config()`, `route()` and friends.

@@ -9,7 +9,7 @@ description: Get useful charts for every table without writing queries. Suggesti
 This is Strutvane's version of Nova metrics or Filament's chart widgets. The difference: you don't write a query per chart. Strutvane suggests charts from your migrations, and one shared endpoint (`/aggregate`) computes them, already filtered by your policies and teams.
 :::
 
-:::caution[Planned after 0.2]
+:::caution[Coming before 1.0]
 Charts and dashboards are planned for **phase 3** of the roadmap (on the way to 1.0), so they are not part of 0.2. Everything on this page is proven in a prototype (spike 16: 178 tests on SQLite and PostgreSQL with identical numbers; MySQL's SQL is written but wasn't run), but nothing is released. Names and import paths may change. The prototype's look is a placeholder: the released charts take their colours from your [design](../designs/).
 :::
 

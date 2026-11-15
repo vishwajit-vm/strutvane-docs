@@ -309,11 +309,12 @@ Work that runs **after** the response is sent (Laravel's terminable middleware a
 An app is a function from a `Request` to a `Response`. Tests don't need a port or a server:
 
 ```ts title="tests/feature/health.test.ts"
+import { randomBytes } from 'node:crypto'
 import { expect, test } from 'vitest'
 import { createApp } from '../../bootstrap/app.ts'
 
 test('the health route answers', async () => {
-  const app = createApp({ APP_ENV: 'testing', APP_KEY: 'test-key', DB_CONNECTION: 'sqlite' })
+  const app = createApp({ APP_ENV: 'testing', APP_KEY: `base64:${randomBytes(32).toString('base64')}`, DB_CONNECTION: 'sqlite' })
   const response = await app.handle(new Request('http://localhost/up'))
   expect(response.status).toBe(200)
   expect(await response.json()).toEqual({ status: 'ok' })

@@ -54,15 +54,15 @@ npm create strutvane@latest my-app
 
 ### Recommended or Custom
 
-The **installer** (the small program `npm create` downloads and runs) first asks how much you want to decide:
+The **installer** (the small program `npm create` downloads and runs) first asks how much you want to decide (something like this):
 
 ```text
 ? How do you want to set up my-app?
-❯ Recommended   7 quick questions, sensible defaults for the rest
+❯ Recommended   a few quick questions, sensible defaults for the rest
   Custom        Choose everything (about 35 questions, grouped)
 ```
 
-Press **Enter** for **Recommended**. You're asked seven questions. Press Enter on each to take the default:
+Press **Enter** for **Recommended**. You're asked these questions; press Enter on each to take the default:
 
 | Question | Default | What it means |
 |---|---|---|
@@ -74,7 +74,7 @@ Press **Enter** for **Recommended**. You're asked seven questions. Press Enter o
 | With Docker or without? | **With Docker** | Docker runs the database and a mail inbox for you, like Laravel Sail. |
 | AI coding assistants? | **Yes** | Adds an `AGENTS.md` and helpers so AI tools understand your project. |
 
-A question that brings a package is shown only once that package is published and works with your framework version. The AI assistants question brings `@strutvane/agent-tools`, planned after 0.2, so in 0.2 Recommended mode asks the first six.
+A question that brings a package is shown only once that package is published and works with your framework version. The AI assistants question brings `@strutvane/agent-tools`, coming in 0.3, so in 0.2 Recommended mode asks the first six.
 
 **Custom** asks about 35 questions in groups (sign-in security, roles, cache, storage, mail, tests, CI, deployment, and more). Every question also has a flag, so a whole setup can be one line: `npm create strutvane@latest my-app -- --db sqlite --yes`. [Installation](../installation/) lists every question and flag.
 
@@ -176,7 +176,6 @@ node strut make:migration create_posts_table --seeder
   Created app/models/post.ts
   Created database/seeders/post.seeder.ts
   Created database/factories/post.factory.ts
-  Registered PostSeeder in database/seeders/database.seeder.ts
 
   Next: add your columns to the migration, then run `node strut migrate`.
 ```
@@ -239,7 +238,7 @@ node strut migrate
 ```text
   ✔ 2026_11_14_093000_create_posts_table   14ms
   ✔ Types and metadata regenerated (3 tables)
-  ✔ Seeded PostSeeder
+  ✔ Seeded post.seeder.ts
   ✔ API: /api/posts  ·  UI: Posts (sidebar)
 ```
 

@@ -1,0 +1,102 @@
+---
+/**
+ * The body of one package's page, rendered from its entry in `src/data/packages.json`:
+ * a plain-words status banner, the summary, an example (labelled as a proposal unless the
+ * package is being built), the Laravel equivalent, the phase and the links.
+ *
+ * Every `versions/<branch>/packages/<id>.mdx` page is a short shell written by
+ * `npm run packages:pages`; this component fills it, so a new package needs only a data entry.
+ *
+ * ```mdx
+ * import PackagePage from '@docs-components/PackagePage.astro'
+ *
+ * <PackagePage id="auth" />
+ * ```
+ */
+import { Code } from '@astrojs/starlight/components'
+import context from 'virtual:strutvane-docs/context'
+import { pagePath } from '../../scripts/lib/paths.ts'
+import { displayName, statusBanner } from '../../scripts/lib/packages-data.ts'
+import { packagesData } from '../lib/packages.ts'
+
+interface Props {
+  /** The entry's id in `src/data/packages.json`. */
+  readonly id: string
+}
+
+const entry = packagesData.packages.find((candidate) => candidate.id === Astro.props.id)
+if (entry === undefined) throw new Error(`PackagePage: no entry "${Astro.props.id}" in src/data/packages.json. Run npm run packages:pages after editing the data.`)
+const banner = statusBanner(entry)
+const href = (slug: string): string => pagePath(context.base, context.building, slug)
+const category = packagesData.categories.find((candidate) => candidate.id === entry.category)?.label ?? entry.category
+const exampleLabel =
+  entry.status === 'retired' ? 'Before and after' : entry.status === 'in-development' ? 'What using it looks like (names may still change before 0.2)' : 'What using it will look like (a proposal: the names may change)'
+---
+
+<div class={`docs-pkg-banner docs-pkg-banner--${banner.tone} not-content`} role="note" data-package-banner={entry.status} data-package-id={entry.id}>
+  <strong>{banner.text}</strong>
+</div>
+
+<p>{entry.summary}</p>
+
+{entry.replacement !== null && <p><strong>Use instead:</strong> {entry.replacement}</p>}
+{entry.note !== undefined && <p>{entry.note}</p>}
+
+{entry.example !== null && (
+  <>
+    <p><strong>{exampleLabel}</strong></p>
+    <Code code={entry.example.code} lang={entry.example.lang} />
+  </>
+)}
+
+<table>
+  <tbody>
+    <tr><th scope="row">Status</th><td>{banner.text}</td></tr>
+    {entry.npm !== null && <tr><th scope="row">npm</th><td><code>{entry.npm}</code></td></tr>}
+    {entry.laravel !== null && <tr><th scope="row">Laravel equivalent</th><td>{entry.laravel}</td></tr>}
+    {entry.phase !== null && <tr><th scope="row">Roadmap phase</th><td>{entry.phase}</td></tr>}
+    <tr><th scope="row">Group</th><td>{category}</td></tr>
+    {entry.since !== null && <tr><th scope="row">Status since</th><td>{entry.since}</td></tr>}
+    {entry.repo !== null && <tr><th scope="row">Repository</th><td><a href={entry.repo}>{entry.repo.replace('https://github.com/', '')}</a></td></tr>}
+  </tbody>
+</table>
+
+<p>
+  {entry.docs !== null && entry.docs !== `packages/${entry.id}` && <><a href={href(entry.docs)}>Read the guide</a> · </>}
+  <a href={`${href('packages/catalogue')}#pkg-${entry.id}`}>{displayName(entry)} in the catalogue</a>
+  {entry.status !== 'retired' && entry.status !== 'shelved' && entry.status !== 'in-development' && <> · Once it's published, add it with <code>node strut install:{entry.id}</code>.</>}
+</p>
+
+<style>
+  .docs-pkg-banner {
+    margin-block: 1rem;
+    padding: 0.75rem 1rem;
+    border: 1px solid var(--sl-color-gray-5);
+    border-left-width: 4px;
+    border-radius: 0.6rem;
+  }
+  .docs-pkg-banner--available {
+    border-left-color: var(--docs-ok-text);
+    background-color: var(--docs-ok-bg);
+    color: var(--docs-ok-text);
+  }
+  .docs-pkg-banner--progress {
+    border-left-color: var(--docs-warning-text);
+    background-color: var(--docs-warning-bg);
+    color: var(--docs-warning-text);
+  }
+  .docs-pkg-banner--proposed {
+    border-left-color: var(--sl-color-accent);
+    background-color: var(--sl-color-gray-6);
+    color: var(--sl-color-white);
+  }
+  .docs-pkg-banner--shelved {
+    border-left-style: dashed;
+    color: var(--sl-color-gray-2);
+  }
+  .docs-pkg-banner--retired {
+    border-left-color: var(--docs-danger-text);
+    background-color: var(--docs-danger-bg);
+    color: var(--docs-danger-text);
+  }
+</style>

@@ -74,8 +74,8 @@ Notifications are in **phase 2 of the roadmap (0.3, "background work")**: the ma
 |---|---|---|
 | `mail` | sends an email through your [mailer](../mail/) | 0.3 |
 | `database` | stores a row in the `notifications` table; the bell and `/notifications` page read it | 0.3 |
-| `broadcast` | pushes it live to the open browser tab | 0.3 (live delivery needs `@strutvane/realtime`, phase 6) |
-| `sms`, `slack`, `teams`, `webpush`, `whatsapp` | via `@strutvane/notification-channels` | phase 6 |
+| `broadcast` | pushes it live to the open browser tab | 0.3 (live delivery needs `@strutvane/realtime`, coming after 1.0) |
+| `sms`, `slack`, `teams`, `webpush`, `whatsapp` | via `@strutvane/notification-channels` | coming after 1.0 (phase 6) |
 
 ### Choosing channels per person
 
@@ -178,7 +178,7 @@ import { PostPublished } from '../../app/notifications/post-published.notificati
 
 it('notifies the author when a post is published', async () => {
   Notification.fake()
-  await client(app).actingAs(aliceToken).postJson('/api/posts/hello-world/publish', {})
+  await client(app).withToken(aliceToken).postJson('/api/posts/hello-world/publish', {})
   Notification.assertSentTo(alice, PostPublished, (sent, channels) => channels.includes('database'))
   Notification.assertNotSentTo(bob, PostPublished)
 })

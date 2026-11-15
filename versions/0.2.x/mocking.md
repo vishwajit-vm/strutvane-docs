@@ -8,7 +8,7 @@ Some things your code does shouldn't really happen in a test: sending mail to a 
 Strutvane is built for this: services come from the app's **container** (a registry of the app's services), so a test can replace any of them for **that test's app only**, without touching global state.
 
 :::tip[Coming from Laravel?]
-Laravel's fakes keep their names: `Mail::fake()` → `Mail.fake()`, `Http::fake()` → `Http.fake()`, `Http::preventStrayRequests()` → `Http.preventStrayRequests()`, `Queue::fake()`, `Event::fake()`, `Notification::fake()`, `Storage::fake()`, `Process::fake()`, and `$this->travelTo()` / `$this->freezeTime()` → `travelTo()` / `freezeTime()`. `$this->app->instance(...)` → `app.container.instance(...)`.
+Laravel's fakes keep their names: `Mail::fake()` → `Mail.fake()`, `Http::fake()` → `Http.fake()`, `Http::preventStrayRequests()` → `Http.preventStrayRequests()`, `Queue::fake()`, `Event::fake()`, `Notification::fake()`, `Storage::fake()`, `Process::fake()`, and `$this->travelTo()` / `$this->freezeTime()` → `travelTo()` / `freezeTime()`. `actingAs(user)` and `withToken(token)` sign requests in, see [HTTP Tests](../http-tests/). `$this->app->instance(...)` → `app.container.instance(...)`. Every fake belongs to the decided accessor list (`Mail`, `Queue`, `Event`, `Bus`, `Notification`, `Storage`, `Http`, …).
 
 What's different: fakes live in the **current app's** container, not in a global, so two tests running at the same time never share a fake.
 :::
@@ -33,7 +33,7 @@ import { expect, it } from 'vitest'
 it('stamps the report with today', async () => {
   app.container.instance(ClockToken, () => new Date('2026-11-15T10:00:00Z'))
 
-  const response = await client(app).actingAs(demoTokens.alice).postJson('/api/reports', {})
+  const response = await client(app).withToken(demoTokens.alice).postJson('/api/reports', {})
   expect(response.path('data.generated_at')).toBe('2026-11-15T10:00:00.000Z')
 })
 ```
@@ -92,7 +92,7 @@ A typical use is expiry:
 ```ts
 it('expires a temporary download link after 10 minutes', async () => {
   freezeTime(app)
-  const link = await app.run(() => temporarySignedRoute('downloads.show', new Date(Date.now() + 10 * 60_000), { file }))
+  const link = await app.run(() => url.temporarySignedRoute('downloads.show', new Date(Date.now() + 10 * 60_000), { file }))
   travel(app, { minutes: 11 })
   ;(await client(app).get(link)).assertProblem(403, 'signature_expired')
 })
@@ -149,11 +149,11 @@ import { expect, it } from 'vitest'
 
 it('refuses a webhook URL that points at the cloud metadata service', async () => {
   const resolver = async () => ['169.254.169.254']   // the name "resolves" to a metadata address
-  await expect(safeFetch('https://hooks.example.com/x', { resolver })).rejects.toMatchObject({ code: 'SSRF_BLOCKED' })
+  await expect(safeFetch('https://hooks.example.com/x', { resolver })).rejects.toMatchObject({ code: 'ssrf_blocked' })
 })
 ```
 
-`SSRF_BLOCKED` means nothing was sent at all. See [HTTP Client](../http-client/).
+`ssrf_blocked` means nothing was sent at all. See [HTTP Client](../http-client/).
 
 ## Mail
 
@@ -184,7 +184,7 @@ These fakes arrive with their features in 0.3. They all work the same way: call 
 
 ```ts
 Queue.fake()
-await client(app).actingAs(demoTokens.alice).postJson('/api/exports', {})
+await client(app).withToken(demoTokens.alice).postJson('/api/exports', {})
 Queue.assertPushed(ExportPosts)
 ```
 

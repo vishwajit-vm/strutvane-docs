@@ -90,16 +90,20 @@ Open [http://localhost:3000](http://localhost:3000) and sign in with the admin e
 
 Right after the project name, the installer asks **how much you want to decide**:
 
+Something like this (the installer counts the quick questions it will really ask):
+
 ```text
 ? How do you want to set up my-app?
-❯ Recommended   7 quick questions, sensible defaults for the rest
-  Custom        Choose everything (about 35 questions, grouped)
+❯ Recommended   a few quick questions, sensible defaults for the rest
+  Custom        Choose everything, grouped
 ```
 
 | Mode | What you're asked | Flag |
 |---|---|---|
-| **Recommended** (default) | The 7 questions marked ★ below: what you're building, the design, how people sign in, teams, the database, Docker, and AI coding assistants. Everything else takes its default. | `--mode recommended` |
+| **Recommended** (default) | The questions marked ★ below. In 0.2 that's what you're building, the design (full app only), how people sign in, teams (when people sign in), the database, and Docker. Everything else takes its default. | `--mode recommended` |
 | **Custom** | Every question, grouped (App, Sign-in, Teams, Data, Infra, Features, Quality, Workflow, Security, AI, UI, Ops). | `--mode custom` |
+
+Both lists grow release by release: a question that brings a package appears once that package ships. The AI coding assistants question (24), for example, joins Recommended mode in 0.3.
 
 Some questions are asked **in both modes** whenever they apply, because they have no safe default: the connection details of your own database server, a password you chose to type, and the extra questions of a package you picked.
 
@@ -130,14 +134,14 @@ After the last question, you see every answer, the defaults included (something 
 - **Change an answer** asks one question again. Answers that no longer apply are dropped (turn teams off, and the "how a request picks its team" answer goes away), and newly applying questions are asked.
 - **Cancel** stops before anything is written. The exit code is `130`.
 
-Your answers (never a secret) are saved in **`strutvane.json`** in the new project. Later, `node strut install:<name>` reads it to know what you picked.
+Your answers (never a secret) are saved in **`strutvane.json`** in the new project, which is committed. Later, `node strut install:<name>` reads it to know what you picked, and a teammate's `npm run setup` rebuilds the project from it.
 
 ## Every question
 
 Questions marked ★ are asked in Recommended mode. Every question has a flag, so you can answer it on the command line instead. **Bold** is the default.
 
 :::note[Which questions you'll really see]
-The installer only offers a package once it's published and works with your framework version. Several choices below bring packages planned **after** 0.2; they're marked "after 0.2" in the tables. In 0.2, a question that only brings such a package isn't shown at all, and a choice that brings one isn't offered; the question list grows release by release. (The prototype still shows them all, as stubs; a `--preview-catalogue` developer flag keeps the full list for testing.)
+The installer only offers a package once it's published and works with your framework version. Several choices below bring packages that come later; the tables mark them "(0.3)", "(before 1.0)" or "(after 1.0)". In 0.2, a question that only brings such a package isn't shown at all, and a choice that brings one isn't offered; the question list grows release by release. (The prototype still shows them all, as stubs; a `--preview-catalogue` developer flag keeps the full list for testing.)
 :::
 
 ### Project and app
@@ -157,9 +161,9 @@ A **design** is a package that gives the screens their look: colours, fonts, the
 |---|---|---|---|---|
 | 5 | ★ How do people sign in? | **Email and password**, email link only (passwordless), no sign-in | `--auth email\|magic-link\|none` | `@strutvane/auth` |
 | 6 | Extra sign-in security (pick several) | **two-factor**, **email verification**, passkeys, public registration (off) | `--security 2fa,verification,passkeys,registration` | `@strutvane/auth` |
-| 7 | Social login (pick several) | **none**, Google, Microsoft, GitHub, Apple | `--social google,microsoft,github,apple` | `@strutvane/social-login` (after 0.2) |
-| 8 | Enterprise SSO for your customers (SAML/OIDC + SCIM; needs teams) | **no**, yes | `--sso` | `@strutvane/sso` (after 0.2) |
-| 9 | API access for other apps | **personal access tokens**, OAuth 2.1 server, none | `--api tokens\|oauth\|none` | `@strutvane/auth`, or `@strutvane/oauth-server` (after 0.2) |
+| 7 | Social login (pick several) | **none**, Google, Microsoft, GitHub, Apple | `--social google,microsoft,github,apple` | `@strutvane/social-login` (0.3) |
+| 8 | Enterprise SSO for your customers (SAML/OIDC + SCIM; needs teams) | **no**, yes | `--sso` | `@strutvane/sso` (after 1.0) |
+| 9 | API access for other apps | **personal access tokens**, OAuth 2.1 server, none | `--api tokens\|oauth\|none` | `@strutvane/auth`, or `@strutvane/oauth-server` (after 1.0) |
 | 10 | Starting roles | **admin + member**, admin + manager + member + viewer | `--roles admin-member\|admin-manager-member-viewer` | |
 
 What the three sign-in modes mean:
@@ -278,13 +282,17 @@ node strut user:password admin@my-app.test
 
 | # | Question | Choices (default **bold**) | Flag | Brings |
 |---|---|---|---|---|
-| 18 | Cache, queue and sessions | **database (no extra service)**, Redis | `--cache-store database\|redis` | `@strutvane/redis` (after 0.2) |
-| 19 | File storage | **local disk**, S3-compatible | `--storage local\|s3` | `@strutvane/files` (after 0.2) |
-| 20 | Production mailer (development always uses the inbox) | **decide later**, SMTP, Resend, Postmark, Amazon SES | `--mailer later\|smtp\|resend\|postmark\|ses` | |
+| 18 | Cache, queue and sessions | **database (no extra service)**, Redis | `--cache-store database\|redis` | `@strutvane/redis` (0.3) |
+| 19 | File storage | **local disk**, S3-compatible | `--storage local\|s3` | `@strutvane/files` (before 1.0) |
+| 20 | Production mailer (development always uses the inbox) | **decide later**, SMTP, Resend, Postmark, Amazon SES | `--mailer later\|smtp\|resend\|postmark\|ses` | Resend, Postmark and SES drivers (0.3) |
 | 21 | Language, time zone, currency | **en**, **this computer's time zone**, **USD** | `--locale en`, `--timezone Europe/Berlin`, `--currency USD` | |
 
-:::caution[Planned after 0.2]
-Redis (phase 2), S3-compatible storage through `@strutvane/files` (phase 3) and the Resend, Postmark and SES mail drivers (phase 2, "mail drivers") come after 0.2. 0.2 ships a minimal mail core: SMTP plus the development inbox.
+:::caution[Coming in 0.3]
+Redis and the Resend, Postmark and SES mail drivers. 0.2 ships a minimal mail core: SMTP plus the development inbox.
+:::
+
+:::caution[Coming before 1.0]
+S3-compatible storage, through `@strutvane/files`.
 :::
 
 ### Extra features (question 22)
@@ -316,12 +324,22 @@ The catalogue index and question 22 are proven in the prototype against a sample
 
 | # | Question | Choices (default **bold**) | Flag | Brings |
 |---|---|---|---|---|
-| 23 | Tests | **Vitest**, Vitest + Playwright browser tests, none | `--testing vitest\|vitest-playwright\|none` | `@strutvane/browser-testing` for Playwright (after 0.2) |
-| 24 | ★ AI coding assistants (`AGENTS.md`, skills, local docs MCP) | **yes**, no | `--agents` / `--no-agents` | `@strutvane/agent-tools` (after 0.2) |
+| 23 | Tests | **Vitest**, Vitest + Playwright browser tests, none | `--testing vitest\|vitest-playwright\|none` | `@strutvane/browser-testing` for Playwright (after 1.0) |
+| 24 | ★ AI coding assistants (`AGENTS.md`, skills, local docs MCP) | **yes**, no | `--agents` / `--no-agents` | `@strutvane/agent-tools` (0.3) |
 | 25 | Git: a first commit, plus a GitHub Actions CI workflow | **git yes**, **CI yes** | `--git` / `--no-git`, `--ci` / `--no-ci` | |
 | 36 | Editor setup (VS Code settings, recommended extensions, format on save); optional **dev container** | **yes**; dev container **no** | `--editor`, `--dev-container` | |
 
-Question 24 writes an `AGENTS.md` file: instructions that AI coding assistants read before they change your code. The full `@strutvane/agent-tools` package (skills and a local docs server for assistants) is planned for phase 2.
+The tests the installer generates use **Vitest**, the same runner your own tests use. In 0.2, Vitest is the only test runner offered: the Playwright browser-testing choice appears once `@strutvane/browser-testing` ships.
+
+Question 24 writes an `AGENTS.md` file: instructions that AI coding assistants read before they change your code, plus skills and a local docs server for assistants.
+
+:::caution[Coming in 0.3]
+Question 24 and `@strutvane/agent-tools`. In 0.2 the question isn't shown, so no `AGENTS.md` is written.
+:::
+
+:::caution[Coming in 0.2]
+Generated tests use Vitest (decided). The installer prototype (spike 13) still writes its sample test with `node:test`.
+:::
 
 A **dev container** is a committed `.devcontainer/` folder that GitHub Codespaces and VS Code Dev Containers use to open your project in a ready-made container. See [Docker](../docker/).
 
@@ -330,24 +348,33 @@ A **dev container** is a committed `.devcontainer/` folder that GitHub Codespace
 | # | Question | Choices (default **bold**) | Flag | Brings |
 |---|---|---|---|---|
 | 26 | Security profile | **Standard**; Strict (2FA required for admins, breached-password check, 8-hour sessions, strict CSP, HSTS preload) | `--security-profile standard\|strict` | |
-| 27 | Record who changed what (activity history) | **yes for teams apps**, no | `--activity-log` | `@strutvane/activity-log` (after 0.2) |
-| 28 | AI features inside your app | **no**; yes, then a provider: Anthropic, OpenAI, Google, local (Ollama) | `--ai`, `--ai-provider anthropic\|openai\|google\|ollama` | `@strutvane/ai` (after 0.2) |
-| 29 | Let AI agents use your app safely (MCP server) | **no**, yes | `--mcp-server` | `@strutvane/mcp-server` (after 0.2) |
+| 27 | Record who changed what (activity history) | **yes for teams apps**, no | `--activity-log` | `@strutvane/activity-log` (after 1.0) |
+| 28 | AI features inside your app | **no**; yes, then a provider: Anthropic, OpenAI, Google, local (Ollama) | `--ai`, `--ai-provider anthropic\|openai\|google\|ollama` | `@strutvane/ai` (after 1.0) |
+| 29 | Let AI agents use your app safely (MCP server) | **no**, yes | `--mcp-server` | `@strutvane/mcp-server` (after 1.0) |
 | 30 | Languages for the UI (pick several) | **English**; add any | `--ui-languages en,de,pt-BR` | |
 | 31 | Default appearance | **follow the system**, light, dark | `--appearance system\|light\|dark` | |
 | 32 | Installable app (PWA: home-screen icon, offline page) | **no**, yes | `--pwa` | `@strutvane/ui` |
-| 33 | Live updates (tables refresh when others change data) | **no**, yes | `--live-updates` | `@strutvane/realtime` (after 0.2) |
-| 34 | Monitoring | **none**; OpenTelemetry export plus a health page | `--monitoring none\|otel` | `@strutvane/observability`, `@strutvane/health` (after 0.2) |
+| 33 | Live updates (tables refresh when others change data) | **no**, yes | `--live-updates` | `@strutvane/realtime` (after 1.0) |
+| 34 | Monitoring | **none**; OpenTelemetry export plus a health page | `--monitoring none\|otel` | `@strutvane/observability`, `@strutvane/health` (before 1.0) |
 | 35 | Where will you deploy? | **decide later**; any Node host (VPS, Railway, Render); Docker image (Kubernetes, Fly, Cloud Run, ECS) | `--deploy later\|node\|docker` | |
 | 37 | Start the dev server and open the browser now? (asked after setup) | **yes**, no | `--dev` / `--no-dev` | |
 
 A few notes:
 
 - **AI keys are never asked.** Choosing a provider writes an **empty** key line into `.env` (`ANTHROPIC_API_KEY=`, for example). You paste the key there yourself later, so it never lands in your shell history or a CI log.
-- **Deploy target** writes a deploy recipe (`deploy/README.md`) and the public `/up` health route. "Docker image" also writes a committed, secure `Dockerfile` and `.dockerignore`. See [Docker](../docker/) and [Deployment](../deployment/).
+- **Deploy target** writes a deploy recipe (`deploy/README.md`). "Docker image" also writes a committed, secure `Dockerfile` and `.dockerignore`. See [Docker](../docker/) and [Deployment](../deployment/).
+- **Every app has the public `/up` health route**, whatever you answer: it answers `200 {"status":"ok"}` to `GET` and `HEAD`, and stays reachable during maintenance mode, so your host's health check keeps working.
 
-:::caution[Planned after 0.2]
-The activity log, AI features, the MCP server, live updates and OpenTelemetry monitoring are planned for phase 3 and later. The strict security profile, the subdomain team picker and the PWA option are designed, not built yet.
+:::caution[Coming before 1.0]
+OpenTelemetry monitoring and the health page (`@strutvane/observability` and `@strutvane/health`).
+:::
+
+:::caution[Coming after 1.0]
+The activity log, AI features, the MCP server and live updates.
+:::
+
+:::caution[Coming in 0.2]
+The strict security profile, the subdomain team picker and the PWA option are designed, not built yet. The prototype's `/up` answers plain `up`; the JSON answer is decided.
 :::
 
 ## Every flag at once
@@ -402,9 +429,8 @@ npm create strutvane@latest my-app -- --db sqlite --yes
 
 ```bash
 npm create strutvane@latest acme -- --stack full --design vivid --auth magic-link --security passkeys \
-  --teams --tenant subdomain --db postgres --docker --features billing,search \
-  --feature-option billing.provider=paddle --ai --ai-provider anthropic --deploy docker \
-  --dev-container --yes
+  --teams --tenant subdomain --db postgres --docker --features log-viewer \
+  --security-profile strict --deploy docker --dev-container --yes
 ```
 
   </TabItem>
@@ -412,9 +438,8 @@ npm create strutvane@latest acme -- --stack full --design vivid --auth magic-lin
 
 ```powershell
 npm create strutvane@latest acme -- --stack full --design vivid --auth magic-link --security passkeys `
-  --teams --tenant subdomain --db postgres --docker --features billing,search `
-  --feature-option billing.provider=paddle --ai --ai-provider anthropic --deploy docker `
-  --dev-container --yes
+  --teams --tenant subdomain --db postgres --docker --features log-viewer `
+  --security-profile strict --deploy docker --dev-container --yes
 ```
 
 PowerShell continues a line with a backtick (`` ` ``), not a backslash.
@@ -422,7 +447,7 @@ PowerShell continues a line with a backtick (`` ` ``), not a backslash.
   </TabItem>
 </Tabs>
 
-**What you'll see:** no questions; a PostgreSQL teams app with the Vivid design, passwordless sign-in with passkeys, billing on Paddle, a committed `Dockerfile` and a `.devcontainer/`.
+**What you'll see:** no questions; a PostgreSQL teams app with the Vivid design, passwordless sign-in with passkeys, the strict security profile, the log viewer, a committed `Dockerfile` and a `.devcontainer/`. (Feature packages such as billing are added the same way, with `--features` and `--feature-option`, once they're published.)
 
 ### The same project without questions
 
@@ -430,7 +455,7 @@ The Ready box always ends with the **one command that recreates your project** w
 
 ```text
 The same project without questions:
-npm create strutvane@latest my-app -- --stack full --design crisp --ui admin --auth email --security 2fa,verification --social none --api tokens --roles admin-member --no-teams --db mysql --docker --features log-viewer --testing vitest --agents --git --ci --yes
+npm create strutvane@latest my-app -- --stack full --design crisp --ui admin --auth email --security 2fa,verification --api tokens --roles admin-member --no-teams --db mysql --docker --features log-viewer --testing vitest --git --ci --yes
 ```
 
 (Shortened here; the real line has a flag for every question that applied.)
@@ -458,7 +483,7 @@ The installer does everything, with one progress line per step. Progress is save
 4. **Starts the database.** With Docker: `docker compose up -d --wait`, which waits until the containers are healthy. Without Docker: creates the SQLite file, or checks that your own server answers.
 5. **Installs dependencies** with `npm ci --ignore-scripts` from a lockfile shipped with the starter (with Docker, inside the app container). Install scripts of dependencies don't run unless they're on an allowlist in `package.json`, which blocks a common way malware spreads through npm.
 6. **Migrates and seeds** (`node strut migrate --seed`): creates your tables, your roles and the first admin user.
-7. **Creates a git repository** with a first commit, but only after checking that `.env`, `.strutvane/`, `docker/`, SQLite files and `storage/` are git-ignored and not staged.
+7. **Creates a git repository** with a first commit, but only after checking that `.env`, `.strutvane/local/`, `docker/`, SQLite files and `storage/` are git-ignored and not staged.
 8. **Offers to start the app** (question 37).
 
 **What you'll see** (with Docker, `--yes`; a real terminal also shows spinners):
@@ -502,17 +527,18 @@ The main files the installer writes (the exact list depends on your answers):
 |---|---|
 | `package.json`, `package-lock.json`, `.npmrc` | Dependencies, the shipped lockfile, and `ignore-scripts=true` |
 | `strut.js` | `node strut <command>`, your project's command line |
-| `strutvane.json` | Your installer answers (never a secret) |
+| `strutvane.json` | Your installer answers (never a secret); committed, so `npm run setup` can rebuild a fresh clone from it |
+| `.strutvane/` | Generated types, resources and the API client; committed |
 | `.env`, `.env.example` | Your settings: `.env` holds this machine's values and secrets (git-ignored); `.env.example` lists every key, without secrets (committed). See [Configuration](../configuration/) |
 | `app/`, `bootstrap/`, `config/`, `routes/`, `database/`, `resources/ui/`, `tests/` | The app itself. See [Directory Structure](../structure/) |
 | `config/ui.ts`, `resources/ui/theme.css` | Which design you use, and your own overrides |
 | `.github/workflows/ci.yml` | The CI workflow (question 25) |
 | `.vscode/` | Editor settings (question 36) |
-| `AGENTS.md` | Instructions for AI coding assistants (question 24) |
+| `AGENTS.md` | Instructions for AI coding assistants (question 24, from 0.3) |
 | `deploy/README.md` | A deploy recipe (question 35) |
 | `Dockerfile`, `.dockerignore`, `.devcontainer/` | Only if you picked them (questions 35 and 36); committed |
 | `docker/compose.yaml` | The local Docker setup (Docker mode only); **git-ignored** |
-| `.strutvane/local/setup.json` | Setup progress on this computer, for `npm run setup`; git-ignored |
+| `.strutvane/local/setup.json` | Setup progress on this computer, for `npm run setup`; git-ignored, like everything in `.strutvane/local/` |
 
 The scripts in `package.json`:
 
@@ -597,8 +623,7 @@ The local Docker files live in `docker/compose.yaml`. They're for local developm
 
 ## Platform notes
 
-<Tabs syncKey="os">
-  <TabItem label="macOS / Linux">
+### macOS and Linux
 
 - **Node.js:** use the installer from nodejs.org or a version manager. Check with `node --version`.
 - **Linux and Docker:** if Docker says `permission denied` on `docker.sock`, add yourself to the `docker` group, then log out and back in:
@@ -610,8 +635,7 @@ The local Docker files live in `docker/compose.yaml`. They're for local developm
   The installer shows this command and offers Retry or SQLite meanwhile.
 - **File ownership in Docker (Linux):** the app container runs as your user id (`STRUT_UID`/`STRUT_GID` in `.env`), so files it writes belong to you, not to root.
 
-  </TabItem>
-  <TabItem label="Windows (PowerShell)">
+### Windows (PowerShell)
 
 - **Use PowerShell or Windows Terminal.** Every command in these docs works there as written, and `node strut` needs no wrapper or execution-policy change.
 - **Scripts disabled?** Type `npm.cmd` instead of `npm`, or run `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` once.
@@ -619,8 +643,6 @@ The local Docker files live in `docker/compose.yaml`. They're for local developm
 - **Antivirus or an open editor** can lock files for a moment during `npm ci`. The installer retries once after 2 seconds; if it still fails, close the editor and run `npm run setup`.
 - **Project names** that Windows refuses as file names (`con`, `nul`, `aux`) are rejected before anything is written.
 
-  </TabItem>
-</Tabs>
 
 ## Common mistakes
 

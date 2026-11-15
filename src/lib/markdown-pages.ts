@@ -7,7 +7,7 @@ import context from 'virtual:strutvane-docs/context'
 import { toPlainMarkdown, type LlmsGroup } from '../../scripts/lib/markdown-export.ts'
 import { absoluteUrl, markdownPath, pagePath } from '../../scripts/lib/paths.ts'
 import { buildingVersion } from '../../scripts/lib/site-context.ts'
-import { packagesMarkdown } from '../../scripts/lib/packages-data.ts'
+import { packagePageMarkdown, packageSlug, packagesMarkdown } from '../../scripts/lib/packages-data.ts'
 import { releaseLinesMarkdown, supportTableMarkdown } from '../../scripts/lib/support-table.ts'
 import { packagesData } from './packages.ts'
 
@@ -34,6 +34,8 @@ export function docsTitle(): string {
  * ```
  */
 export function entryToMarkdown(entry: DocsEntry): string {
+  const docsUrl = (slug: string): string => absoluteUrl(context.site, pagePath(context.base, context.building, slug))
+  const pkg = packagesData.packages.find((candidate) => packageSlug(candidate) === entry.id)
   return toPlainMarkdown({
     title: entry.data.title,
     description: entry.data.description,
@@ -43,7 +45,8 @@ export function entryToMarkdown(entry: DocsEntry): string {
     components: {
       SupportTable: supportTableMarkdown(context.supportTable, buildingVersion(context).line),
       ReleaseLines: releaseLinesMarkdown(context.supportTable),
-      PackageCatalogue: packagesMarkdown(packagesData, (slug) => absoluteUrl(context.site, pagePath(context.base, context.building, slug))),
+      PackageCatalogue: packagesMarkdown(packagesData, docsUrl),
+      PackagePage: pkg === undefined ? '' : packagePageMarkdown(pkg, docsUrl),
     },
   })
 }
@@ -59,7 +62,7 @@ export function entryToMarkdown(entry: DocsEntry): string {
 export function llmsGroups(entries: readonly DocsEntry[]): LlmsGroup[] {
   const byId = new Map(entries.map((entry) => [entry.id, entry]))
   return context.navigation.groups.map((group) => ({
-    label: group.label,
+    label: group.parent === undefined ? group.label : `${group.parent}: ${group.label}`,
     pages: group.items.flatMap((item) => {
       const entry = byId.get(item.slug)
       if (entry === undefined) return []

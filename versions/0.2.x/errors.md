@@ -262,7 +262,7 @@ export default Application.configure({ basePath: dirname(import.meta.dirname) })
 | The record or page doesn't exist | `NotFoundError` (or `abort(404)`) | No |
 | Not signed in | `UnauthenticatedError` (or `abort(401)`) | No |
 | Signed in but not allowed | `ForbiddenError` (or `abort(403)`) | No |
-| Bad input | `ValidationError([{ field, code, message }])` | No |
+| Bad input | `ValidationError([{ path, field, code, message }])` | No |
 | A conflict, a business rule | `new HttpError(409, 'conflict', 'Conflict', '…')` | No |
 | Something that should never happen | let it throw (a plain `Error`) | **Yes**, with a reference id |
 | An expected failure from a partner | your own error class + `dontReport()` + `render()` | Only if you want |

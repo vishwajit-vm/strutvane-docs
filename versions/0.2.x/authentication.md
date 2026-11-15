@@ -8,7 +8,11 @@ description: "Sign people in with a password, an emailed link or a passkey; add 
 This page covers every sign-in method, two-factor, passkeys, sessions, API tokens, teams, impersonation and the switches that turn each feature on or off.
 
 :::caution[Coming in 0.2]
-The auth engine is **proven in a prototype** (spike 20: 215 tests, run against an in-memory store and a real SQLite database, including attack-style tests). The framework wiring is **not built yet**: the ORM-backed store, the routes inside your app, the middleware aliases, the screens (sign-in, 2FA challenge, settings), the `user:create` and `tokens:prune` commands, and changing your email address. The examples below use the prototype's routes and responses; names may still change before 0.2 is released.
+Nothing on this page is released. The auth engine is Strutvane's own (native) engine, **proven in a prototype** (spike 20: 215 tests, run against an in-memory store and a real SQLite database, including attack-style tests). It replaces Better Auth as the default engine; the decision record for that (ADR-0023, superseding ADR-0005 and ADR-0013) is proposed and waits for the project lead's confirmation.
+
+The framework wiring is **not built yet**: the ORM-backed store, the routes inside your app, the middleware aliases, the screens (sign-in, 2FA challenge, settings), the `user:create` and `tokens:prune` commands, and changing your email address.
+
+This page shows the **decided** names and answers. Where the prototype still differs (feature names, the session cookie name, UPPER_CASE error codes, key rotation, impersonation rules), the section says so.
 :::
 
 :::tip[Coming from Laravel?]
@@ -37,15 +41,15 @@ curl -i -X POST http://localhost:3000/login \
 ```text
 HTTP/1.1 200 OK
 content-type: application/json
-set-cookie: sv_session=4kQ…; HttpOnly; SameSite=Lax; Path=/
+set-cookie: strutvane_session=4kQ…; HttpOnly; SameSite=Lax; Path=/
 
 {"status":"signed-in"}
 ```
 
-The `sv_session` cookie is your **session**: a random id the browser sends with every later request, so the app knows it's you. On `https` the cookie is named `__Host-sv_session`, which a sibling subdomain can't set or overwrite. Ask who you are:
+The `strutvane_session` cookie is your **session**: a random id the browser sends with every later request, so the app knows it's you. On `https` the cookie is named `__Host-strutvane_session`, which a sibling subdomain can't set or overwrite. (The prototype still calls it `sv_session`.) Ask who you are:
 
 ```bash
-curl http://localhost:3000/user -H "Cookie: sv_session=<the value from set-cookie>"
+curl http://localhost:3000/user -H "Cookie: strutvane_session=<the value from set-cookie>"
 ```
 
 **What you'll see:**
@@ -60,7 +64,7 @@ curl http://localhost:3000/user -H "Cookie: sv_session=<the value from set-cooki
 }
 ```
 
-In a real app you rarely call these routes by hand: the sign-in screen in your React UI does it for you.
+In a real app you rarely call these routes by hand: the sign-in screen in your React UI does it for you. If the installer **generated** the admin password, the admin must choose a new one before doing anything else (see [The first admin](#the-first-admin)).
 
 ## Choosing what you need at install time
 
@@ -68,16 +72,18 @@ The installer asks about sign-in in its **Sign-in** and **Teams** groups (see [I
 
 | # | Question | Choices (default **bold**) | What it switches on |
 |---|---|---|---|
-| 5 | ★ How do people sign in? | **Email and password**, email link only (passwordless), no sign-in | `passwordLogin`, or `emailLink`, or nothing |
+| 5 | ★ How do people sign in? | **Email and password**, email link only (passwordless), no sign-in | password sign-in, or `emailLink`, or nothing |
 | 6 | Extra sign-in security | **two-factor**, **email verification**, passkeys, public registration (off) | `twoFactor`, `emailVerification`, `passkeys`, `registration` |
 | 7 | Social login | **none**, Google, Microsoft, GitHub, Apple | the `social-login` add-on |
 | 8 | Enterprise SSO (needs teams) | **no**, yes | the `sso` add-on |
-| 9 | API access for other apps | **personal access tokens**, OAuth 2.1 server, none | `tokens`, or the `oauth-server` add-on |
-| 10 | Starting roles | **admin + member**, admin + manager + member + viewer | the role preset |
+| 9 | API access for other apps | **personal access tokens**, OAuth 2.1 server, none | `apiTokens`, or the `oauth-server` add-on |
+| 10 | Starting roles | **admin + member**, admin + manager + member + viewer | the role preset `admin-member` or `admin-manager-member-viewer` |
 | 11 | ★ Teams | **no**, yes | `teams` |
 | 12 | How a request picks its team | **team switcher in the app**, subdomain | how the current team is chosen |
 
 ★ means the question is asked in **Recommended** mode; the others take their default unless you choose **Custom**.
+
+**What 0.2 shows you:** a question that brings a package is shown only once that package is published and compatible. In 0.2 that hides question 7 (social login), question 8 (SSO) and the "OAuth 2.1 server" choice in question 9; they appear in the installer when their packages ship. (The installer prototype, spike 13, still shows every question; hiding them is decided and not built yet.)
 
 **The three sign-in modes (question 5):**
 
@@ -85,13 +91,39 @@ The installer asks about sign-in in its **Sign-in** and **Teams** groups (see [I
 - **Email link only** is **passwordless**: people type their email and get a single-use link that signs them in. Two-factor and passkeys still work on top.
 - **No sign-in** is for internal tools behind a gateway. Your generated API then **requires an API token** on every route unless you opt a route out, so nothing is open by accident (deny by default).
 
-:::caution[Planned after 0.2]
-**Social login** (question 7) needs the `@strutvane/social-login` package, planned for phase 2. **Enterprise SSO** (question 8) and the **OAuth 2.1 server** (question 9) need `@strutvane/sso` and `@strutvane/oauth-server`, planned for phase 4. The installer only offers a package once it's published. See [social-login](../packages/social-login/), [sso](../packages/sso/) and [oauth-server](../packages/oauth-server/).
+:::caution[Coming in 0.3]
+**Social login** (question 7) needs the `@strutvane/social-login` package. See [social-login](../packages/social-login/).
+:::
+
+:::caution[Coming after 1.0]
+**Enterprise SSO** (question 8) and the **OAuth 2.1 server** (question 9) need `@strutvane/sso` and `@strutvane/oauth-server`. See [sso](../packages/sso/) and [oauth-server](../packages/oauth-server/).
 :::
 
 ## Feature switches
 
-`config/auth.ts` holds one switch per feature. Here is a typical file, with two-factor, email verification and passkeys on:
+Every switch lives in **`config/auth.ts`**, one switch per feature. The installer writes your answers into this file, and you change them there. There are **no `AUTH_*` keys** in `.env`, and there's no `AUTH_SECRET`: your `APP_KEY` is the one root secret (see [Secrets and `APP_KEY`](#secrets-and-app_key)).
+
+The feature names are the same everywhere: in the installer, in `config/auth.ts` and in these docs.
+
+| Switch | Library default | Default install | What it gives you |
+|---|---|---|---|
+| `registration` | off | off | `/register` (public sign-up) |
+| `emailVerification` | off | **on** | signed verification links, `/email/verification-notification` |
+| `passwordReset` | always on | always on | `/forgot-password`, `/reset-password` |
+| `passwordConfirmation` | off | **on** | `/user/confirm-password` and the `password.confirm` middleware |
+| `twoFactor` | off | **on** | authenticator-app codes and recovery codes |
+| `passkeys` | off | off | passkey sign-in and passkeys as a second factor |
+| `emailLink` | off | off | passwordless `/email-link` |
+| `apiTokens` | off | **on** | personal access tokens |
+| `teams` | off | off | teams, invitations, switching |
+| `impersonation` | off | off | users with the `impersonate` ability can sign in as another user |
+
+There are two sets of defaults, on purpose:
+
+- **Library default** is what `defineAuthConfig` uses for a switch you leave out: **every optional feature off**. Forgetting a line can only switch something off, never open something up.
+- **Default install** is what the installer writes when you keep its default answers. It writes **every switch explicitly**, so the file shows exactly what your app does.
+
+Here is a typical file, with two-factor, email verification and passkeys on:
 
 ```ts title="config/auth.ts"
 import { defineAuthConfig } from '@strutvane/auth'
@@ -99,13 +131,13 @@ import { defineAuthConfig } from '@strutvane/auth'
 export default defineAuthConfig({
   appUrl: process.env.APP_URL ?? 'http://localhost:3000',
   features: {
-    passwordLogin: true,
     registration: false,
     emailVerification: true,
-    emailLink: false,
+    passwordConfirmation: true,
     twoFactor: true,
     passkeys: true,
-    tokens: true,
+    emailLink: false,
+    apiTokens: true,
     teams: false,
     impersonation: false,
   },
@@ -120,31 +152,21 @@ export default defineAuthConfig({
 TypeError: auth config: features.passkeys needs a `passkeys: { rpId, rpName, origins }` block
 ```
 
-| Switch | Default | What it gives you |
-|---|---|---|
-| `passwordLogin` | on | `/login`, `/forgot-password`, `/reset-password`, `PUT /user/password` |
-| `registration` | **off** | `/register` (public sign-up) |
-| `emailVerification` | off | signed verification links, `/email/verification-notification` |
-| `emailLink` | off | passwordless `/email-link` |
-| `twoFactor` | off | authenticator-app codes and recovery codes |
-| `passkeys` | off | passkey sign-in and passkeys as a second factor |
-| `tokens` | off | personal access tokens |
-| `teams` | off | teams, invitations, switching |
-| `impersonation` | off | admins can sign in as another user |
+:::caution[Coming in 0.2]
+The prototypes still use earlier names. The auth prototype (spike 20) has `passwordLogin` (password sign-in, with reset inside it) and `tokens` instead of `apiTokens`, and no `passwordReset` or `passwordConfirmation` switch: confirmation is always available there. The installer prototype (spike 13) still writes `AUTH_*` keys to `.env`. Two details of the decided list aren't settled yet: how question 5's "email link only" and "no sign-in" answers switch password sign-in off, and whether `passwordConfirmation` may be off while `twoFactor` or `impersonation` (which both ask for a recent confirmation) is on.
+:::
 
-(These are the engine's own defaults. The installer turns on the ones your answers picked, so a default install has `twoFactor`, `emailVerification` and `tokens` on.)
-
-**A switched-off feature doesn't exist.** It has no routes, and its paths answer with the **same 404, byte for byte**, as a path that was never there. Its services refuse too, with `NOT_FOUND`, so calling one from your own controller can't bring it back. Why: a `403` would tell an attacker the feature exists.
+**A switched-off feature doesn't exist.** It has no routes, and its paths answer with the **same 404, byte for byte**, as a path that was never there. Its services refuse too, with `not_found`, so calling one from your own controller can't bring it back. Why: a `403` would tell an attacker the feature exists.
 
 ```text
 HTTP/1.1 404 Not Found
 content-type: application/problem+json
 
-{"type":"about:blank","title":"Not found.","status":404,"code":"NOT_FOUND"}
+{"type":"about:blank","title":"Not found.","status":404,"code":"not_found"}
 ```
 
 :::note[The error bodies on this page]
-They come from the prototype's small HTTP adapter. In the framework, the same `code` and status are rendered by the framework's problem renderer, so `type`, `title` and an added `detail` may read differently. Branch on `code`, which is stable.
+Error codes are lowercase `snake_case` everywhere (`invalid_credentials`, `validation_failed`), and that's what this page shows. The prototype still sends them in UPPER_CASE (`INVALID_CREDENTIALS`). The bodies come from the prototype's small HTTP adapter; in the framework, the same `code` and status are rendered by the framework's problem renderer, so `type`, `title` and an added `detail` may read differently. Branch on `code`, which is stable.
 :::
 
 ## Signing in with a password
@@ -178,22 +200,49 @@ Every failure gives the **same answer**, whether the email is unknown or the pas
 HTTP/1.1 422 Unprocessable Content
 content-type: application/problem+json
 
-{"type":"about:blank","title":"These credentials do not match our records.","status":422,"code":"INVALID_CREDENTIALS"}
+{"type":"about:blank","title":"These credentials do not match our records.","status":422,"code":"invalid_credentials"}
 ```
 
 Behind the scenes:
-- Passwords are hashed with **scrypt** (`ln=17`, about 128 MiB of memory per hash), Node's built-in memory-hard algorithm. Old hashes are upgraded on the next sign-in.
+- Passwords are hashed by the framework's **`Hash`** service, which auth uses (see [Hashing](../hashing/)). The default is **scrypt** (`ln=17`, about 128 MiB of memory per hash), Node's built-in memory-hard algorithm. Old hashes are upgraded on the next sign-in. argon2 comes later as an opt-in hasher package; it isn't in 0.2.
 - An unknown email still runs one full hash, so the response time doesn't give it away either.
 - Every sign-in starts a **new session id**, so an id planted before sign-in is useless (session fixation).
-- Passwords need at least **12 characters** (`passwords.min`, minimum 8). An optional check against known breached passwords can be plugged in.
 
 To sign out:
 
 ```bash
-curl -X POST http://localhost:3000/logout -H "Origin: http://localhost:3000" -H "Cookie: sv_session=<your session>"
+curl -X POST http://localhost:3000/logout -H "Origin: http://localhost:3000" -H "Cookie: strutvane_session=<your session>"
 ```
 
 **What you'll see:** `204 No Content`, and the cookie is cleared.
+
+### Password rules
+
+Every new password (registration, reset, change) follows NIST SP 800-63B by default:
+
+- at least **12** characters and at most **128**;
+- not found in a list of **breached passwords**;
+- **no composition rules** ("one capital, one digit, one symbol"): they make passwords harder to remember without making them harder to guess.
+
+The default rule is `Password.min(12).uncompromised()`. Apps that are required to use composition rules can add `mixedCase()`, `numbers()` and `symbols()`. A refused password answers with one issue per problem:
+
+```json
+{
+  "type": "about:blank",
+  "title": "Choose a stronger password.",
+  "status": 422,
+  "code": "weak_password",
+  "issues": [
+    { "path": ["password"], "field": "password", "code": "too_short", "message": "The password must be at least 12 characters." }
+  ]
+}
+```
+
+Each issue has the same shape everywhere: `path` (the location as a list), `field` (the same path as one dotted string, such as `items.0.title`), a stable `code` and a `message` from the message catalog. More detail: [Passwords](../passwords/).
+
+:::caution[Coming in 0.2]
+The `Password` rule builder isn't built. The prototype has `passwords.min` (default 12) and `passwords.max` (default 256) in `config/auth.ts`, makes the breached-password check an optional hook (a small built-in list of common passwords, or a breach service you plug in), and sends issues as `{ field, code }` only.
+:::
 
 ## Signing in with an email link
 
@@ -222,7 +271,7 @@ You get this answer **even for an unknown email**, so it can't be used to find a
 curl -X POST http://localhost:3000/email-link/<token> \
   -H "Content-Type: application/json" \
   -H "Origin: http://localhost:3000" \
-  -H "Cookie: sv_link=<the nonce cookie set in step 1>" \
+  -H "Cookie: sv_link=<the nonce cookie set in step 1 (the prototype's name)>" \
   -d '{"remember":false}'
 ```
 
@@ -286,13 +335,13 @@ curl -X POST http://localhost:3000/register \
 
 **What you'll see:**
 - With email verification **on**: `{"status":"verification-sent"}`, and no session yet. You get the **same answer when the email is already taken**; the owner of that address gets a "someone tried to register" mail instead. So registration can't reveal who has an account.
-- With email verification **off**: `{"status":"signed-in"}`. A taken email has to be reported, as `EMAIL_TAKEN` (rate-limited per IP).
+- With email verification **off**: `{"status":"signed-in"}`. A taken email has to be reported, as `email_taken` (rate-limited per IP).
 
 New users get **no roles**. Give them roles yourself, or through a team invitation.
 
 ## Password reset
 
-Password reset is part of `passwordLogin`. It's two requests, like Laravel:
+`passwordReset` is **always on**: an account with a password can always get back in. It's two requests, like Laravel:
 
 ```bash
 curl -X POST http://localhost:3000/forgot-password \
@@ -308,9 +357,14 @@ curl -X POST http://localhost:3000/reset-password \
   -d '{"token":"<token from the link>","password":"a brand new long password"}'
 ```
 
-**What you'll see:** `204 No Content`. The reset token:
+**What you'll see:** `204 No Content`. The reset link:
+- is signed by the framework's **one signer**, the same one that signs verification links, [signed routes](../routing/) and temporary file links. A changed link answers `403 invalid_signature`, an expired one `403 signature_expired`;
 - lasts **60 minutes** and works **once**;
 - dies if the password changes any other way.
+
+:::caution[Coming in 0.2]
+The one signer isn't built into the reset flow yet. The prototype's reset link carries a stored single-use token, and a changed, used or expired one answers `422 INVALID_TOKEN`.
+:::
 
 A successful reset **signs the user out everywhere**: it revokes every session, every API token, every remembered device and every pending email link, and it lifts a lockout.
 
@@ -318,7 +372,7 @@ A signed-in user changes their own password with `PUT /user/password` and `{ "cu
 
 ## Email verification
 
-With `emailVerification` on, new users get a **signed link**: the link carries a signature made with your `APP_KEY`, so it can't be edited or forged. It has Laravel's shape:
+With `emailVerification` on, new users get a **signed link**: the framework's one signer adds an HMAC over the path, the query, the expiry and a purpose, with a key derived from your `APP_KEY`, so the link can't be edited or forged. It has Laravel's shape:
 
 ```text
 http://localhost:3000/email/verify/42/9f2c1e7a0b4d6f8e1a3c5b7d9e0f2a4c6b8d0e1f?expires=1763202121&signature=5d1c…
@@ -326,26 +380,27 @@ http://localhost:3000/email/verify/42/9f2c1e7a0b4d6f8e1a3c5b7d9e0f2a4c6b8d0e1f?e
 
 - `42` is the user id; the hash part is tied to the **current** email address, so the link stops working if the address changes.
 - The link is valid for **60 minutes** by default. Opening it again after it worked is harmless.
+- A changed link answers `403 invalid_signature`, an expired one `403 signature_expired`. (The prototype signs with its own HMAC and answers both with `422 INVALID_TOKEN`.)
 
 A signed-in user asks for a new link:
 
 ```bash
-curl -X POST http://localhost:3000/email/verification-notification -H "Origin: http://localhost:3000" -H "Cookie: sv_session=<your session>"
+curl -X POST http://localhost:3000/email/verification-notification -H "Origin: http://localhost:3000" -H "Cookie: strutvane_session=<your session>"
 ```
 
 **What you'll see:** `{"status":"sent"}`, or `{"status":"already-verified"}`. Resending waits **60 seconds** between mails and allows **6 per hour**.
 
-To require a verified email on a route, use the `verified` middleware (see [Middleware for routes](#middleware-for-routes)). Unverified users get `403 EMAIL_NOT_VERIFIED`. More detail: [Email Verification](../email-verification/).
+To require a verified email on a route, use the `verified` middleware (see [Middleware for routes](#middleware-for-routes)). Unverified users get `403 email_not_verified`. More detail: [Email Verification](../email-verification/).
 
 ## Two-factor authentication
 
-**Two-factor authentication** (2FA) asks for a second proof after the password: a 6-digit code from an **authenticator app** (Google Authenticator, 1Password, Authy…). The codes follow the TOTP standard (RFC 6238).
+**Two-factor authentication** (2FA) asks for a second proof after the password: a 6-digit code from an **authenticator app** (Google Authenticator, 1Password, Authy…). The codes follow the TOTP standard (RFC 6238), built on Node's own `node:crypto` with no extra dependency.
 
 **Turning it on is two steps, so nobody locks themselves out.** Both need a recent [password confirmation](#confirming-the-password).
 
 ```bash
 # Step 1: get a secret to scan
-curl -X POST http://localhost:3000/user/two-factor-authentication -H "Origin: http://localhost:3000" -H "Cookie: sv_session=<your session>"
+curl -X POST http://localhost:3000/user/two-factor-authentication -H "Origin: http://localhost:3000" -H "Cookie: strutvane_session=<your session>"
 ```
 
 **What you'll see:**
@@ -359,7 +414,7 @@ Show `otpauthUri` as a QR code. Then prove the app works with a current code:
 ```bash
 # Step 2: confirm with a code from the app
 curl -X POST http://localhost:3000/user/confirmed-two-factor-authentication \
-  -H "Content-Type: application/json" -H "Origin: http://localhost:3000" -H "Cookie: sv_session=<your session>" \
+  -H "Content-Type: application/json" -H "Origin: http://localhost:3000" -H "Cookie: strutvane_session=<your session>" \
   -d '{"code":"123456"}'
 ```
 
@@ -375,7 +430,7 @@ A **recovery code** is a one-time backup for when the phone is lost. There are 1
 
 ```bash
 curl -X POST http://localhost:3000/two-factor-challenge \
-  -H "Content-Type: application/json" -H "Origin: http://localhost:3000" -H "Cookie: sv_session=<pending session>" \
+  -H "Content-Type: application/json" -H "Origin: http://localhost:3000" -H "Cookie: strutvane_session=<pending session>" \
   -d '{"code":"123456","rememberDevice":true}'
 ```
 
@@ -406,7 +461,7 @@ Your own UI uses **cookie sessions**. The cookie holds a random id; the database
 Users see and end their own sessions:
 
 ```bash
-curl http://localhost:3000/user/sessions -H "Cookie: sv_session=<your session>"
+curl http://localhost:3000/user/sessions -H "Cookie: strutvane_session=<your session>"
 ```
 
 **What you'll see:**
@@ -425,20 +480,20 @@ The session id also changes whenever privileges change: on sign-in, after 2FA, w
 
 ### Confirming the password
 
-Some actions are sensitive enough to ask for the password again, even when signed in: turning 2FA on or off, new recovery codes, starting an impersonation. Without a recent confirmation they answer:
+Some actions are sensitive enough to ask for the password again, even when signed in: turning 2FA on or off, new recovery codes, starting an impersonation. The `passwordConfirmation` switch gives you the confirmation route and the `password.confirm` middleware. Without a recent confirmation these actions answer:
 
 ```text
 HTTP/1.1 423 Locked
 content-type: application/problem+json
 
-{"type":"about:blank","title":"Confirm your password to continue.","status":423,"code":"PASSWORD_CONFIRMATION_REQUIRED"}
+{"type":"about:blank","title":"Confirm your password to continue.","status":423,"code":"password_confirmation_required"}
 ```
 
 Confirm, then retry:
 
 ```bash
 curl -X POST http://localhost:3000/user/confirm-password \
-  -H "Content-Type: application/json" -H "Origin: http://localhost:3000" -H "Cookie: sv_session=<your session>" \
+  -H "Content-Type: application/json" -H "Origin: http://localhost:3000" -H "Cookie: strutvane_session=<your session>" \
   -d '{"password":"correct horse battery staple"}'
 ```
 
@@ -446,13 +501,13 @@ curl -X POST http://localhost:3000/user/confirm-password \
 
 ## API tokens
 
-**Personal access tokens** let scripts, mobile apps and other servers call your API without a browser session (Laravel Sanctum's tokens). Turn on `tokens` (the installer's default for question 9).
+**Personal access tokens** let scripts, mobile apps and other servers call your API without a browser session (Laravel Sanctum's tokens). Turn on `apiTokens` (the installer's default for question 9).
 
 **Create one** while signed in:
 
 ```bash
 curl -X POST http://localhost:3000/user/api-tokens \
-  -H "Content-Type: application/json" -H "Origin: http://localhost:3000" -H "Cookie: sv_session=<your session>" \
+  -H "Content-Type: application/json" -H "Origin: http://localhost:3000" -H "Cookie: strutvane_session=<your session>" \
   -d '{"name":"CI deploy","abilities":["post.view","post.create"],"expiresInDays":90}'
 ```
 
@@ -488,10 +543,10 @@ With `teams` on, each **team** is one customer company, and people see only thei
 
 ```bash
 # Create a team (you become its admin)
-curl -X POST http://localhost:3000/teams -H "Content-Type: application/json" -H "Origin: http://localhost:3000" -H "Cookie: sv_session=<your session>" -d '{"name":"Acme"}'
+curl -X POST http://localhost:3000/teams -H "Content-Type: application/json" -H "Origin: http://localhost:3000" -H "Cookie: strutvane_session=<your session>" -d '{"name":"Acme"}'
 
 # Invite someone as a member
-curl -X POST http://localhost:3000/teams/7/invitations -H "Content-Type: application/json" -H "Origin: http://localhost:3000" -H "Cookie: sv_session=<your session>" -d '{"email":"grace@example.com","role":"member"}'
+curl -X POST http://localhost:3000/teams/7/invitations -H "Content-Type: application/json" -H "Origin: http://localhost:3000" -H "Cookie: strutvane_session=<your session>" -d '{"email":"grace@example.com","role":"member"}'
 ```
 
 **What you'll see:**
@@ -503,7 +558,7 @@ curl -X POST http://localhost:3000/teams/7/invitations -H "Content-Type: applica
 
 - **Invitations** are mailed as a link to `/team-invitations/<token>`. They work once, last **7 days**, only for the invited email address, and only once that address is verified. The invitee accepts with `POST /team-invitations/accept` and `{"token":"…"}`.
 - **Roles** come from the preset chosen in question 10: `admin-member` (admin, member) or `admin-manager-member-viewer`. What each role may do is decided by your policies.
-- **A team always keeps at least one admin.** Removing or demoting the last one answers `409 LAST_ADMIN`.
+- **A team always keeps at least one admin.** Removing or demoting the last one answers `409 last_admin`.
 - **Switching** (`POST /teams/7/switch`) changes the current team and starts a new session id. Removing someone from a team takes effect on their very next request.
 - Team routes: `GET /teams`, `GET /teams/7/members`, `PUT /teams/7/members/<user>` (change role), `DELETE /teams/7/members/<user>`.
 
@@ -511,28 +566,31 @@ Outsiders get `404`, never `403`, so team ids can't be probed.
 
 ## Impersonation
 
-**Impersonation** lets an admin sign in as another user to see what they see, for support. Turn on `impersonation`.
+**Impersonation** lets a support person sign in as another user to see what they see. Turn on `impersonation`.
 
 ```bash
-curl -X POST http://localhost:3000/impersonate/42 -H "Origin: http://localhost:3000" -H "Cookie: sv_session=<admin session>"
+curl -X POST http://localhost:3000/impersonate/42 -H "Origin: http://localhost:3000" -H "Cookie: strutvane_session=<admin session>"
 ```
 
 **What you'll see:** `204 No Content` and a new session, signed in as user 42. `GET /user` now shows `"impersonator": {"id":"1","name":"Admin","email":"admin@my-app.test"}`; your UI **must** show a banner with a "Leave" button when it's set.
 
 The rules:
-- Only users with the global `admin` role, and only after a recent [password confirmation](#confirming-the-password).
-- Never another admin, never yourself, never nested.
-- Lasts at most **1 hour**. `DELETE /impersonate` leaves and gives the admin a fresh session of their own.
+- You need the **`impersonate` ability**. Only the `admin` role holds it by default; give it to a support role in your policies if you need to. You also need a recent [password confirmation](#confirming-the-password).
+- **Nobody can impersonate a user who also holds `impersonate`, or who has a higher role.** So a support person can never become an admin. Never yourself, never nested.
+- Lasts at most **1 hour**. `DELETE /impersonate` leaves and gives you a fresh session of your own.
 - While impersonating you **can't** change the user's password, two-factor, passkeys, tokens or sessions.
-- The start and the end are written to the audit log.
+- The start and the end are written to the [audit log](#the-audit-log).
+
+:::caution[Coming in 0.2]
+The `impersonate` ability isn't built. The prototype checks for the global `admin` role instead, and refuses to impersonate another admin; any other role can be impersonated.
+:::
 
 ## The first admin
 
 The installer creates the **first admin account** by running your seeder. Its email (default `admin@<your-app>.test`) is in `.env` as `SEED_ADMIN_EMAIL`. Its password is **never written to any file**:
 
-- In an interactive install, a generated password is **shown once** in the summary box. Copy it.
-- You can type your own instead (masked, at least 12 characters; `STRUT_ADMIN_PASSWORD` in CI).
-- The account is marked so the admin must change the password at first sign-in.
+- In an interactive install, a **generated** password is **shown once** in the summary box. Copy it. It **must be changed at first sign-in**, and auth enforces this: the account can't do anything else until it has chosen a new password. A generated password has been on your screen, so it shouldn't stay in use.
+- You can **type** your own instead (masked, at least 12 characters; `STRUT_ADMIN_PASSWORD` in CI). A typed password isn't forced to change: you chose it.
 
 Lost it? Set a new one:
 
@@ -541,12 +599,12 @@ node strut user:password admin@my-app.test
 ```
 
 :::caution[Coming in 0.2]
-`node strut user:password` and `node strut user:create --password-env` are designed (the installer prototype already points to `user:password`) but not built yet. The "must change password at first sign-in" flag is set by the installer prototype's seeder; the auth engine doesn't enforce it yet.
+`node strut user:password` and `node strut user:create --password-env` are designed (the installer prototype already points to `user:password`) but not built yet. The installer prototype's seeder marks the account; the auth prototype (spike 20) doesn't enforce the change yet.
 :::
 
 ## Rate limits and lockouts
 
-Every sign-in route is rate-limited per IP address and per account. IPv6 addresses are grouped by `/64`, so rotating through one network's addresses doesn't help. Limits use the **shared cache**, so they hold across several app servers.
+Every sign-in route is rate-limited per IP address and per account. IPv6 addresses are grouped by `/64`, so rotating through one network's addresses doesn't help. Limits use the **cache** (the database by default), never process memory, so they hold across several app servers.
 
 | Limit (`limits.*`) | Default |
 |---|---|
@@ -566,16 +624,40 @@ HTTP/1.1 429 Too Many Requests
 retry-after: 120
 content-type: application/problem+json
 
-{"type":"about:blank","title":"Too many attempts. Please try again later.","status":429,"code":"RATE_LIMITED"}
+{"type":"about:blank","title":"Too many attempts. Please try again later.","status":429,"code":"rate_limited"}
 ```
 
-## Events, the audit log and secrets
+## The audit log
 
-Every important step emits an **event** (sign-in, failed sign-in, 2FA enabled, token created, impersonation started…) for the audit log. Events carry ids, methods and counts only. A test runs every feature end to end and proves that **no password, token, code, cookie, link or 2FA secret** ever reaches an event or a log line.
+Every important step emits an **event** (sign-in, failed sign-in, 2FA enabled, token created, impersonation started…). The framework writes these security events to the **`audit_events`** table. Per-record history ("who changed this invoice") is a separate add-on, `@strutvane/activity-log`. See [Audit](../audit/).
 
-Every stored secret (session ids, tokens, reset and email-link tokens, recovery codes) is a **keyed digest**: HMAC-SHA-256 with a key derived from your `APP_KEY`. Rotating `APP_KEY` therefore signs everyone out and invalidates tokens and recovery codes; how `key:rotate` will handle this is still an open question.
+Events carry ids, methods and counts only. A test runs every feature end to end and proves that **no password, token, code, cookie, link or 2FA secret** ever reaches an event or a log line.
 
 Mails go out in the background, so how long a response takes never depends on whether an account exists.
+
+:::caution[Coming in 0.2]
+The prototype emits the events to a sink you pass in; the framework's writer for the `audit_events` table isn't built yet.
+:::
+
+## Secrets and `APP_KEY`
+
+`APP_KEY` is the **one root secret** for sign-in; there's no separate `AUTH_SECRET`. The installer generates 32 random bytes and writes them to `.env` only:
+
+```bash title=".env"
+APP_KEY=base64:SQpRxdLTPsuY+mWH31AJzjjhxEVSsw3vP56QbLlnh48=
+```
+
+Never copy that value: generate your own with `node strut key:generate`.
+
+Every feature derives its own key from it through the framework's **keyring**: `keyring.derive(purpose)` is HKDF-SHA256 over `APP_KEY` with the salt `strutvane` and the info `strutvane:<purpose>:v1`. A key made for one purpose (say, session digests) can't be used for another (say, verification links).
+
+Every stored secret (session ids, API tokens, reset and email-link tokens, recovery codes) is a **keyed digest**: an HMAC-SHA-256 with a derived key. A leaked database alone isn't enough to use them.
+
+**Rotating `APP_KEY` signs nobody out.** `node strut key:rotate` moves the old key to `APP_PREVIOUS_KEYS`. When a digest doesn't match under `APP_KEY`, auth tries every key in `APP_PREVIOUS_KEYS`, and on a match stores the digest again under the current key. Drop an old key from the list once nothing uses it. See [Encryption](../encryption/#rotating-app_key).
+
+:::caution[Coming in 0.2]
+The prototype derives its keys with its own labels (`strutvane/auth/<purpose>`, no salt) and knows only `APP_KEY`: rotating it there signs everyone out and invalidates API tokens and recovery codes. The keyring and `APP_PREVIOUS_KEYS` are decided, not built.
+:::
 
 ## Middleware for routes
 
@@ -583,10 +665,10 @@ You protect your own routes with middleware aliases, like Laravel:
 
 | Alias | Lets the request through when… | Otherwise |
 |---|---|---|
-| `auth` | someone is signed in (a pending 2FA session doesn't count) | `401 UNAUTHENTICATED` |
+| `auth` | someone is signed in (a pending 2FA session doesn't count) | `401 unauthenticated` |
 | `guest` | nobody is signed in | refused (the exact answer isn't decided yet) |
-| `verified` | the email is verified | `403 EMAIL_NOT_VERIFIED` |
-| `password.confirm` | the password was confirmed recently | `423 PASSWORD_CONFIRMATION_REQUIRED` |
+| `verified` | the email is verified | `403 email_not_verified` |
+| `password.confirm` | the password was confirmed recently | `423 password_confirmation_required` |
 | `abilities:post.create` | the bearer token has that ability | refused (the exact answer isn't decided yet) |
 
 ```ts title="routes/api.ts"
@@ -618,12 +700,54 @@ Auth works the same in both. The differences are around it:
 - **Passkeys** need an exact origin: use the address in `APP_URL` (`http://localhost:3000`), not `127.0.0.1`, or the browser refuses the ceremony.
 - **Commands** like `node strut user:password` run inside the app container in Docker mode; you type them the same way.
 
-## Common mistakes
+## In tests
 
-### Every sign-in fails with INVALID_CREDENTIALS
+Feature tests sign in without going through the sign-in screen. `actingAs(user)` takes a **user model** and signs that user in with a real session; `withToken(token)` sends an **API token** as a `Bearer` header.
+
+```ts title="tests/feature/posts.test.ts"
+import { beforeEach, it } from 'vitest'
+import type { Application } from '@strutvane/framework'
+import { client, refreshDatabase } from '@strutvane/framework/testing'
+import { createApp } from '../../bootstrap/app.ts'
+import { User } from '../../app/models/user.ts'
+
+let app: Application
+
+beforeEach(async () => {
+  app = createApp({ APP_ENV: 'testing', APP_KEY: 'base64:SQpRxdLTPsuY+mWH31AJzjjhxEVSsw3vP56QbLlnh48=', DB_CONNECTION: 'sqlite', DB_DATABASE: ':memory:' })
+  await refreshDatabase(app)
+})
+
+it('lets a signed-in user create a post', async () => {
+  const ada = await User.factory().create()
+  ;(await client(app).actingAs(ada).postJson('/api/posts', { title: 'Hello' })).assertStatus(201)
+})
+
+it('refuses a request with no session and no token', async () => {
+  ;(await client(app).postJson('/api/posts', { title: 'Hello' })).assertStatus(401)
+})
+```
+
+**What you'll see:**
 
 ```text
-{"type":"about:blank","title":"These credentials do not match our records.","status":422,"code":"INVALID_CREDENTIALS"}
+ ✓ tests/feature/posts.test.ts (2 tests) 41ms
+```
+
+For an API token, use `client(app).withToken(plainText)` instead of `actingAs()`. The request then passes only with both the token's abilities and your policies.
+
+More detail: [HTTP Tests](../http-tests/).
+
+:::caution[Coming in 0.2]
+In the application-core prototype (spike 12), `actingAs()` takes a bearer token, and `withToken()` doesn't exist yet.
+:::
+
+## Common mistakes
+
+### Every sign-in fails with invalid_credentials
+
+```text
+{"type":"about:blank","title":"These credentials do not match our records.","status":422,"code":"invalid_credentials"}
 ```
 
 **Why:** the email is unknown, the password is wrong, or the account uses an email link or passkey and has no password. All of these give the same answer on purpose.
@@ -636,7 +760,7 @@ node strut user:password ada@my-app.test
 ### The email link says to use the same browser
 
 ```text
-{"type":"about:blank","title":"Open the sign-in link in the same browser you requested it from.","status":422,"code":"EMAIL_LINK_OTHER_BROWSER"}
+{"type":"about:blank","title":"Open the sign-in link in the same browser you requested it from.","status":422,"code":"email_link_other_browser"}
 ```
 
 **Why:** the link is bound to the browser that asked for it. You requested it on your laptop and opened it on your phone.
@@ -645,7 +769,7 @@ node strut user:password ada@my-app.test
 ### /register answers 404
 
 ```text
-{"type":"about:blank","title":"Not found.","status":404,"code":"NOT_FOUND"}
+{"type":"about:blank","title":"Not found.","status":404,"code":"not_found"}
 ```
 
 **Why:** public registration is off by default. A switched-off feature has no routes.
@@ -658,7 +782,7 @@ features: { registration: true },
 ### My two-factor code is rejected
 
 ```text
-{"type":"about:blank","title":"The code is invalid.","status":422,"code":"INVALID_CODE"}
+{"type":"about:blank","title":"The code is invalid.","status":422,"code":"invalid_code"}
 ```
 
 **Why:** the code was already used (each code works once), it expired (codes change every 30 seconds), or the phone's clock is off.
@@ -674,13 +798,13 @@ features: { registration: true },
 **Fix:** revoke the old one and create a new one:
 
 ```bash
-curl -X DELETE http://localhost:3000/user/api-tokens/t_01 -H "Origin: http://localhost:3000" -H "Cookie: sv_session=<your session>"
+curl -X DELETE http://localhost:3000/user/api-tokens/t_01 -H "Origin: http://localhost:3000" -H "Cookie: strutvane_session=<your session>"
 ```
 
 ### I'm locked out after a few wrong passwords
 
 ```text
-{"type":"about:blank","title":"Too many attempts. Please try again later.","status":429,"code":"RATE_LIMITED"}
+{"type":"about:blank","title":"Too many attempts. Please try again later.","status":429,"code":"rate_limited"}
 ```
 
 **Why:** 5 failed password attempts in a row lock password sign-in for that email, for 60 seconds and then longer.
@@ -689,24 +813,29 @@ curl -X DELETE http://localhost:3000/user/api-tokens/t_01 -H "Origin: http://loc
 ### Turning on 2FA answers 423
 
 ```text
-{"type":"about:blank","title":"Confirm your password to continue.","status":423,"code":"PASSWORD_CONFIRMATION_REQUIRED"}
+{"type":"about:blank","title":"Confirm your password to continue.","status":423,"code":"password_confirmation_required"}
 ```
 
 **Why:** turning 2FA on or off, new recovery codes and impersonation need a password confirmed in the last 3 hours.
 **Fix:** confirm first, then retry:
 
 ```bash
-curl -X POST http://localhost:3000/user/confirm-password -H "Content-Type: application/json" -H "Origin: http://localhost:3000" -H "Cookie: sv_session=<your session>" -d '{"password":"your password"}'
+curl -X POST http://localhost:3000/user/confirm-password -H "Content-Type: application/json" -H "Origin: http://localhost:3000" -H "Cookie: strutvane_session=<your session>" -d '{"password":"your password"}'
 ```
 
-### Requests from my script get 403 FORBIDDEN
+### Requests from my script get 419
 
-**Why:** the prototype's routes refuse unsafe cookie requests that don't come from your own origin. In the framework this becomes the [CSRF](../csrf/) check, which answers `419` instead.
+```text
+{"type":"https://strutvane.dev/problems/csrf_token_mismatch","title":"Page expired","status":419,"code":"csrf_token_mismatch","detail":"This request could not be verified as coming from this site. Reload the page and try again."}
+```
+
+**Why:** a request that changes something, carries a session cookie and doesn't come from your own pages is refused by the [CSRF](../csrf/) check. Auth's routes give the same `419 csrf_token_mismatch` as every other route. (The prototype's routes still answer `403 FORBIDDEN` here.)
 **Fix:** send the `Origin` header matching `APP_URL` from browser-like clients, or use an API token with `Authorization: Bearer` from scripts.
 
 ## Next steps
 
 - [Authorization](../authorization/): what a signed-in user may do.
+- [Passwords](../passwords/): reset, rules and the breached-password check in depth.
 - [CSRF Protection](../csrf/): why cookie requests must come from your own pages.
 - [Security Features](../security/): every protection that's on by default.
 - [Tenancy](../tenancy/): how teams keep each customer's data apart.

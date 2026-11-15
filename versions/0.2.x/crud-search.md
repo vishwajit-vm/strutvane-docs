@@ -37,7 +37,9 @@ In the UI, type "launch" in the list's search box: the same request, sent after 
 
 | Rule | Detail |
 |---|---|
-| Where it looks | Every **text** column marked searchable (titles, names, emails, short text), plus the id when the term is a number |
+| Words | Every word must match (**AND**), each in **any** searchable column (**OR**): `launch day` finds "Day of the launch" and a post titled "Launch" whose body mentions "day" |
+| Where it looks | Up to **10** searchable text columns (titles, names, emails, short text), the title field always included |
+| Ids | A term that is an id or a UUID also matches that record exactly |
 | Case | Ignored: `launch` finds "LAUNCH" |
 | Partial words | Yes: `aunc` finds "Launch" |
 | `%` and `_` | Literal characters, not wildcards: `100%` finds "100%" |
@@ -48,7 +50,7 @@ In the UI, type "launch" in the list's search box: the same request, sent after 
 What's searchable comes from each column's type in the migration; `node strut model:show Post` shows it (the Search column says `text` or `exact`).
 
 :::caution[Coming in 0.2]
-The blueprint's search standard goes further than the prototype: **AND between words, OR across columns** (`launch day` finds rows containing both words, in any searchable columns), at most 10 searched fields (the title field always included), an exact match on UUIDs, trigram indexes on PostgreSQL for speed, and opt-in full-text search for long text. The prototype matches the whole term as one phrase. A dedicated `search` package (external engines) comes later.
+The rules above are the decided standard. The API prototypes (spikes 10 and 12) still match the whole term as one phrase across every searchable column, with no 10-column cap and no UUID match. Also planned: trigram indexes on PostgreSQL for speed and opt-in full-text search for long text; a dedicated `search` package (external engines) comes later.
 :::
 
 ## Filters: `filter[field]` and `filter[field][operator]`
@@ -86,7 +88,7 @@ Several filters combine with **AND**: `?filter[status]=draft&filter[author_id]=2
 For tables with soft deletes, deleted rows are hidden from lists. In the UI, the list's "Hide deleted" select switches to **with deleted** or **only deleted**; deleted rows carry a "Deleted" badge and a **Restore** action. The API form is `filter[trashed]=with` or `filter[trashed]=only`.
 
 :::caution[Coming in 0.2]
-`filter[trashed]` and `POST /api/posts/{post}/restore` are proven in the UI prototype's mock API, which the blueprint adopts; the API prototypes refuse `filter[trashed]` today (a `422`).
+The API supports `filter[trashed]=with|only` and `POST /api/posts/{post}/restore` (decided). They're proven in the UI prototype's mock API; the API prototypes (spikes 10 and 12) still refuse `filter[trashed]` with a `422`.
 :::
 
 ## Sorting: `?sort=`
@@ -134,10 +136,10 @@ curl "http://localhost:3000/api/posts?sort=body&filter[secret]=x&filter[price][c
   "status": 422,
   "code": "validation_failed",
   "issues": [
-    { "field": "perPage", "code": "invalid_integer", "message": "Page size must be a whole number from 1 to 100." },
-    { "field": "sort", "code": "not_sortable", "message": "\"body\" can't be sorted on. Sortable fields: id, title, slug, price, status, author_id, created_at." },
-    { "field": "filter[secret]", "code": "not_filterable", "message": "\"secret\" can't be filtered on. Filterable fields: id, title, slug, price, status, author_id, created_at." },
-    { "field": "filter[price][contains]", "code": "invalid_operator", "message": "\"contains\" doesn't work on Price. Try one of: eq, ne, in, gt, gte, lt, lte." }
+    { "path": ["perPage"], "field": "perPage", "code": "invalid_integer", "message": "Page size must be a whole number from 1 to 100." },
+    { "path": ["sort"], "field": "sort", "code": "not_sortable", "message": "\"body\" can't be sorted on. Sortable fields: id, title, slug, price, status, author_id, created_at." },
+    { "path": ["filter", "secret"], "field": "filter[secret]", "code": "not_filterable", "message": "\"secret\" can't be filtered on. Filterable fields: id, title, slug, price, status, author_id, created_at." },
+    { "path": ["filter", "price", "contains"], "field": "filter[price][contains]", "code": "invalid_operator", "message": "\"contains\" doesn't work on Price. Try one of: eq, ne, in, gt, gte, lt, lte." }
   ]
 }
 ```

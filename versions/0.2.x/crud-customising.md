@@ -89,7 +89,7 @@ ui:sync:
 | `form` | `auto(…)` or a list | `auto()` | The create and edit form fields |
 | `filters` | `auto(…)` or a list | `auto()` | The filter panel |
 | `label` | `{ singular, plural }` | from the table name | "Post" / "Posts" in titles, buttons and the sidebar |
-| `navigation` | `{ icon, group, sort, hidden, badge }` | an icon guessed from the name | The sidebar entry; see [Sidebar](../crud-sidebar/) |
+| `navigation` | `{ icon, group, order, hidden, badge }` | an icon guessed from the name | The sidebar entry; see [Sidebar](../crud-sidebar/) |
 | `pageSize` | `10`, `25`, `50` or `100` | `25` | Rows per page |
 | `defaultSort` | a field, or `-field` | the table's default | `'title'` (A to Z) or `'-created_at'` (newest first) |
 | `actions` | `{ export?, bulk? }` | both off | Opt-in "Export CSV" and bulk delete/restore |
@@ -104,7 +104,7 @@ export default defineResourceUi('posts', {
   columns: auto({ except: ['body'], order: ['title', 'status'] }),
   form: auto({ except: ['meta'], order: ['title', 'status'] }),
   filters: ['status', 'author_id', 'created_at'],
-  navigation: { icon: 'file-text', group: 'Content', sort: 1, badge: 'count' },
+  navigation: { icon: 'file-text', group: 'Content', order: 1, badge: 'count' },
   pageSize: 50,
   defaultSort: '-created_at',
 })

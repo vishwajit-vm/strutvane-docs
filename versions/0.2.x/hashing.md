@@ -10,7 +10,7 @@ Hashing is not [encryption](../encryption/). Encryption can be undone with the k
 Strutvane hashes passwords with **scrypt**, an algorithm built into Node that is deliberately slow and memory-hungry, so guessing passwords from a stolen hash takes years instead of minutes. Sign-in, registration, password change and reset already hash for you: most apps never call the hasher directly.
 
 :::tip[Coming from Laravel?]
-`Hash::make()`, `Hash::check()` and `Hash::needsRehash()` become `hasher.hash()`, `hasher.verify()` and `hasher.needsRehash()`. Laravel's `rehash_on_login` is always on.
+`Hash::make()`, `Hash::check()` and `Hash::needsRehash()` become `Hash.make()`, `Hash.check()` and `Hash.needsRehash()` (the hasher object underneath calls them `hash()`, `verify()` and `needsRehash()`). Laravel's `rehash_on_login` is always on.
 
 What's different:
 - The default is **scrypt**, not bcrypt or argon2. scrypt is memory-hard like argon2, is OWASP's listed alternative, and needs no native binary.
@@ -19,13 +19,13 @@ What's different:
 :::
 
 :::caution[Coming in 0.2]
-The scrypt hasher, rehash-on-login and legacy (bcrypt) import are **proven in the auth prototype** (spike 20: format, Unicode normalisation, rehash, legacy verifiers and absurd-parameter tests). They aren't released yet. The blueprint places hashing in the framework, the prototype in `@strutvane/auth`, so the import path below may change. An argon2id hasher is not included (see [Why scrypt](#why-scrypt-and-not-argon2)).
+The scrypt hasher, rehash-on-login and legacy (bcrypt) import are **proven in the auth prototype** (spike 20: format, Unicode normalisation, rehash, legacy verifiers and absurd-parameter tests). They aren't released yet. Hashing lives in the **framework** (decided: a `Hash` accessor, which the auth package uses); the prototype has it inside the auth engine, so the code below imports from `@strutvane/framework`, as 0.2 will. argon2 is a later opt-in hasher package, not part of 0.2 (see [Why scrypt](#why-scrypt-and-not-argon2)).
 :::
 
 ## The smallest example
 
 ```ts title="scripts/hash-demo.ts"
-import { createScryptHasher } from '@strutvane/auth'
+import { createScryptHasher } from '@strutvane/framework'
 
 const hasher = createScryptHasher()
 
@@ -71,6 +71,22 @@ $scrypt$ln=17,r=8,p=1$<salt>$<key>
 
 Because the parameters live **inside** the hash, you can raise them later without breaking existing users. See [Upgrading old hashes](#upgrading-old-hashes-rehash-on-login).
 
+## The `Hash` accessor
+
+In app code you'll usually use the `Hash` accessor, which reads the app's configured hasher:
+
+```ts title="app/http/controllers/import.controller.ts"
+import { Hash } from '@strutvane/framework'
+
+const stored = await Hash.make('a long sentence I can remember 42')
+await Hash.check('a long sentence I can remember 42', stored)   // → true
+Hash.needsRehash(stored)                                       // → false
+```
+
+:::caution[Coming in 0.2]
+**Planned API (a sketch: names may change).** `Hash` is on the decided accessor list; its method names follow Laravel. The hasher methods in the next section are the prototype's.
+:::
+
 ## The hasher's four methods
 
 | Method | What it does | Returns |
@@ -85,7 +101,7 @@ Because the parameters live **inside** the hash, you can raise them later withou
 When someone signs in with an email that doesn't exist, there's no hash to check. If you answered right away, the fast answer would tell an attacker "this email has no account". So you check against a dummy instead:
 
 ```ts title="app/services/sign-in-check.ts"
-import type { PasswordHasher } from '@strutvane/auth'
+import type { PasswordHasher } from '@strutvane/framework'
 import { User } from '../models/user.ts'
 
 export async function passwordMatches(hasher: PasswordHasher, email: string, password: string): Promise<boolean> {
@@ -117,7 +133,7 @@ You don't have to do anything with that: **on every successful sign-in**, Strutv
 Moving users from a Laravel app (or any app using bcrypt, argon2 or PBKDF2)? You don't need their passwords. Plug in a **legacy verifier**: a small object that recognises the old format and checks it.
 
 ```ts title="app/providers/auth.provider.ts"
-import { createScryptHasher, type LegacyVerifier } from '@strutvane/auth'
+import { createScryptHasher, type LegacyVerifier } from '@strutvane/framework'
 import bcrypt from 'bcryptjs'
 
 /** Laravel's bcrypt hashes start with $2y$. */
@@ -156,7 +172,7 @@ Higher `logN` is safer and slower. Measured in the prototype (Node 24.21, Window
 The default (`ln=17, r=8, p=1`) is OWASP's scrypt recommendation. To change it:
 
 ```ts title="app/providers/auth.provider.ts"
-import { createScryptHasher } from '@strutvane/auth'
+import { createScryptHasher } from '@strutvane/framework'
 
 export const hasher = createScryptHasher({ params: { logN: 16, r: 8, p: 1 } })
 ```
@@ -174,7 +190,7 @@ RangeError: scrypt logN must be between 14 and 20
 Tests create many users, and 350 ms each adds up. Use a lower cost in tests only:
 
 ```ts title="tests/setup.ts"
-import { createScryptHasher } from '@strutvane/auth'
+import { createScryptHasher } from '@strutvane/framework'
 
 export const testHasher = createScryptHasher({ params: { logN: 14, r: 8, p: 1 } })
 ```
@@ -185,7 +201,7 @@ The prototype's own tests use `ln=14`. Never lower it in production.
 
 argon2id is the first choice of OWASP's password cheat sheet. The Node package for it (`@node-rs/argon2` 2.2.2, checked 2026-11-15) ships a prebuilt **native binary** for each platform: a compiled file nobody can review, one more way into your supply chain, and missing on some platforms. scrypt is memory-hard too, is OWASP's listed alternative, and is built into Node, so hashing needs no dependency at all.
 
-The hash format names its algorithm, so an argon2id hasher can be added later and existing scrypt hashes would upgrade on the next sign-in, like bcrypt ones do today.
+The hash format names its algorithm, so argon2 can come later as an **opt-in hasher package** (not in 0.2), and existing scrypt hashes would upgrade on the next sign-in, like bcrypt ones do today.
 
 ## Safety rails built in
 
@@ -202,7 +218,7 @@ Hashing behaves the same. One difference: Docker Desktop on Windows and macOS gi
 ### Every sign-in fails after I imported users
 
 ```text
-{"type":"about:blank","title":"These credentials do not match our records.","status":422,"code":"INVALID_CREDENTIALS"}
+{"type":"about:blank","title":"These credentials do not match our records.","status":422,"code":"invalid_credentials"}
 ```
 
 **Why:** the imported hashes are bcrypt (`$2y$…`), and no legacy verifier recognises them, so they're treated as unknown and fail.

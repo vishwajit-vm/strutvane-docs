@@ -17,7 +17,7 @@ What's different:
 :::
 
 :::caution[Coming in 0.2]
-The verification flow is **proven in the auth prototype** (spike 20: signed links, edited, expired and other-user links, idempotent verify, resend throttling, and a fuzz test where any one-character change to a link is refused). It isn't released yet. The `verified` middleware, the "check your inbox" screen and the framework routes are designed, not built. The answers below are the prototype's.
+The verification flow is **proven in the auth prototype** (spike 20: signed links, edited, expired and other-user links, idempotent verify, resend throttling, and a fuzz test where any one-character change to a link is refused). It isn't released yet. The `verified` middleware, the "check your inbox" screen and the framework routes are designed, not built. The answers below are the **decided** ones: lowercase error codes, and bad links answered `403 invalid_signature` or `403 signature_expired` by the framework's one signer. The prototype still answers bad links with `422 INVALID_TOKEN` and signs them with its own 64-hex HMAC.
 :::
 
 ## The smallest example
@@ -58,7 +58,7 @@ The verification flow is **proven in the auth prototype** (spike 20: signed link
 | `{id}` | `0193a1c2-7e4b-…` | the user's id (a UUID) |
 | `{hash}` | `4f1c2e7a…` (40 hex characters) | a keyed digest of the user's **current** address |
 | `expires` | `1763202121` | when the link stops working, in seconds since 1970 |
-| `signature` | `5d1c8a3e…` (64 hex characters) | an HMAC over the three values above, made with a key derived from your `APP_KEY` |
+| `signature` | `5d1c8a3e…` | an HMAC made by the framework's **one signer** (the same one signed routes and file links use) over the path, the query, the expiry and the purpose, with a key derived from your `APP_KEY` |
 
 What this gives you:
 
@@ -103,7 +103,7 @@ HTTP/1.1 429 Too Many Requests
 retry-after: 42
 content-type: application/problem+json
 
-{"type":"about:blank","title":"Too many attempts. Please try again later.","status":429,"code":"RATE_LIMITED"}
+{"type":"about:blank","title":"Too many attempts. Please try again later.","status":429,"code":"rate_limited"}
 ```
 
 Show the `retry-after` seconds as a countdown on the button.
@@ -136,10 +136,10 @@ export default defineRoutes([
 HTTP/1.1 403 Forbidden
 content-type: application/problem+json
 
-{"type":"about:blank","title":"Verify your email address first.","status":403,"code":"EMAIL_NOT_VERIFIED"}
+{"type":"about:blank","title":"Verify your email address first.","status":403,"code":"email_not_verified"}
 ```
 
-Your UI can recognise `EMAIL_NOT_VERIFIED` and send the user to the "check your inbox" screen.
+Your UI can recognise `email_not_verified` and send the user to the "check your inbox" screen.
 
 When `emailVerification` is **off**, `verified` lets everyone through: there's nothing to verify against.
 
@@ -149,7 +149,7 @@ The `verified` alias is designed as a thin wrapper over the engine's `assertVeri
 
 ### Checking in your own code
 
-Inside a controller, the same check is one call on the auth engine. In the prototype it's `verification.assertVerified(user)`, which throws the `EMAIL_NOT_VERIFIED` error above:
+Inside a controller, the same check is one call on the auth engine. In the prototype it's `verification.assertVerified(user)`, which throws the `email_not_verified` error above:
 
 ```ts title="app/http/controllers/invoice.controller.ts"
 // Planned wiring: how a controller reaches the auth engine isn't final.
@@ -172,16 +172,16 @@ curl -X POST http://localhost:3000/register \
 
 | Situation | What happens |
 |---|---|
-| The link is older than 60 minutes | `422 INVALID_TOKEN`; the user asks for a new one |
-| The link was edited (id, hash, expires or signature) | `422 INVALID_TOKEN` |
-| The user changed their address after the mail was sent | `422 INVALID_TOKEN` (the hash no longer matches) |
+| The link is older than 60 minutes | `403 signature_expired`; the user asks for a new one |
+| The link was edited (id, hash, expires or signature) | `403 invalid_signature` |
+| The user changed their address after the mail was sent | `403 invalid_signature` (the hash no longer matches) |
 | The user already verified | `204`, nothing changes |
-| The user was deleted | `422 INVALID_TOKEN`, the same answer as an edited link |
+| The user was deleted | `403 invalid_signature`, the same answer as an edited link |
 | The link is opened on another device | works: no session needed |
 | `APP_KEY` was rotated since the mail | still works: links signed with a key in `APP_PREVIOUS_KEYS` are accepted (decided; the prototype doesn't do this yet, see [Encryption](../encryption/#rotating-app_key)) |
 | A mail scanner opens the link before the user | the address is verified by the scanner's visit; harmless, since the scanner reads the same inbox |
 
-Every bad link gets the same answer on purpose, so nobody learns which part was wrong.
+Every bad link gets the same `invalid_signature` answer, so nobody learns which part was wrong. Only an expired link gets its own code, `signature_expired`, so your page can offer "send me a new link".
 
 ## When mail is down
 
@@ -203,14 +203,15 @@ Links are built from `APP_URL`, so they point at `http://localhost:3000` in deve
 | `limits.verificationResendCooldown` | 1 per 60 s | wait between resends |
 | `limits.verificationResendPerAccount` | 6 per hour | resends per hour |
 
-A switched-off feature doesn't exist: `/email/verify/…` and `/email/verification-notification` answer the same `404 NOT_FOUND` as a path that was never there.
+A switched-off feature doesn't exist: `/email/verify/…` and `/email/verification-notification` answer the same `404 not_found` as a path that was never there.
 
 ## Common mistakes
 
-### Every link answers INVALID_TOKEN
+### Every link answers invalid_signature or signature_expired
 
 ```text
-{"type":"about:blank","title":"This link or token is invalid or has expired.","status":422,"code":"INVALID_TOKEN"}
+{"type":"about:blank","title":"Invalid signature","status":403,"code":"invalid_signature","detail":"This link is not valid. It may have been changed or copied incompletely."}
+{"type":"about:blank","title":"Link expired","status":403,"code":"signature_expired","detail":"This link has expired. Ask for a new one."}
 ```
 
 **Why:** most often the link is older than 60 minutes, the mail app wrapped the long link across two lines so it was cut, or `APP_KEY` differs between the server that sent the mail and the one that checked it.
@@ -228,7 +229,7 @@ APP_URL=https://app.example.com
 ### "Send it again" answers 429
 
 ```text
-{"type":"about:blank","title":"Too many attempts. Please try again later.","status":429,"code":"RATE_LIMITED"}
+{"type":"about:blank","title":"Too many attempts. Please try again later.","status":429,"code":"rate_limited"}
 ```
 
 **Why:** the last mail went out less than 60 seconds ago, or 6 mails were sent this hour.
@@ -237,7 +238,7 @@ APP_URL=https://app.example.com
 ### `/email/verify/…` answers 404
 
 ```text
-{"type":"about:blank","title":"Not found.","status":404,"code":"NOT_FOUND"}
+{"type":"about:blank","title":"Not found.","status":404,"code":"not_found"}
 ```
 
 **Why:** `emailVerification` is off, so its routes don't exist.
@@ -247,7 +248,7 @@ APP_URL=https://app.example.com
 features: { emailVerification: true },
 ```
 
-### Verified users still get EMAIL_NOT_VERIFIED
+### Verified users still get email_not_verified
 
 **Why:** the request is made with an old session or token that was loaded before verification, or as a different user than you think.
 **Fix:** check `GET /user` with the same cookie or token; `emailVerified` must be `true`. Sign out and in again if your UI cached the user.

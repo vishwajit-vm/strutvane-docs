@@ -22,7 +22,9 @@
  */
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { join, relative } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { DocsBuildError } from './errors.ts'
+import { packageMenuGroups, parsePackagesData } from './packages-data.ts'
 import { toPosix } from './paths.ts'
 
 /** One link in the menu. */
@@ -36,6 +38,23 @@ export interface NavigationItem {
 export interface NavigationGroup {
   readonly label: string
   readonly items: readonly NavigationItem[]
+  /**
+   * Set on groups generated from data (`"generate": "packages"`): the top-level menu group they
+   * sit in. Consecutive groups with the same parent become one group with sub-groups.
+   */
+  readonly parent?: string | undefined
+}
+
+/** Where the package catalogue's data lives (one file for every version's build). */
+export const PACKAGES_DATA_FILE = fileURLToPath(new URL('../../src/data/packages.json', import.meta.url))
+
+/**
+ * The Packages part of the menu, generated from the package data, so a new package needs only a
+ * data entry (and its page, written by `npm run packages:pages`).
+ */
+function generatedPackageGroups(label: string): NavigationGroup[] {
+  const data = parsePackagesData(JSON.parse(readFileSync(PACKAGES_DATA_FILE, 'utf8')), 'src/data/packages.json')
+  return packageMenuGroups(data).map((group) => ({ label: group.label, items: group.items.map((item) => ({ slug: item.slug, label: item.label })), parent: label }))
 }
 
 /** A whole version's menu, plus the page `/docs/<version>/` opens on. */
@@ -88,16 +107,22 @@ export function parseNavigation(json: unknown, where: string): Navigation {
   if (!Array.isArray(groupsRaw) || groupsRaw.length === 0) {
     throw new DocsBuildError(`${where} has no "groups".`, 'Add at least one group: { "label": "Getting Started", "items": ["introduction"] }.')
   }
-  const groups = groupsRaw.map((group: unknown, index): NavigationGroup => {
+  const groups = groupsRaw.flatMap((group: unknown, index): NavigationGroup[] => {
     const at = `${where}, group ${index + 1}`
     if (!isRecord(group) || typeof group['label'] !== 'string' || group['label'].trim() === '') {
       throw new DocsBuildError(`${at} has no "label".`, 'Every group needs a title, for example "The Basics".')
+    }
+    if (group['generate'] !== undefined) {
+      if (group['generate'] !== 'packages' || group['items'] !== undefined) {
+        throw new DocsBuildError(`${at} ("${group['label']}"): "generate" must be "packages", with no "items".`, 'The Packages menu is generated from src/data/packages.json.')
+      }
+      return generatedPackageGroups(group['label'])
     }
     const items = group['items']
     if (!Array.isArray(items) || items.length === 0) {
       throw new DocsBuildError(`${at} ("${group['label']}") has no items.`, 'List at least one page slug, or remove the group.')
     }
-    return { label: group['label'], items: items.map((item: unknown) => parseItem(item, `${at} ("${group['label']}")`)) }
+    return [{ label: group['label'], items: items.map((item: unknown) => parseItem(item, `${at} ("${group['label']}")`)) }]
   })
   return { home, groups }
 }
@@ -190,7 +215,7 @@ export interface StarlightSidebarGroup {
   label: string
   /** Closed until opened; the group holding the current page opens by itself. */
   collapsed: boolean
-  items: Array<{ slug: string; label?: string }>
+  items: Array<{ slug: string; label?: string } | StarlightSidebarGroup>
 }
 
 /**
@@ -205,10 +230,23 @@ export interface StarlightSidebarGroup {
  * ```
  */
 export function toStarlightSidebar(nav: Navigation): StarlightSidebarGroup[] {
-  return nav.groups.map((group) => ({
+  const toGroup = (group: NavigationGroup): StarlightSidebarGroup => ({
     label: group.label,
     // Like Laravel's menu: every group starts closed except the one you're reading.
     collapsed: true,
     items: group.items.map((item) => (item.label === undefined ? { slug: item.slug } : { slug: item.slug, label: item.label })),
-  }))
+  })
+  const sidebar: StarlightSidebarGroup[] = []
+  for (const group of nav.groups) {
+    if (group.parent === undefined) {
+      sidebar.push(toGroup(group))
+      continue
+    }
+    // Generated groups nest under one top-level group with their parent's label.
+    const last = sidebar.at(-1)
+    const parent = last !== undefined && last.label === group.parent && last.items.every((item) => 'items' in item) ? last : undefined
+    if (parent === undefined) sidebar.push({ label: group.parent, collapsed: true, items: [toGroup(group)] })
+    else parent.items.push(toGroup(group))
+  }
+  return sidebar
 }

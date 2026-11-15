@@ -14,8 +14,8 @@ What's different: Playwright drives the browser directly (no ChromeDriver to kee
 :::
 
 :::caution[What exists, and when]
-- **Planned after 0.3:** `@strutvane/browser-testing` (phase 7) adds ready-made **page objects** for the generated screens (the posts list, the create form, the sidebar), sign-in helpers and test data set-up.
-- **Proven in the installer prototype (spike 13):** choosing "Vitest + Playwright" (installer question 23) adds an `npm run test:e2e` script (`playwright test`), a `tests/browser/` folder, and the Playwright extension in the recommended VS Code extensions. Because that answer brings `@strutvane/browser-testing`, the installer only offers it once that package is published.
+- **Coming after 1.0:** `@strutvane/browser-testing` (phase 7) adds ready-made **page objects** for the generated screens (the posts list, the create form, the sidebar), sign-in helpers and test data set-up.
+- **In the installer:** 0.2 offers **`vitest` (default) or `none`** for question 23; the "Vitest + Playwright" answer is hidden until `@strutvane/browser-testing` is published. The installer prototype (spike 13) already has that answer behind a preview flag: it adds an `npm run test:e2e` script (`playwright test`), a `tests/browser/` folder and the Playwright VS Code extension.
 - **Works today, without Strutvane's package:** plain Playwright, set up by hand as below. Nothing on this page needs code from Strutvane.
 :::
 
@@ -51,7 +51,7 @@ What's different: Playwright drives the browser directly (no ChromeDriver to kee
    })
    ```
 
-4. Add the script (the installer adds it when you pick Playwright) and run it:
+4. Add the script and run it:
 
    ```json title="package.json"
    { "scripts": { "test:e2e": "playwright test" } }

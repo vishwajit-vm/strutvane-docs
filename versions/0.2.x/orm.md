@@ -236,53 +236,25 @@ A `prunable()` method on the model (the query of rows to delete) plus a schedule
 
 ## Turning models into JSON
 
-`toJSON()` gives you a plain object, ready to send. `JSON.stringify(post)` and `ctx.json(post)` call it for you.
-
-```ts
-const post = await Post.findOrFail(1)
-console.log(post.toJSON())
-```
-
-**What you'll see:**
-
-```text
-{
-  id: 1,
-  title: 'Hello again',
-  slug: 'hello-world',
-  body: null,
-  status: 'published',
-  published_on: null,
-  meta: null,
-  author_id: 1,
-  created_at: '2026-11-14T09:30:00.000Z',
-  updated_at: '2026-11-14T09:41:12.000Z',
-  deleted_at: null
-}
-```
-
-Dates become ISO strings, and loaded relationships and counts are nested in. Columns you list in `hidden` never appear, and their keys are missing from the TypeScript type too:
+`toJSON()` gives you a plain object, ready to send; `JSON.stringify(post)` and `ctx.json(post)` call it for you. Dates become ISO strings, decimals stay exact strings, loaded relations and counts are nested in, and columns listed in `hidden` never appear (their keys are missing from the TypeScript type too):
 
 ```ts title="app/models/user.ts"
 import { Model } from '@strutvane/framework'
-import { Post } from './post.ts'
 
 export class User extends Model('users', {
-  fillable: ['name', 'email', 'password'],
+  fillable: ['name', 'email'],
   hidden: ['password'],
-}) {
-  posts() {
-    return this.hasMany(Post, 'author_id')
-  }
-}
+}) {}
 ```
 
 ```ts
 const json = (await User.findOrFail(1)).toJSON()
+console.log(json)
+// → { id: 1, name: 'Ada', email: 'ada@example.com', created_at: '2026-11-14T09:30:00.000Z', updated_at: '2026-11-14T09:30:00.000Z' }
 json.password // compile error: Property 'password' does not exist
 ```
 
-Getters (accessors) aren't part of the JSON. For public responses with computed or renamed fields, see [API Resources](../orm-resources/).
+Everything about the output (each value type, relations, the `JsonOf` and generated `PostJson` types, and the coming `visible` and `appends`) is on [Serialization](../orm-serialization/).
 
 ## Adding behaviour to a model
 
@@ -319,18 +291,10 @@ A method or getter must not have the same name as a column (see Common mistakes)
 
 ## Model events and observers
 
-A **model event** is a hook that runs when a model is created, updated, deleted or restored, like "send a welcome mail after a user is created". An **observer** is a class that groups those hooks for one model.
+A **model event** is a hook that runs when a model is created, updated, deleted or restored, like "send a welcome mail after a user is created". An **observer** is a class that groups those hooks for one model. They follow Laravel's names (`creating`, `created`, `updating`, `updated`, `saving`, `saved`, `deleting`, `deleted`, `restoring`, `restored`), and "after" events inside a transaction wait for the commit.
 
 :::caution[Coming in 0.2]
-Events and observers are designed but not built yet. The design follows Laravel's names (`creating`, `created`, `updating`, `updated`, `saving`, `saved`, `deleting`, `deleted`, `restoring`, `restored`):
-
-```ts
-static events = {
-  created: (post) => audit(post),
-} satisfies ModelEvents<Post>
-```
-
-`node strut make:observer PostObserver` will write an observer class, `saveQuietly()` and `withoutEvents(fn)` will skip the hooks, and "after" events inside a transaction will run only after the commit, so a rolled-back write never sends an email. Names may still change.
+Events and observers are designed but not built yet. The full guide (hooks on the model, `make:observer`, the order events fire in, transactions, `saveQuietly()`) is on [Events & Observers](../orm-events/).
 :::
 
 ## Settings: `configureOrm()`
@@ -494,4 +458,5 @@ OrmUsageError: The primary key of a saved "posts" row can't change. Create a new
 - [Querying](../orm-querying/): every way to filter, order and limit.
 - [Relationships](../orm-relationships/): authors, posts and tags, without N+1 queries.
 - [Mass Assignment](../orm-mass-assignment/): what `fillable` protects you from.
+- [Serialization](../orm-serialization/) and [Events & Observers](../orm-events/): what comes out, and hooks around each write.
 - [Tenancy](../orm-tenancy/): keeping each team's data apart.

@@ -5,7 +5,7 @@ description: "Readable URLs like `/posts/hello-world` in the generated API and s
 
 A **slug** is the readable part of an address: `hello-world` in `/posts/hello-world`. It's made from a title by dropping accents and punctuation and joining the words with dashes. Slugs make links easy to read and share, and they don't reveal how many records you have (an id like `/posts/1042` does).
 
-This page is about slugs in the **generated API and screens**. How a model makes and stores slugs (uniqueness, the random suffix, changing a slug) is on [ORM: Slugs](../orm-slugs/).
+This page is about slugs in the **generated API and screens**. How a model makes and stores slugs (uniqueness, the `-2` suffix, changing a slug) is on [ORM: Slugs](../orm-slugs/).
 
 :::tip[Coming from Laravel?]
 It's spatie/laravel-sluggable plus Laravel's `{post:slug}` route binding, switched on by one line in the migration: `t.slug('slug').from('title')`. The generated screens and API use the slug everywhere a record has one.
@@ -52,7 +52,7 @@ The browser and the server use **the same rule**, so the preview shows exactly w
 {
   "status": 422,
   "code": "validation_failed",
-  "issues": [{ "field": "slug", "code": "taken", "message": "Slug \"engineering\" is already taken." }]
+  "issues": [{ "path": ["slug"], "field": "slug", "code": "taken", "message": "Slug \"engineering\" is already taken." }]
 }
 ```
 
@@ -60,14 +60,19 @@ The browser and the server use **the same rule**, so the preview shows exactly w
 
 ## When the slug is taken
 
-Two posts called "Launch" can't both be `/posts/launch`. When you didn't type a slug, the server adds a short random suffix:
+Two posts called "Launch" can't both be `/posts/launch`. When you didn't type a slug, the server adds the next free number:
 
 ```text
 /posts/launch
-/posts/launch-k3f9
+/posts/launch-2
+/posts/launch-3
 ```
 
-The suffix is random, not `-2`, `-3`, because a counter would tell visitors how many other posts (including hidden drafts) share the title. Soft-deleted posts keep their slug reserved, so restoring one never clashes. With teams, slugs are unique **per team**. Details on [ORM: Slugs](../orm-slugs/).
+Sequential suffixes are friendly and predictable. Two saves at the same moment can't both take `launch-2`: the database's unique index refuses the second, and Strutvane retries it with the next number. Soft-deleted posts keep their slug reserved, so restoring one never clashes. With teams, the unique index is on `(tenant_id, slug)`, so slugs are unique **per team** and two teams can both have `/posts/launch`.
+
+:::caution[Coming in 0.2]
+Sequential suffixes are the decided rule. The application core prototype (spike 12) used a random four-character suffix instead; spike 10 already numbers them.
+::: Details on [ORM: Slugs](../orm-slugs/).
 
 ## Slugs in the API and in routes
 
@@ -89,7 +94,7 @@ Route.post('/posts/{post:slug}/publish', [PostController, 'publish']).name('post
 And `route('posts.show', { post })` builds `/api/posts/hello-world` from the model, using the field the route binds by. See [Routing](../routing/).
 
 :::note[By id or by slug]
-The schema prototype (spike 10) also answered at `/api/posts/by-slug/hello-world` next to `/api/posts/1`; the application core (spike 12) uses the bound field directly (`/api/posts/hello-world`). These docs follow the application core.
+There is no separate `/by-slug/` address: a table with a slug is looked up by route model binding at `/api/posts/{post:slug}` (decided). The schema prototype (spike 10) and the UI prototype (spike 14) still use `/api/posts/by-slug/hello-world`; they change for 0.2.
 :::
 
 ## Tables without a slug

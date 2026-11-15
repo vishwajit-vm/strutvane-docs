@@ -48,6 +48,34 @@ The route was defined as `/hello`, but it's served at `/api/hello`, because ever
 
 **Why values?** Your routes file can be imported twice (by the server, `node strut route:list` and your tests) without registering anything twice, and TypeScript can read every name and path from `typeof api`.
 
+### The routes file as a callback
+
+The decided shape for 0.2 is Laravel's: a routes file **exports a callback** that receives the router, and `bootstrap/app.ts` passes the files to `withRouting()`:
+
+```ts title="routes/api.ts"
+import type { Router } from '@strutvane/framework'
+import { PostController } from '../app/http/controllers/post.controller.ts'
+
+export default (router: Router) => {
+  router.get('/hello', (ctx) => ctx.json({ message: 'Hello!' })).name('hello')
+  router.apiResource('posts', PostController, { bindBy: 'slug' })
+}
+```
+
+```ts title="bootstrap/app.ts"
+export default Application.configure({ basePath: dirname(import.meta.dirname) })
+  .withRouting({ web, api })
+  .withMiddleware((middleware) => { /* … */ })
+  .withExceptions((exceptions) => { /* … */ })
+  .create()
+```
+
+The callback is still only **called** by Strutvane when it builds the route table, so importing the file registers nothing, and route names stay typed.
+
+:::caution[Coming in 0.2]
+The callback form is decided but not in the prototype yet: spike 12 uses `export default defineRoutes([...])` with `Route.…` builders, and the examples on this page show that form. Every builder method (`get`, `post`, `apiResource`, `group`, `.name()`, `.middleware()`…) is the same in both.
+:::
+
 ## Single routes
 
 There's one method per HTTP verb, plus `match` for several at once:
@@ -202,23 +230,23 @@ import { ProfileController } from '../app/http/controllers/profile.controller.ts
 import { StatsController } from '../app/http/controllers/stats.controller.ts'
 
 export default defineRoutes([
-  // the callback form, as in Laravel
-  Route.middleware('auth').group(() => [
-    Route.get('/me', [ProfileController, 'show']).name('me'),
-    Route.patch('/me', [ProfileController, 'update']).name('me.update'),
-  ]),
+  // the callback form, as in Laravel: register the routes inside the callback
+  Route.middleware('auth').group(() => {
+    Route.get('/me', [ProfileController, 'show']).name('me')
+    Route.patch('/me', [ProfileController, 'update']).name('me.update')
+  }),
 
-  // the array form: the same thing
+  // also accepted: return an array from the callback, or pass the array directly
   Route.middleware('auth', 'can:view-stats').group([
     Route.get('/admin/stats', [StatsController, 'show']).name('admin.stats'),
   ]),
 ])
 ```
 
-Either way the callback **returns** the routes: nothing is registered as a side effect, because routes are values.
+Inside the callback, `Route.get()` and friends add their routes **to that group**, exactly like Laravel. The callback runs only when Strutvane builds the route table, never when the file is imported, so loading a routes file twice (the server, `route:list`, your tests) still registers nothing twice.
 
 :::caution[Coming in 0.2]
-The callback form is the decided syntax (it matches Laravel); the prototype (spike 12) accepts only the array form so far.
+Registering routes inside the callback is the decided syntax (it matches Laravel), with a returned array also accepted; the prototype (spike 12) accepts only the array form so far.
 :::
 
 ### Versioned APIs
@@ -277,10 +305,11 @@ A **signed URL** has a signature on the end, made with your `APP_KEY`. Anyone ca
 2. Make the link with the typed helpers (same arguments as `route()`):
 
    ```ts
-   import { signedRoute, temporarySignedRoute } from '@strutvane/framework'
+   import { url } from '@strutvane/framework'
 
-   signedRoute('downloads.show', { file: 'report-2026.pdf' })
-   temporarySignedRoute('downloads.show', new Date(Date.now() + 30 * 60_000), { file: 'report-2026.pdf' }) // 30 minutes
+   url.signedRoute('downloads.show', { file: 'report-2026.pdf' })
+   url.signedRoute('downloads.show', { file: 'report-2026.pdf' }, { expiresIn: 3600, oneTime: true }) // 1 hour, usable once
+   url.temporarySignedRoute('downloads.show', new Date(Date.now() + 30 * 60_000), { file: 'report-2026.pdf' }) // 30 minutes
    ```
 
 **What you'll see:**
@@ -294,7 +323,7 @@ A **signed URL** has a signature on the end, made with your `APP_KEY`. Anyone ca
 `signed` runs before `auth`, so a bad link is refused whoever you are.
 
 :::note[Naming]
-The Laravel parity matrix lists these as `url.signed()` and `url.temporarySigned()`; the prototype (spike 12) names them `signedRoute()` and `temporarySignedRoute()`. These docs use the prototype's names until the final names are settled.
+The names are Laravel's: `url.signedRoute()` and `url.temporarySignedRoute()`. The prototype (spike 12) exports them as plain functions, `signedRoute()` and `temporarySignedRoute()`; the `url.` form and the `expiresIn` and `oneTime` options come in 0.2.
 :::
 
 ## Resource routes
@@ -353,7 +382,7 @@ The controller must have a method for **every** action you keep; if it doesn't, 
 
 ## The health route: `/up`
 
-`health: '/up'` in `withRouting` adds a route that answers when the app is alive, for load balancers and uptime checks:
+Every app has `/up`: a route that answers `200` to GET and HEAD when the app is alive, for load balancers, uptime checks and the Docker `HEALTHCHECK`. It stays reachable in [maintenance mode](../maintenance-mode/). (In the prototype it's switched on with `health: '/up'` in `withRouting`.)
 
 ```bash
 curl http://localhost:3000/up
@@ -364,6 +393,8 @@ What you'll see:
 ```json
 { "status": "ok" }
 ```
+
+`/up` only says the process is alive. A **readiness** route, `/ready` ("the database and other services answer too"), comes in 0.3 with the health-check registry.
 
 ## Wrong method: 405 with `Allow`
 
@@ -556,7 +587,7 @@ This only happens when the name comes from a variable (otherwise it's a compile 
 ### A signed link answers 403 "invalid_signature"
 
 **Why:** something changed the URL after it was signed: an email client that re-encoded it, a parameter added by hand, or a different `APP_KEY` on the server that checks it.
-**Fix:** send the link exactly as `signedRoute()` returned it, and make sure every server shares the same `APP_KEY` (after `key:rotate`, the old key stays valid through `APP_PREVIOUS_KEYS`).
+**Fix:** send the link exactly as `url.signedRoute()` returned it, and make sure every server shares the same `APP_KEY` (after `key:rotate`, the old key stays valid through `APP_PREVIOUS_KEYS`).
 
 ### `Route.resource('Posts', …)` fails
 

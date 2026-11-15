@@ -1,7 +1,7 @@
 {
   "hub": "https://github.com/vishwajit-vm/strutvane",
   "path": "spikes/15-versioned-docs-site",
-  "commit": "b4cd12ab0a82e068944179a8762fd9c99094dee3",
-  "committedAt": "2026-11-15T12:43:29+05:30",
+  "commit": "8f3a93f16a08f76346b33466f332a3f3185f92e4",
+  "committedAt": "2026-11-15T17:45:19+05:30",
   "note": "The last hub commit that changed the docs folder, imported by scripts/sync-from-hub.mjs. Do not edit by hand."
 }

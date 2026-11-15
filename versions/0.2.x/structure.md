@@ -27,7 +27,8 @@ my-app/
 │  └─ providers/           register your own services: app.provider.ts
 ├─ bootstrap/
 │  ├─ app.ts               builds the application: routing, middleware, errors
-│  └─ providers.ts         the list of service providers
+│  ├─ providers.ts         the list of service providers
+│  └─ cache/               production caches from node strut optimize (git-ignored)
 ├─ config/                 typed settings: app.ts, database.ts, auth.ts, ui.ts, …
 ├─ database/
 │  ├─ migrations/          your tables and columns (the source of truth)
@@ -39,7 +40,7 @@ my-app/
 │  ├─ web.ts               routes for the browser
 │  ├─ api.ts               routes for the JSON API
 │  └─ resources.gen.ts     generated: one API resource per model (don't edit)
-├─ storage/                files your app writes: logs, uploads, the SQLite database
+├─ storage/                files your app writes: logs, uploads, maintenance state
 ├─ tests/
 │  └─ feature/             tests that call your app over HTTP
 ├─ .github/workflows/      ci.yml: runs your tests on every push
@@ -103,7 +104,7 @@ The installer only writes what your answers need. Some files appear or disappear
 | API only | none of the `resources/ui/` files |
 | Email and password, or email link | `app/models/user.ts`, `app/policies/user.policy.ts`, `config/auth.ts`, `database/factories/user.factory.ts`, the `users` migration |
 | No sign-in | no users files; `config/api.ts` requires an API token for every request |
-| Teams: yes | `config/tenancy.ts` |
+| Teams (any answer) | `config/tenancy.ts`: `{ enabled, column: 'tenant_id' }`, with `enabled: true` only if you said yes |
 | Sample data: yes | `database/seeders/sample-data.seeder.ts` |
 | Tests: Vitest | `tests/feature/health.test.ts` |
 | Tests: Vitest + Playwright | also `tests/browser/home.spec.ts` and a `test:e2e` script |
@@ -156,7 +157,7 @@ export class Post extends Model('posts', { fillable: ['title', 'body', 'status']
 
 See [ORM: Getting Started](../orm/).
 
-**`app/policies/`** decides who may do what. `post.policy.ts` holds the rules for posts. With no rule, the answer is **no** (deny by default). See [Authorization](../authorization/).
+**`app/policies/`** decides who may do what. `post.policy.ts` holds the rules for posts, and it's **found by name**: the model `Post` uses `app/policies/post.policy.ts`, with nothing to register. With no rule, the answer is **no** (deny by default). See [Authorization](../authorization/).
 
 **`app/http/controllers/`** is optional. Every table with a model gets a full API after `node strut migrate`. Write a **controller** (a class that handles requests) only when you want different behaviour: `node strut make:controller PostController --model=Post`. See [Controllers](../controllers/).
 
@@ -217,8 +218,9 @@ Typed settings files that read `.env`. `config/index.ts` gathers them into one o
 ### `database/`: tables and data
 
 - **`migrations/`** is the **source of truth** for your tables. Columns are written here, and only here. File names start with a UTC time stamp (`2026_11_14_093000_create_posts_table.ts`), so they always run in the same order; the installer's own migrations start with `0001_01_01_` so they run first. See [Migrations](../migrations/).
-- **`seeders/`** fills the database with starting data. `database.seeder.ts` runs the others in order. See [Seeding](../seeding/).
-- **`factories/`** makes realistic fake records for tests and seeders.
+- **`seeders/`** fills the database with starting data. Each seeder is a `defineSeeder({ after, run })` file such as `post.seeder.ts`. `database.seeder.ts` runs them with `await call([UsersSeeder, PostsSeeder])`; that list sits between `// strut:seeders:start` and `// strut:seeders:end` markers and the CLI keeps it in dependency order. Everything outside the markers is yours.
+- **`database.sqlite`**: the database file, if you chose SQLite (git-ignored). See [Seeding](../seeding/).
+- **`factories/`** makes realistic fake records for tests and seeders: `export default defineFactory(Post, ({ faker, sequence }) => ({ … }))`.
 
 ### `resources/ui/`: your screens
 
@@ -239,7 +241,7 @@ The first time a table appears, `node strut migrate` writes `resources/ui/posts.
 
 ### `storage/`
 
-Files your app writes while it runs: `storage/logs/` (log files), uploaded files, and the SQLite database if you chose SQLite. It's git-ignored, because these files belong to one machine. See [Logging](../logging/).
+Files your app writes while it runs: `storage/logs/` (log files), uploaded files, and `storage/framework/` (for example the maintenance-mode state). It's git-ignored, because these files belong to one machine. See [Logging](../logging/).
 
 ### `tests/`
 

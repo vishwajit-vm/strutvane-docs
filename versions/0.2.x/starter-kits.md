@@ -160,7 +160,7 @@ The kit doesn't change anything about Docker. With Docker, the UI's dev server (
 
 - **Vue, Svelte or Livewire-style kits:** 0.2 is React only (decided by the project lead). Other stacks may come later.
 - **A "UI only" kit** (a React app without the API): the screens need the API's metadata, so the UI always comes with it.
-- **Social login, SSO and an OAuth server** in the kits: they're installer choices that bring add-on packages planned after 0.2.
+- **Social login, SSO and an OAuth server** in the kits: they're installer choices that bring add-on packages. Social login is coming in 0.3; SSO and the OAuth server are coming after 1.0. Until each is published, its question isn't shown.
 
 ## Common mistakes
 

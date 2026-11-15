@@ -40,7 +40,6 @@ node strut make:migration create_posts_table --seeder
   Created app/models/post.ts
   Created database/seeders/post.seeder.ts
   Created database/factories/post.factory.ts
-  Registered PostSeeder in database/seeders/database.seeder.ts
 
   Next: add your columns to the migration, then run `node strut migrate`.
 ```
@@ -108,55 +107,42 @@ You never list columns on the command line or repeat them in the model. The migr
 
 ### Fill the seeder and the factory
 
-A **factory** describes one fake post. Open it and return the columns of one row (`sequence` counts up, so every row is different):
+A **factory** describes one fake post. Open it and return the columns of one row (`faker` makes realistic text, `sequence` counts up so every row is different):
 
 ```ts title="database/factories/post.factory.ts"
-/**
- * Fake `posts` rows for tests and seeders. `sequence` makes each row unique.
- */
-export function postDefinition(sequence: number): Record<string, unknown> {
-  return {
-    title: `Post number ${sequence}`,
-    body: 'Some text to read.',
-    price: '9.99',
-    status: sequence % 2 === 0 ? 'published' : 'draft',
-    author_id: 1,
-  }
-}
+import { defineFactory } from '@strutvane/framework'
+import { Post } from '../../app/models/post.ts'
+
+export default defineFactory(Post, ({ faker, sequence }) => ({
+  title: `${faker.lorem.words(3)} ${sequence}`,
+  body: faker.lorem.paragraph(),
+  price: '9.99',
+  status: sequence % 2 === 0 ? 'published' : 'draft',
+}))
 ```
 
-A **seeder** puts rows in the table. This one uses the factory to make ten posts:
+A **seeder** puts rows in the table. This one says it runs **after** the users seeder (a post needs an author), and uses the factory to make ten posts by the first user:
 
 ```ts title="database/seeders/post.seeder.ts"
+import { defineSeeder } from '@strutvane/framework'
 import { Post } from '../../app/models/post.ts'
-import { postDefinition } from '../factories/post.factory.ts'
+import { User } from '../../app/models/user.ts'
 
-/** Seeds the `posts` table. Call it from database/seeders/database.seeder.ts. */
-export class PostSeeder {
-  async run(): Promise<void> {
-    for (let sequence = 1; sequence <= 10; sequence += 1) {
-      await Post.forceCreate(postDefinition(sequence))
-    }
-  }
-}
+/** Seeds the `posts` table. */
+export default defineSeeder({
+  after: ['users'],
+  async run() {
+    const author = await User.query().orderBy('id').firstOrFail()
+    await Post.factory().count(10).for(author, 'author').create()
+  },
+})
 ```
 
-`forceCreate()` is for trusted code like seeders: it may set columns that aren't in `fillable` (such as `author_id`). The main seeder runs it after the users it points at (`make:migration` adds this line for you; in the prototype, add it by hand):
+Factories write through `forceCreate()`, which is for trusted code: it may set columns that aren't in `fillable` (such as `author_id`). You don't edit `database/seeders/database.seeder.ts`: every seeder is registered there automatically, in the order their `after` lists require. See [Seeding](../seeding/) and [ORM: Factories](../orm-factories/).
 
-```ts title="database/seeders/database.seeder.ts"
-import { PostSeeder } from './post.seeder.ts'
-import { UserSeeder } from './user.seeder.ts'
-
-/** Runs every seeder, in order. */
-export class DatabaseSeeder {
-  async run(): Promise<void> {
-    await new UserSeeder().run()
-    await new PostSeeder().run()
-  }
-}
-```
-
-(Keep whatever your `database.seeder.ts` already calls; add the `PostSeeder` line at the end.) See [Seeding](../seeding/) and [ORM: Factories](../orm-factories/).
+:::caution[Coming in 0.2]
+`defineSeeder` and `defineFactory` are the decided shapes. The prototype still writes a `PostSeeder` class and a plain `postDefinition(sequence)` function, and asks you to call the seeder from `database.seeder.ts` yourself.
+:::
 
 ## Step 3: Migrate
 
@@ -168,7 +154,7 @@ This one command does five things, in order:
 
 1. **Creates the `posts` table.** On PostgreSQL and SQLite, a failing migration leaves nothing half-done.
 2. **Regenerates your TypeScript types.** `Post`, `NewPost`, `PostPatch` and `PostJson` now exist, with every column typed: `post.title` is a `string` and `post.status` is `'draft' | 'published'`.
-3. **Seeds** the new `PostSeeder` once, so you get fake posts. It remembers that it ran, so it won't add more next time.
+3. **Seeds** the new `post.seeder.ts` once, so you get fake posts. It remembers that it ran, so it won't add more next time.
 4. **Generates the API** for posts.
 5. **Generates the UI** for posts and adds **Posts** to the sidebar.
 
@@ -177,7 +163,7 @@ This one command does five things, in order:
 ```text
   ✔ 2026_11_14_093000_create_posts_table   14ms
   ✔ Types and metadata regenerated (3 tables)
-  ✔ Seeded PostSeeder
+  ✔ Seeded post.seeder.ts
   ✔ API: /api/posts  ·  UI: Posts (sidebar)
 ```
 
@@ -266,8 +252,8 @@ curl -X POST http://localhost:3000/api/posts \
   "code": "validation_failed",
   "detail": "Fix the fields listed in `issues` and try again.",
   "issues": [
-    { "field": "title", "code": "invalid_type", "message": "Title is required." },
-    { "field": "status", "code": "invalid_value", "message": "Status must be one of: draft, published." }
+    { "path": ["title"], "field": "title", "code": "invalid_type", "message": "Title is required." },
+    { "path": ["status"], "field": "status", "code": "invalid_value", "message": "Status must be one of: draft, published." }
   ]
 }
 ```
@@ -284,7 +270,7 @@ curl -X POST http://localhost:3000/api/posts \
 **What you'll see:** `422` again, this time for the unknown field:
 
 ```json
-{ "field": "is_admin", "code": "unknown_field", "message": "\"is_admin\" is not a field you can send here. Remove it from the request body." }
+{ "path": ["is_admin"], "field": "is_admin", "code": "unknown_field", "message": "\"is_admin\" is not a field you can send here. Remove it from the request body." }
 ```
 
 Unknown fields are refused on purpose: a typo or an attempt to set `is_admin` never passes silently. They're reported once the other fields are valid. (The exact wording of each message may still change.)

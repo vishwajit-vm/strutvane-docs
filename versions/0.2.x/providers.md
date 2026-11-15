@@ -109,7 +109,7 @@ override boot(app: Application): void {
 Entries are sorted by group, then `order`, then label. The UI hides entries the user may not `viewAny`.
 
 :::caution[Coming in 0.2]
-Two prototypes describe a sidebar entry slightly differently: the application core (spike 12) uses `{ label, route, group, icon, order }` as above, while the UI prototype (spike 14) uses `{ name, label, path, icon, group, sort, badge, permission }`, with a `permission` that decides who sees it and a `badge` (a count or short text). The final shape will merge the two. See [Sidebar](../crud-sidebar/).
+The decided entry shape is `{ name, label, path, icon, group, order, badge?, permission }`, with a required `permission` that decides who sees it (deny by default) and an optional `badge` (a count or short text). The application core prototype (spike 12) still takes `{ label, route, group, icon, order }` as above. See [Sidebar](../crud-sidebar/).
 :::
 
 ## Adding routes and commands from a package (advanced)
@@ -227,7 +227,7 @@ Keep it quick: every provider runs before the first request, and `node strut` co
 
 ## Only in some environments
 
-A provider can check where it runs and skip work. `app.environment` is `APP_ENV` (`local`, `testing` or `production`):
+A provider can check where it runs and skip work. `app.environment` is `APP_ENV` (`local`, `testing`, `staging` or `production`):
 
 ```ts title="app/providers/app.provider.ts"
 import { ServiceProvider, type Application } from '@strutvane/framework'
@@ -256,12 +256,13 @@ The package manifest, `install:<name>` and `publish` are designed (blueprint §3
 Build a fresh app in the test, boot it, and look at what the provider set up:
 
 ```ts title="tests/feature/report-provider.test.ts"
+import { randomBytes } from 'node:crypto'
 import { expect, test } from 'vitest'
 import { ReportSettingsToken } from '../../app/providers/report.provider.ts'
 import { createApp } from '../../bootstrap/app.ts'
 
 test('the report provider binds its settings and menu entry', async () => {
-  const app = createApp({ APP_ENV: 'testing', APP_KEY: 'test-key', DB_CONNECTION: 'sqlite' })
+  const app = createApp({ APP_ENV: 'testing', APP_KEY: `base64:${randomBytes(32).toString('base64')}`, DB_CONNECTION: 'sqlite' })
   await app.boot()
 
   expect(app.make(ReportSettingsToken).timezone).toBe('UTC')

@@ -33,7 +33,7 @@ npm run dev
 
 ```text
 ✔ Files written (33 files in /home/you/my-app)
-✔ Secrets generated in .env (APP_KEY, DB_PASSWORD, DB_ROOT_PASSWORD, AUTH_SECRET)
+✔ Secrets generated in .env (APP_KEY, DB_PASSWORD, DB_ROOT_PASSWORD)
 ✔ Ports checked (3000 free; 3306 free; 8025 free)
 ✔ Containers running and healthy (app, db, mailpit)  15.3s
 ✔ Dependencies installed with npm (added 13 packages)
@@ -67,15 +67,15 @@ What runs **inside the app container** in Docker mode:
 - `npm install` and every other npm command (through `node strut npm`);
 - `migrate`, seeding, queue workers, the scheduler and every other `node strut` command.
 
-What still runs **on your computer**: Docker itself, your editor, your browser, and `strut.js`, the small file that forwards commands. So you still need Node.js on your computer to run the installer and `node strut` itself, but your app's code, its packages and its tools all live in the container.
+What still runs **on your computer**: Docker itself, your editor, your browser, and `strut.js`, the small file that forwards commands. The `strut.js` forwarder (and the installer that writes it) is the only thing that needs Node.js on your computer. Nothing else does: your app's code, its packages and its tools all live in the container.
 
 :::note[Why `docker/compose.yaml` isn't committed]
-The local Docker setup is for development only, so it is **git-ignored** (ADR-0006), as are `.env` and `.strutvane/`. Strutvane's own repositories never commit Docker files. Your app **may** commit two Docker files, but only when you ask for them: the [production Dockerfile](#the-production-dockerfile) and the [dev container](#the-dev-container) (ADR-0021).
+The local Docker setup is for development only, so it is **git-ignored** (ADR-0006), as are `.env` and `.strutvane/local/` (this computer's setup progress). The rest of `.strutvane/` (generated types, resources and the API client) and `strutvane.json` (your installer answers) are committed. Strutvane's own repositories never commit Docker files. Your app **may** commit two Docker files, but only when you ask for them: the [production Dockerfile](#the-production-dockerfile) and the [dev container](#the-dev-container) (ADR-0021).
 :::
 
 ## How forwarding works
 
-`strut.js` checks one thing first: did you choose Docker for this project? (The installer records the answer in `.strutvane/env.json`.) If you did, and the command was typed on your computer rather than inside the container, it forwards it:
+`strut.js` checks one thing first: did you choose Docker for this project? (The installer records the answer when it sets the project up.) If you did, and the command was typed on your computer rather than inside the container, it forwards it:
 
 ```text
 node strut migrate
@@ -84,10 +84,10 @@ node strut migrate
 
 Inside the container (where `STRUTVANE_IN_CONTAINER=1` is set), the same file runs the command itself. Without Docker, it always runs on your computer. So one command works in both modes, and in every shell.
 
-Three kinds of command always run **on your computer**, because they manage the containers themselves:
+Two kinds of command always run **on your computer**, because they manage the containers themselves:
 
 - `setup` (`npm run setup`), which resumes the installer;
-- `services:up`, `services:down` and `services:status`.
+- every `services:*` command: `services:up`, `services:down`, `services:status` and `services:logs`.
 
 Forwarded commands keep your terminal's colours and input when you type them yourself, and switch to plain output (`-T`) in CI or when you pipe the output. **The exit code comes back unchanged**, so scripts and CI can rely on it.
 
@@ -108,8 +108,10 @@ node strut migrate
 |---|---|---|
 | `node strut services:up` | `docker compose up -d --wait` | After a reboot, or after `services:down`. It returns once every service is **healthy** (the database accepts connections). |
 | `node strut services:down` | `docker compose down` | To stop everything. Your data stays in the `db-data` volume. |
-| `node strut services:down --volumes` | `docker compose down -v` | To start over with an **empty database**. |
+| `node strut services:down --volumes` | `docker compose down -v` | To start over with an **empty database**. It asks you to confirm first. |
 | `node strut services:status` | `docker compose ps` | To see which services are running. |
+| `node strut services:logs` | `docker compose logs -f` | To follow the services' output (add a service name, such as `db`, for one service). |
+| `node strut db:shell` | a `mysql` or `psql` prompt in the `db` container | To type SQL into your development database. |
 
 ```bash
 node strut services:status
@@ -127,11 +129,17 @@ my-app-mailpit-1 axllent/mailpit:v1.33   mailpit   Up 2 minutes (healthy)    127
 Every command uses your project's own name (`-p my-app`, from `COMPOSE_PROJECT_NAME`), so it never touches another project's containers.
 
 :::danger[`--volumes` deletes your local database]
-`services:down --volumes` removes the `db-data` volume: every row in your development database is gone. In the prototype it doesn't ask first; a confirmation is planned. Run `node strut migrate` afterwards to recreate the tables and seed again.
+`services:down --volumes` removes the `db-data` volume: every row in your development database is gone. That's why it asks you to confirm first. With no terminal to ask in (CI or a script), it refuses unless you add `--force`:
+
+```bash
+node strut services:down --volumes --force
+```
+
+Run `node strut migrate --seed` afterwards to recreate the tables and seed again.
 :::
 
 :::caution[Coming in 0.2]
-`node strut services:logs` (follow the services' output) and `node strut db:shell` (open a MySQL or PostgreSQL prompt in the `db` container) are in the blueprint but not built yet. Until then, Docker's own commands work: `docker compose -p my-app -f docker/compose.yaml logs -f db`.
+All five service commands are decided. The installer prototype (spike 13) has `services:up`, `services:down` and `services:status`, but `services:down --volumes` doesn't ask first yet, and `services:logs` and `db:shell` aren't built. Until then, Docker's own command works: `docker compose -p my-app -f docker/compose.yaml logs -f db`.
 :::
 
 ## Running npm, npx, node and a shell in the container
@@ -192,7 +200,7 @@ Every port a container publishes is bound to **127.0.0.1**, so only your own com
 
 During installation, the installer checks each port first. When one is in use, it picks the next free one and writes it into `.env` ("port 3306 is in use; using 3307"). Mailpit's mail port (1025) is never published: only the app talks to it, over Docker's own network.
 
-Inside the container the dev server listens on `0.0.0.0` (`APP_HOST`), because that is the only way traffic from your computer reaches it. A **Host allowlist** still answers any request whose `Host` header isn't `localhost`, `127.0.0.1`, `[::1]` or your `APP_URL`'s host with `403`, which blocks DNS-rebinding tricks.
+Inside the container the dev server listens on `0.0.0.0` (`APP_HOST`), because that is the only way traffic from your computer reaches it. A **Host allowlist** still answers any request whose `Host` header isn't `localhost`, `127.0.0.1`, `[::1]` or your `APP_URL`'s host with `400`, as Laravel does, which blocks DNS-rebinding tricks.
 
 ## The `.env` keys in Docker mode
 
@@ -243,7 +251,7 @@ A second database, `DB_TEST_DATABASE` (`my_app_test`), is created next to the de
 
 ## Teammates and a fresh clone
 
-The Docker files and `.env` are git-ignored, so a teammate who clones the project has neither. They run:
+The Docker files and `.env` are git-ignored, so a teammate who clones the project has neither. What they do have is the committed `strutvane.json`, which holds every installer answer. They run:
 
 ```bash
 git clone https://github.com/acme/my-app.git
@@ -251,10 +259,10 @@ cd my-app
 npm run setup
 ```
 
-`npm run setup` resumes the installer: it writes the Docker setup and `.env` with fresh secrets, starts the containers, installs packages and migrates.
+`npm run setup` works from `strutvane.json` alone: it writes the Docker setup and `.env` with fresh secrets, starts the containers, installs packages, migrates and seeds. The local progress file (`.strutvane/local/setup.json`, git-ignored) is optional; when it's there, setup skips the steps already done.
 
 :::caution[Coming in 0.2]
-In the prototype, `npm run setup` resumes an existing setup from `.strutvane/setup.json`, which a fresh clone doesn't have. The product will run the installer in "resume" mode for a fresh clone instead. This is designed, not built yet.
+The fresh-clone path is decided, not built yet. The installer prototype's `npm run setup` still needs its progress file, so it only resumes a project created on the same computer.
 :::
 
 ## Docker or not: switching later
@@ -268,7 +276,7 @@ There is no command to move an existing project between Docker and no Docker. Th
 <Tabs syncKey="os">
   <TabItem label="Windows">
 
-- Install **Docker Desktop** and start it before `npm create` or `node strut services:up`. If it isn't running, the installer offers to retry, to continue without Docker using SQLite, or to stop.
+- Install **Docker Desktop** and start it before `npm create` or `node strut services:up`. If it isn't installed or isn't running, the installer offers, in this order: use your own database server (XAMPP, a local install or a remote server), start Docker and retry, or continue without Docker on SQLite. See [Installation](../installation/#when-something-goes-wrong).
 - **Keep the project inside WSL2** (for example `\\wsl$\Ubuntu\home\you\my-app`) for fast file watching. On a Windows folder (`C:\Users\you\my-app`), file-change events don't cross into the container reliably, so the dev server **polls** for changes (`CHOKIDAR_USEPOLLING=1`, `STRUT_WATCH_POLLING=1`). That works, but reloads can lag. (WSL2 is recommended; its effect on watching wasn't measured in the prototype.)
 - **Line endings:** shell scripts you commit and run inside the container must keep `LF` line endings. If git converts them to `CRLF` (`core.autocrlf=true`), Linux can't run them (`$'\r': command not found`). Use `git config core.autocrlf input` for the project, or work inside WSL2. The installer writes its own Docker files with `LF`.
 - PowerShell, cmd and Windows Terminal all work: `node strut` needs no wrapper and no execution-policy change.
@@ -314,19 +322,25 @@ or by picking **Docker image** when the installer asks "Where will you deploy?".
 
 It writes:
 
-- **`Dockerfile`**, in three **stages** (separate build steps whose leftovers are thrown away): one builds your app with `npm ci --ignore-scripts` and `node strut build`, one installs production dependencies only, and the last copies only `build/` and those dependencies into a clean `node:24-bookworm-slim` image. The final image runs as the non-root `node` user, exposes port 3000 and has a `HEALTHCHECK` that calls `/up`.
+- **`Dockerfile`**, in three **stages** (separate build steps whose leftovers are thrown away): one builds your app with `npm ci --ignore-scripts` and `node strut build`, one installs production dependencies only, and the last copies only `build/` and those dependencies into a clean `node:24-bookworm-slim` image. The final image runs as the non-root `node` user, exposes port 3000 and sets `LOG_CHANNEL=stderr` and `LOG_FORMAT=json`, so your host collects the logs as one JSON object per line (see [Logging](../logging/)). Its `HEALTHCHECK` calls `/up`, the health route every app has: it answers `200 {"status":"ok"}` to `GET` and `HEAD`, and stays reachable during maintenance mode.
 - **`.dockerignore`**, which keeps `.env*`, `.git`, `node_modules`, `storage/` and tests (plus `docker/`, `.strutvane/`, `.devcontainer/`, `.vscode/` and local SQLite files) out of the build, so no secret can end up in the image.
 - **`deploy/README.md`**, the recipe:
 
 ```bash
 docker build -t my-app .
-docker run -p 3000:3000 --env APP_KEY=your-key --env DB_HOST=your-db-host my-app
+docker run -p 3000:3000 --env APP_KEY --env APP_URL --env DB_HOST my-app
 ```
 
-**What you'll see:** Docker builds the three stages, then the container starts and answers `GET /up`. Settings reach the container as environment variables from your host's dashboard (the keys are listed in `.env.example`); never copy `.env` into an image.
+`--env APP_KEY` with no value passes the variable from your own shell's environment, so the key never appears on the command line or in your shell history. Create a production key once with `node strut key:generate` and keep it in your host's secrets.
+
+**What you'll see:** Docker builds the three stages, then the container starts and `GET /up` answers `{"status":"ok"}`. Settings reach the container as environment variables from your host's dashboard (the keys are listed in `.env.example`); never copy `.env` into an image.
+
+Run migrations as a separate release step, not when each container starts. In production, `node strut migrate` asks for confirmation unless you pass `--force`, as in Laravel, so the recipe uses `node strut migrate --force`. See [Deployment](../deployment/#step-3-migrate-safely).
+
+`/up` only tells you the process is alive. A readiness check that also tests the database (`/ready`) comes in 0.3.
 
 :::caution[Coming in 0.2]
-The `Dockerfile` and `.dockerignore` are generated by the installer prototype and their content is tested (non-root, no secrets, no `.env*`), but the image itself hasn't been built or run yet. `node strut docker:prod` is designed, not built. The blueprint also says the production image sets `LOG_CHANNEL=stderr` and `LOG_FORMAT=json` (so the host collects logs as JSON lines, see [Logging](../logging/)); the prototype's template doesn't set them yet.
+The `Dockerfile` and `.dockerignore` are generated by the installer prototype and their content is tested (non-root, no secrets, no `.env*`), but the image itself hasn't been built or run yet. `node strut docker:prod` is designed, not built. Two decided details aren't in the prototype's templates yet: the `LOG_CHANNEL=stderr` and `LOG_FORMAT=json` lines, and the JSON answer from `/up` (the prototype's route answers plain `up`).
 :::
 
 ## The dev container

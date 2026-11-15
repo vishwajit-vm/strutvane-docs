@@ -164,12 +164,13 @@ const title = options.title ?? (await text({ message: 'What is the title?' }))
 The fake answers prompts in order, so a test never waits for a keyboard:
 
 ```ts title="tests/console/posts-create.test.ts"
+import { randomBytes } from 'node:crypto'
 import { expect, test } from 'vitest'
 import { Prompts, runConsole } from '@strutvane/framework/console'
 import { createApp } from '../../bootstrap/app.ts'
 
 test('posts:create asks for a title', async () => {
-  const app = createApp({ APP_ENV: 'testing', APP_KEY: 'test-key', DB_CONNECTION: 'sqlite' })
+  const app = createApp({ APP_ENV: 'testing', APP_KEY: `base64:${randomBytes(32).toString('base64')}`, DB_CONNECTION: 'sqlite' })
   const lines: string[] = []
   Prompts.fake(['Launch day'])          // the answers, in order
 

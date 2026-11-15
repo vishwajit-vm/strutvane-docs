@@ -42,7 +42,7 @@ export default defineResourceUi('invoices', {
   form: auto(),
   filters: auto(),
   label: { singular: 'Invoice', plural: 'Bills' },
-  navigation: { icon: 'receipt', group: 'Money', sort: 1, badge: 'count' },
+  navigation: { icon: 'receipt', group: 'Money', order: 1, badge: 'count' },
 })
 ```
 
@@ -50,7 +50,7 @@ export default defineResourceUi('invoices', {
 |---|---|---|
 | `icon` | One of the built-in icon names (checked by the compiler) | `'receipt'` |
 | `group` | A heading to group entries under | `'Money'` |
-| `sort` | Order inside its group: lower first | `1` |
+| `order` | Order inside its group: lower first | `1` |
 | `badge` | `'count'` for the live number of rows, or a short text | `'count'`, `'New'` |
 | `hidden` | Keep the screens and routes, hide only the entry | `true` |
 
@@ -66,7 +66,7 @@ A count badge asks the API for the number of rows, so it's opt-in. Use it for ta
 
 1. Entries **without a group** come first, at the top.
 2. Then the groups, **A to Z** by heading.
-3. Inside a section: `sort` ascending (entries without `sort` come last), then the label A to Z.
+3. Inside a section: `order` ascending (entries without `order` come last), then the label A to Z.
 
 Alphabetical, not migration order, so adding a table never reshuffles the menu. Example result:
 
@@ -75,8 +75,8 @@ Dashboard
 ACCESS
   Users
 CONTENT
-  Posts          (sort: 1)
-  Categories     (sort: 2)
+  Posts          (order: 1)
+  Categories     (order: 2)
   Tags
 MONEY
   Bills          12
@@ -106,7 +106,7 @@ If you don't set one, the icon is guessed from the table name:
 The first keyword the name contains wins, so `invoice_lines` gets `receipt`. A misspelt name is a compile error with a suggestion (`icon: 'reciept'` → "Did you mean 'receipt'?").
 
 :::note[Which icon library]
-The prototype's first pass used Lucide names, the redesign Tabler Icons; each design package ships its own icon set, mapped from the same names. See [Designs](../designs/).
+Icons are **Tabler Icons** (outline style), as the UI standard says. The prototype's code still describes its names as Lucide names from its first pass; the names above are the same in both. See [Designs](../designs/).
 :::
 
 ## Adding your own page
@@ -126,7 +126,7 @@ export class AppServiceProvider extends ServiceProvider {
 It's merged with the resource entries under the same ordering rules. Packages do the same in their own providers: the log viewer adds **Logs** at `/_strutvane/logs` under **System**, visible only with its permission.
 
 :::caution[Coming in 0.2]
-The two prototypes describe a page entry differently. The application core (spike 12) uses `{ label, route, group, icon, order }`; the UI (spike 14) uses `{ name, label, path, icon, group, sort, badge, permission }`, where `permission` decides who sees it (deny by default). The final shape merges them, with a required permission; `order` and `sort` will become one name.
+The decided entry shape is `{ name, label, path, icon, group, order, badge?, permission }`: `permission` (required) decides who sees it, deny by default. The prototypes still differ: the application core (spike 12) takes `{ label, route, group, icon, order }` as in the example above, and the UI (spike 14) calls the order field `sort`.
 :::
 
 ## Layout, collapsing and phones
@@ -158,8 +158,8 @@ The routes and screens still work (for links from elsewhere); only the menu entr
 
 ### Two entries are in the wrong order
 
-**Why:** entries without `sort` come after those with one, then A to Z.
-**Fix:** give both a `sort`.
+**Why:** entries without `order` come after those with one, then A to Z.
+**Fix:** give both an `order`.
 
 ### My page entry links nowhere
 

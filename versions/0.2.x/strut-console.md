@@ -292,6 +292,7 @@ An app or package command with the same name as a core command **replaces** it, 
 `runConsole` returns the exit code instead of exiting, and takes an output buffer and a fixed clock:
 
 ```ts title="tests/console/inspire.test.ts"
+import { randomBytes } from 'node:crypto'
 import { expect, test } from 'vitest'
 import { runConsole } from '@strutvane/framework/console'
 import { createApp } from '../../bootstrap/app.ts'
@@ -299,7 +300,7 @@ import { createApp } from '../../bootstrap/app.ts'
 test('inspire prints a quote', async () => {
   const lines: string[] = []
   const output = { line: (text = '') => lines.push(text), error: (text: string) => lines.push(text) }
-  const app = createApp({ APP_ENV: 'testing', APP_KEY: 'test-key', DB_CONNECTION: 'sqlite' })
+  const app = createApp({ APP_ENV: 'testing', APP_KEY: `base64:${randomBytes(32).toString('base64')}`, DB_CONNECTION: 'sqlite' })
 
   const code = await runConsole(app, ['inspire'], { output, now: () => new Date('2026-11-14T10:00:00Z') })
 

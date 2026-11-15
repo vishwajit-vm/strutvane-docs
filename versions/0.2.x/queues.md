@@ -8,7 +8,7 @@ Some work is too slow to do while a person waits for the page: sending ten email
 The piece of work is a **job**: a small class with a `handle()` method and the data it needs. **Dispatching** a job writes it to the queue. A **worker** is a separate, long-running process that takes jobs off the queue one by one and runs them. If a job fails, the worker **retries** it; if it keeps failing, it lands in the **failed jobs** list, where you can look at it and retry it once you've fixed the cause.
 
 :::tip[Coming from Laravel?]
-It's Laravel's queue: a job class with `handle()`, `$tries`, `$backoff`, `$timeout` and `failed()`; database and Redis connections; chains, batches, unique jobs, job middleware and rate-limited jobs; `queue:restart`, `queue:retry`, `queue:flush`, `queue:clear` and `queue:monitor`. Horizon becomes [`@strutvane/queue-dashboard`](../packages/queue-dashboard/).
+It's Laravel's queue: a job class with `handle()`, `$tries`, `$backoff`, `$timeout` and `failed()`; database and Redis connections; chains, batches, unique jobs, job middleware and rate-limited jobs; `queue:work`, `queue:listen`, `queue:restart`, `queue:retry`, `queue:flush`, `queue:clear` and `queue:monitor`. Horizon becomes [`@strutvane/queue-dashboard`](../packages/queue-dashboard/).
 
 What's different:
 - **The request's context travels with the job**: the team (tenant), the user who dispatched it and the request id are restored when the job runs, so tenant scoping and log lines just work inside jobs.
@@ -18,9 +18,9 @@ What's different:
 :::
 
 :::caution[Coming in 0.3]
-Queues are in **phase 2 of the roadmap (0.3, "background work")**, with the scheduler, the cache, notifications, `@strutvane/redis` and `@strutvane/queue-dashboard`. Nothing on this page is built yet. What's decided: the commands (`queue:restart`, `queue:clear`, `queue:retry <id|all>`, `queue:flush`, `queue:monitor`), the database and Redis connections (installer question 18), chains, batches, unique jobs, job middleware and rate-limited jobs, `afterCommit`, context propagation into jobs, and the testing fake.
+Queues are in **phase 2 of the roadmap (0.3, "background work")**, with the scheduler, the cache, notifications, `@strutvane/redis` and `@strutvane/queue-dashboard`. Nothing on this page is built yet. What's decided: the worker commands (`queue:work`, `queue:listen`, `queue:monitor`, `queue:restart`, `queue:retry <id|all>`, `queue:flush`, plus `queue:clear`), the `Queue` facade and its `Queue.fake()`, the database and Redis connections (installer question 18), chains, batches, unique jobs, job middleware and rate-limited jobs, `afterCommit`, context propagation into jobs, and the testing fake.
 
-**Planned API (a sketch: names may change before 0.3).** The classes and methods below (`Job`, `Queue.push()`, `Queue.chain()`, `Queue.batch()`, `node strut queue:work`, `make:job`) follow Laravel's shape, which is the stated goal, but their exact names aren't in the design yet. Every "What you'll see" is "something like this".
+**Planned API (a sketch: names may change before 0.3).** The classes and methods below (`Job`, `Queue.push()`, `Queue.chain()`, `Queue.batch()`, `make:job`, the `--queue` option) follow Laravel's shape, which is the stated goal, but their exact names aren't in the design yet. Every "What you'll see" is "something like this".
 :::
 
 ## The smallest example
@@ -183,8 +183,8 @@ export class SyncPartnerPrices extends Job<{ partnerId: string }> {
 **What you'll see** when the partner's API is down for a minute:
 
 ```text
-local.WARNING: SyncPartnerPrices failed, retrying in 10 s {"attempt":1,"error":"HttpClientError: CONNECTION_FAILED"}
-local.WARNING: SyncPartnerPrices failed, retrying in 60 s {"attempt":2,"error":"HttpClientError: CONNECTION_FAILED"}
+local.WARNING: SyncPartnerPrices failed, retrying in 10 s {"attempt":1,"error":"HttpClientError: connection_failed"}
+local.WARNING: SyncPartnerPrices failed, retrying in 60 s {"attempt":2,"error":"HttpClientError: connection_failed"}
 local.INFO: Processed SyncPartnerPrices {"attempt":3,"ms":830}
 ```
 
@@ -335,6 +335,12 @@ export class PushTaskToPartner extends Job<{ taskId: string }> {
 node strut queue:work
 ```
 
+`queue:work` loads your code once and keeps it in memory, which is fast. While you're changing job code without `npm run dev`, use `queue:listen` instead: it picks up your latest code for every job, at the cost of speed.
+
+```bash
+node strut queue:listen
+```
+
 ### In production
 
 A worker is a **long-running process**. Run it next to your web server, under something that restarts it if it stops:
@@ -423,9 +429,9 @@ node strut queue:work
 node strut queue:restart
 ```
 
-### My job sees no data, or "a tenant is required"
+### My job sees no data, or fails with `tenant_required`
 
-**Why:** the job was dispatched outside a request (a script, a command) with no team in the context, so the tenant scope refuses to read tenant tables.
+**Why:** the job was dispatched outside a request (a script, a command) with no team in the context, so the tenant scope refuses to read tenant tables (error code `tenant_required`). This only applies when tenancy is on (`enabled: true` in `config/tenancy.ts`).
 **Fix:** dispatch from inside the team's context (from a request, or a command that sets the team), or pass the team explicitly when your design allows it. Never work around the scope with raw SQL.
 
 ### Customers got the same email twice

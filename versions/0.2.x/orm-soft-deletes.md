@@ -8,7 +8,7 @@ A **soft delete** marks a row as deleted instead of removing it. The row stays i
 Use soft deletes for anything a user might delete by mistake (posts, customers, invoices), or anything you must keep for a while for legal or audit reasons.
 
 :::tip[Coming from Laravel?]
-Same idea as the `SoftDeletes` trait, but you don't add anything to the model: a table with `t.softDeletes()` in its migration *is* soft-deleting. `delete()`, `restore()`, `forceDelete()`, `trashed()`, `withTrashed()` and `onlyTrashed()` work as in Eloquent. `Prunable` and `model:prune` are planned for 0.3; until then, a small job does the same (below).
+Same idea as the `SoftDeletes` trait, but you don't add anything to the model: a table with `t.softDeletes()` in its migration *is* soft-deleting. `delete()`, `restore()`, `forceDelete()`, `trashed()`, `withTrashed()` and `onlyTrashed()` work as in Eloquent. `Prunable` and `model:prune` are coming in 0.3; until then, a small job does the same (below).
 :::
 
 ## Turning it on

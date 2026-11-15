@@ -10,7 +10,7 @@ In a Strutvane app there are three tools for this, and picking the right one mat
 | You want to… | Use | Built? |
 |---|---|---|
 | wait for several **database queries or HTTP calls** at once | `Promise.all()` (plain JavaScript) | yes, it's part of the language |
-| run **CPU-heavy** work (parsing a big file, crunching numbers) without freezing the app | `Concurrency.run([...])` on worker threads or processes | planned for 0.3 |
+| run **CPU-heavy** work (parsing a big file, crunching numbers) without freezing the app | `Concurrency.run([task(…), …])` on worker threads or processes | planned for 0.3 |
 | do something **after the response** has been sent | `defer(fn)` | planned for 0.2 |
 | do something **later, reliably, with retries** | a [queued job](../queues/) | planned for 0.3 |
 | run **another program** | [`Process`](../processes/) | planned for 0.3 |
@@ -18,13 +18,13 @@ In a Strutvane app there are three tools for this, and picking the right one mat
 :::tip[Coming from Laravel?]
 PHP runs one thing at a time per request, so Laravel needs `Concurrency::run()` (separate PHP processes) even to run two queries side by side. Node doesn't: while one query waits for the database, the same thread can start the next one, so **`Promise.all()` already covers most of what `Concurrency::run()` is used for in Laravel**.
 
-`Concurrency.run([...])` is still planned, for the case Node can't do on one thread: heavy computation. It runs on worker threads or processes, with a `sync` driver for tests, like Laravel's. `defer()` is Laravel 11's `defer()`: work that runs after the response is sent.
+`Concurrency.run([...])` is still planned, for the case Node can't do on one thread: heavy computation. It runs on worker threads or processes, with a `sync` driver for tests, like Laravel's. One difference: Laravel sends closures to its worker processes; Strutvane's workers take **module tasks**, `task('reports/build', args)`, because JavaScript can't copy a closure to another thread. `defer()` is Laravel 11's `defer()`: work that runs after the response is sent.
 :::
 
 :::caution[Coming in 0.3]
 `Concurrency.run()` is in **phase 2 of the roadmap (0.3)**: "on worker threads or processes, with a sync driver for tests" (Laravel parity checklist). `defer(fn)`, together with a `terminate()` hook for middleware, is planned for **0.2** ("errors are logged, never lost"). Neither is built yet.
 
-**Planned API (a sketch: names may change).** How a task is handed to another thread is still open: JavaScript can't copy a function, together with the variables it uses, to another thread. The final API may require each task to live in its own file. The sections on `Promise.all()` work today in any Node program.
+**What's decided:** worker drivers take **module tasks** (`task('reports/build', args)`), not closures; closures work only with the `sync` driver; the team (tenant) and request context are passed explicitly with each task and re-established in the worker. **Planned API (a sketch: names may change).** The folder tasks live in, the shape of a task module, the options and the error names are not final. The sections on `Promise.all()` work today in any Node program.
 :::
 
 ## The smallest example
@@ -139,22 +139,41 @@ A [transaction](../orm-transactions/) runs on **one** database connection, and a
 ## CPU-heavy work: `Concurrency.run()`
 
 :::caution[Coming in 0.3]
-**Planned API (a sketch: names may change before 0.3).** The parity checklist fixes the name `Concurrency.run([...])`, worker threads or processes, and a `sync` driver for tests. Everything else here (how tasks are written, the options, the error names) is a sketch.
+Decided: `Concurrency.run([...])`, worker threads or processes, a `sync` driver for tests, **module tasks** for the worker drivers (`task('reports/build', args)`), closures only with `sync`, and the tenant and request context passed explicitly and re-established in the worker. **Planned API (a sketch: names may change before 0.3):** the `app/tasks/` folder, the task module's shape, `Concurrency.driver()` and the error names.
 :::
 
 `Concurrency.run()` takes a list of tasks, runs each one on **another thread or process**, and returns their results in order. The main thread stays free to answer other requests while they work.
 
+A **task** for a worker is **a module, not a closure**. A closure (a function that uses variables from the code around it) can't be copied to another thread, because the other thread has its own memory. So each task lives in its own file and is named by its path; you hand it plain arguments.
+
+**Step 1: write the task module.**
+
+```ts title="app/tasks/imports/parse-csv-chunk.ts"
+/** Parses one chunk of an uploaded CSV. Runs on a worker: plain data in, plain data out. */
+export default async function parseCsvChunk(args: { csv: string }): Promise<Array<{ title: string; status: string }>> {
+  return args.csv
+    .split('\n')
+    .filter((line) => line.trim() !== '')
+    .map((line, index) => {
+      const [title, status] = line.split(',')
+      if (title === undefined || status === undefined) throw new Error(`Row ${index + 1}: expected 2 columns`)
+      return { title, status }
+    })
+}
+```
+
+**Step 2: run it four times at once.**
+
 ```ts title="app/services/import-preview.ts"
-import { Concurrency } from '@strutvane/framework'
-import { parseCsvChunk } from './parse-csv-chunk.ts'
+import { Concurrency, task } from '@strutvane/framework'
 
 /** Parses a large upload in four parts at once, on other threads. */
 export async function previewImport(chunks: readonly [string, string, string, string]) {
   const [a, b, c, d] = await Concurrency.run([
-    () => parseCsvChunk(chunks[0]),
-    () => parseCsvChunk(chunks[1]),
-    () => parseCsvChunk(chunks[2]),
-    () => parseCsvChunk(chunks[3]),
+    task('imports/parse-csv-chunk', { csv: chunks[0] }),
+    task('imports/parse-csv-chunk', { csv: chunks[1] }),
+    task('imports/parse-csv-chunk', { csv: chunks[2] }),
+    task('imports/parse-csv-chunk', { csv: chunks[3] }),
   ])
   return [...a, ...b, ...c, ...d]
 }
@@ -164,7 +183,7 @@ export async function previewImport(chunks: readonly [string, string, string, st
 
 ### What can cross to another thread
 
-A task runs in a separate JavaScript world. What goes in and what comes out is **copied**, with the same rules as Node's worker threads (the "structured clone" rules):
+A task runs in a separate JavaScript world. Its arguments and its result are **copied**, with the same rules as Node's worker threads (the "structured clone" rules):
 
 | Crosses fine | Doesn't cross |
 |---|---|
@@ -172,19 +191,43 @@ A task runs in a separate JavaScript world. What goes in and what comes out is *
 | plain objects and arrays | class instances keep their data but lose their methods (a `Post` comes back as a plain object) |
 | `Date`, `Map`, `Set`, `ArrayBuffer`, typed arrays | open database connections, sockets, file handles |
 
-So: give tasks **plain data**, do **pure computation** (no database, no HTTP), and return plain data. Do the database work on the main thread before and after.
+So: give tasks **plain data** and return plain data. A task module imports whatever helpers it needs itself.
 
-:::danger[No tenant queries inside a task]
-Whether the request's context (the current team, the user, the request id) will be carried into another thread isn't decided yet. Without it, the tenant scope can't protect a query. Until the design says otherwise, **never query tenant tables inside a `Concurrency.run()` task**: load the team's rows first, pass them in, and compute.
-:::
+### The team and the request travel with the task
+
+When you call `Concurrency.run()` during a request, the current **team** (tenant) and the **request context** (request id, the user) are passed explicitly with each task, as data, and **re-established in the worker** before your task runs. Inside the task, the tenant scope protects queries exactly as in the request, and log lines carry the same request id.
+
+```ts title="app/tasks/reports/build.ts"
+import { Log } from '@strutvane/framework'
+import { Task } from '../../models/task.ts'
+
+/** Summarises one project's tasks. The team was re-established before this runs. */
+export default async function build(args: { projectId: string }) {
+  const tasks = await Task.query().where('project_id', args.projectId).get()   // only this team's rows
+  Log.info('Report built', { projectId: args.projectId, tasks: tasks.length })
+  return { projectId: args.projectId, open: tasks.filter((t) => t.status === 'open').length }
+}
+```
+
+```ts title="app/services/reports.ts"
+import { Concurrency, task } from '@strutvane/framework'
+
+export function buildReports(projectIds: readonly string[]) {
+  return Concurrency.run(projectIds.map((projectId) => task('reports/build', { projectId })))
+}
+```
+
+**What you'll see:** one result per project, each computed in a worker, each reading only the current team's tasks. Each worker opens its own database connection, so keep the number of tasks per call modest (see [Don't start thousands at once](#dont-start-thousands-at-once)). For pure number-crunching, loading the rows first on the main thread and passing them in is still the cheapest.
 
 ### Workers or processes
 
-| Driver | Runs tasks on | Good for |
-|---|---|---|
-| threads (worker threads) | other threads in the same process; cheap to start | most CPU-heavy work |
-| processes | separate Node processes | work that may crash or use a lot of memory, so it can't take the app down |
-| `sync` | the main thread, one after the other | tests: deterministic and easy to debug |
+| Driver | Runs tasks on | Takes | Good for |
+|---|---|---|---|
+| threads (worker threads) | other threads in the same process; cheap to start | module tasks only | most CPU-heavy work |
+| processes | separate Node processes | module tasks only | work that may crash or use a lot of memory, so it can't take the app down |
+| `sync` | the main thread, one after the other | module tasks **and** closures | tests: deterministic and easy to debug |
+
+A closure passed to a worker driver is refused with an error that tells you to move it into a task module.
 
 ### When a task throws
 
@@ -194,7 +237,7 @@ If a task throws, `Concurrency.run()` rejects with that error, like `Promise.all
 try {
   await previewImport(chunks)
 } catch (error) {
-  // e.g. "Row 1,204: expected 5 columns, got 4" thrown inside parseCsvChunk
+  // e.g. "Row 1,204: expected 2 columns" thrown inside parse-csv-chunk
 }
 ```
 
@@ -208,7 +251,7 @@ and the main app keeps running.
 
 ### In tests: the `sync` driver
 
-In tests, run tasks on the main thread so they're deterministic and your debugger can step into them:
+In tests, run tasks on the main thread so they're deterministic and your debugger can step into them. With `sync` you may also pass plain closures, which is handy for small checks:
 
 ```ts title="tests/unit/import-preview.test.ts"
 import { describe, expect, it } from 'vitest'
@@ -218,8 +261,13 @@ import { previewImport } from '../../app/services/import-preview.ts'
 describe('previewImport', () => {
   it('parses every chunk', async () => {
     Concurrency.driver('sync')
-    const rows = await previewImport(['a,1', 'b,2', 'c,3', 'd,4'])
+    const rows = await previewImport(['a,draft', 'b,published', 'c,draft', 'd,draft'])
     expect(rows).toHaveLength(4)
+  })
+
+  it('accepts closures with the sync driver only', async () => {
+    Concurrency.driver('sync')
+    expect(await Concurrency.run([() => 1 + 1, () => 2 + 2])).toEqual([2, 4])
   })
 })
 ```
@@ -281,9 +329,24 @@ for (let start = 0; start < ids.length; start += 10) {
 **Why:** data crossing to another thread is copied as plain data; class instances lose their methods.
 **Fix:** return plain data from tasks, and turn it back into what you need on the main thread.
 
+### "Closures can't be sent to a worker thread"
+
+Something like this:
+
+```text
+ConcurrencyError: Closures can't be sent to a worker thread. Move the work into a task module and call task('imports/parse-csv-chunk', args).
+```
+
+**Why:** the threads and processes drivers take module tasks only; a closure and the variables it uses can't be copied to another thread. (Closures work only with the `sync` driver.)
+**Fix:** move the code into a task module and pass plain arguments:
+
+```ts
+await Concurrency.run([task('imports/parse-csv-chunk', { csv })])
+```
+
 ### A task can't see a variable from my file
 
-**Why:** a task runs in a separate JavaScript world; it doesn't share the variables of the code that started it.
+**Why:** a task module runs in a separate JavaScript world; it doesn't share the variables of the code that started it.
 **Fix:** pass everything the task needs as plain arguments, and import helpers inside the task's own module.
 
 ### Work I deferred sometimes never happens

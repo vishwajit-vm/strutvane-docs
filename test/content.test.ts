@@ -31,7 +31,9 @@ const pages = listContentPages(dir).map((slug) => {
   assert.ok(file, `no file for ${slug}`)
   return { slug, source: readFileSync(file, 'utf8') }
 })
-const real = pages.filter((page) => !page.source.includes(':::note[Being written]'))
+// Package pages are generated from src/data/packages.json (test/package-pages.test.ts checks them).
+const generated = (page: { source: string }): boolean => page.source.includes('<PackagePage ')
+const real = pages.filter((page) => !page.source.includes(':::note[Being written]') && !generated(page))
 
 describe(`writing guide (${current.id})`, () => {
   it('has real pages for the getting-started path, the ORM and the application core', () => {
@@ -64,7 +66,7 @@ describe(`writing guide (${current.id})`, () => {
   })
 
   it('stubs are short and say they are being written', () => {
-    for (const page of pages.filter((p) => !real.includes(p))) {
+    for (const page of pages.filter((p) => !real.includes(p) && !generated(p))) {
       assert.ok(page.source.split('\n').length < 40, `${page.slug} is long for a stub: finish it to the writing guide instead`)
     }
   })

@@ -102,7 +102,7 @@ Same idea, same commands: `php artisan db:seed` becomes `node strut db:seed`, `-
 `forceCreate()` is for **trusted code** like seeders: it may set any real column, including ones that aren't in the model's `fillable` list (like `author_id`), but never Strutvane's own columns such as `id` or `created_at`. Forms and the API use `create()`, which only accepts `fillable` columns. See [Mass Assignment](../orm-mass-assignment/).
 
 :::caution[Coming in 0.2]
-The seeder shape above (`defineSeeder`), automatic registration, `migrate` running new seeders, and the `✔ Seeded …` lines are decided (2026-11-15) and arrive with 0.2. The prototype still writes a `PostSeeder` class, writes the factory only with `--factory`, and prints `Then call PostSeeder from database/seeders/database.seeder.ts.` instead of registering it.
+The seeder shape above (`defineSeeder`), automatic registration between the `strut:seeders` markers, `migrate` running new seeders, and the `✔ Seeded …` lines are decided (2026-11-15) and arrive with 0.2. The prototype still writes a `PostSeeder` class, writes the factory only with `--factory`, and prints `Then call PostSeeder from database/seeders/database.seeder.ts.` instead of registering it.
 :::
 
 ## What `run()` receives
@@ -146,9 +146,37 @@ The name ends in `Seeder`; the file name is the rest, in lower case with dashes,
 
 ## The order seeders run in
 
-`database/seeders/database.seeder.ts` is the **main seeder**: the one `db:seed` runs. It lists every seeder, and **Strutvane maintains it**: each new seeder is added when it's created, and you never need to edit it.
+`database/seeders/database.seeder.ts` is the **main seeder**: the one `db:seed` runs. It calls every other seeder, in order:
 
-The order comes from each seeder's `after`: a seeder runs after the seeders of every table it names. So with these four seeders:
+```ts title="database/seeders/database.seeder.ts"
+import { defineSeeder } from '@strutvane/framework'
+import RolesSeeder from './role.seeder.ts'
+import CategoriesSeeder from './category.seeder.ts'
+import UsersSeeder from './user.seeder.ts'
+import PostsSeeder from './post.seeder.ts'
+
+/** Runs every seeder. The list between the markers is maintained by `node strut`. */
+export default defineSeeder({
+  async run({ call }) {
+    // strut:seeders:start
+    await call([RolesSeeder, CategoriesSeeder, UsersSeeder, PostsSeeder])
+    // strut:seeders:end
+  },
+})
+```
+
+`call([...])` runs the seeders you pass, one after another. The list between `// strut:seeders:start` and `// strut:seeders:end` is **maintained by the CLI**: `make:migration --seeder` and `make:seeder` add each new seeder there (with its import), in the right place. Leave the markers in place. You may add your own code **outside** them, for example a seeder you only want in some environments:
+
+```ts title="database/seeders/database.seeder.ts (excerpt)"
+  async run({ call, env }) {
+    // strut:seeders:start
+    await call([RolesSeeder, CategoriesSeeder, UsersSeeder, PostsSeeder])
+    // strut:seeders:end
+    if (env.APP_ENV === 'local') await call([DemoSeeder])
+  },
+```
+
+The CLI orders the list from each seeder's `after`: a seeder comes after the seeders of every table it names. So with these four seeders:
 
 | File | `after` |
 |---|---|
@@ -167,7 +195,7 @@ The order comes from each seeder's `after`: a seeder runs after the seeders of e
 Database seeded
 ```
 
-Seeders with nothing in common run in file-name order, so the result is the same on every machine. Two seeders that wait for each other (`a` after `b`, `b` after `a`) are refused with the names of both, before anything runs.
+Seeders with nothing in common keep file-name order, so the list is the same on every machine. Two seeders that wait for each other (`a` after `b`, `b` after `a`) are refused with the names of both, before anything runs.
 
 ## When seeders run
 

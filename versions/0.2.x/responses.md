@@ -80,7 +80,7 @@ Resource lists use one shape everywhere, so a client can page through any of the
 ```json
 {
   "data": [{ "id": 1, "title": "Hello World" }],
-  "meta": { "page": 1, "perPage": 15, "total": 3, "lastPage": 1, "from": 1, "to": 3 }
+  "meta": { "page": 1, "perPage": 25, "total": 3, "lastPage": 1, "from": 1, "to": 3 }
 }
 ```
 
@@ -248,8 +248,29 @@ content-type: application/problem+json
 | `status` | The HTTP status, repeated in the body |
 | `code` | A stable identifier your client can `switch` on |
 | `detail` | A sentence about this occurrence, for a person |
-| `issues` | Only for validation: one `{ field, code, message }` per problem |
+| `issues` | Only for validation: one `{ path, field, code, message }` per problem (see below) |
 | `hint` | Only in local debug mode: how a developer can fix it. Never sent in production |
+
+### One validation issue
+
+Each entry in `issues` says where the problem is in two ways, so clients can use whichever is easier:
+
+```json
+{ "path": ["items", 0, "title"], "field": "items.0.title", "code": "too_small", "message": "Title must be at least 3 characters." }
+```
+
+| Key | Means |
+|---|---|
+| `path` | The location as a list of keys and array positions (RFC-0003) |
+| `field` | The same location as one dotted string, handy for matching a form field |
+| `code` | A stable, lowercase `snake_case` code to `switch` on |
+| `message` | A sentence for a person |
+
+Every `code` in Strutvane, for problems and issues alike, is lowercase `snake_case`.
+
+:::caution[Coming in 0.2]
+The application core prototype (spike 12) sends `{ field, code, message }`; `path` is added for 0.2.
+:::
 
 ### Extra headers and developer hints
 

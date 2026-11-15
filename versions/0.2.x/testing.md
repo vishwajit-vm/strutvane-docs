@@ -5,23 +5,23 @@ description: "Run your app's tests with one command, understand the tests a new 
 
 A **test** is a small program that uses your app and checks the result: "when Alice posts a title, the API answers 201 and the slug is `my-first-post`". You run all of them with one command, before every commit and in CI, so you find out about a broken feature in seconds instead of from a customer.
 
-Strutvane apps use **Vitest**, a fast test runner for TypeScript. Feature tests send requests **straight into your app** (no server, no port, no network) against a **real database** of the same kind you use in production. That makes them fast and trustworthy.
+Strutvane apps use **Vitest**, a fast test runner for TypeScript (the installer offers Vitest only in 0.2; generated tests never use `node:test`). Feature tests send requests **straight into your app** (no server, no port, no network) against a **real database** of the same kind you use in production. That makes them fast and trustworthy.
 
 :::tip[Coming from Laravel?]
 It's Laravel's testing, in Vitest:
 - `php artisan test` → `npm test` (which runs `node strut test`);
 - `tests/Feature` and `tests/Unit` → `tests/feature/` and `tests/unit/`;
 - `$this->getJson('/api/posts')->assertStatus(200)` → `await client(app).getJson('/api/posts')` then `.assertStatus(200)`;
-- `RefreshDatabase` → `refreshDatabase(app)`, `actingAs($user)` → `.actingAs(…)`, `Mail::fake()` → `Mail.fake()`.
+- `RefreshDatabase` → `refreshDatabase(app)`, `actingAs($user)` → `.actingAs(user)`, Sanctum's token helpers → `.withToken(token)`, `Mail::fake()` → `Mail.fake()`.
 
 What's different: every resource gets **generated** feature tests and **cross-tenant attack tests**, and tests run against your real engine (MySQL or PostgreSQL), not a different one.
 :::
 
 :::caution[What exists, and when]
-- **Proven in a prototype:** the request client and response assertions (`client(app)`, `assertStatus`, `assertJsonPath`, `assertProblem`, `withoutCsrf()`), `refreshDatabase(app)` from a schema dump, and a generated app's feature test (spike 12). The installer writes the test setup (spike 13).
+- **Proven in a prototype:** the request client and response assertions (`client(app)`, `assertStatus`, `assertJsonPath`, `assertProblem`, `withoutCsrf()`, and a bearer-token helper the prototype calls `actingAs(token)`; its decided name is `withToken(token)`), `refreshDatabase(app)` from a schema dump, and a generated app's feature test (spike 12). The installer writes the test setup (spike 13). Generated tests use **Vitest** only.
 - **Coming in 0.2:** the full testing kit: a transaction per test, a test database per worker on your app's engine, `actingAs(user)` with real sign-in, `asTenant(team)`, `Mail.fake()`, `Http.fake()`, time travel, console tests, and generated feature and attack tests per resource.
 - **Coming in 0.3:** fakes for queues, events, notifications and processes.
-- **Planned after 0.3:** browser tests with page objects, `@strutvane/browser-testing` (phase 7).
+- **Coming after 1.0:** browser tests with page objects, `@strutvane/browser-testing` (phase 7). Until then the installer offers `vitest` or `none` only.
 
 Names that aren't proven yet are marked on each page.
 :::
@@ -52,18 +52,19 @@ Every line with a ✓ is a test file; the numbers are its tests and how long the
 A **feature test** checks one thing a user can do, through the same HTTP routes the UI uses. Here's a complete one for the posts API:
 
 ```ts title="tests/feature/posts.test.ts"
+import { randomBytes } from 'node:crypto'
 import { beforeEach, describe, it } from 'vitest'
 import type { Application } from '@strutvane/framework'
-import { client, refreshDatabase } from '@strutvane/framework/testing'
+import { client, refreshDatabase, seed } from '@strutvane/framework/testing'
 import { createApp } from '../../bootstrap/app.ts'
-import { DatabaseSeeder, demoTokens } from '../../database/seeders/database.seeder.ts'
+import { demoTokens } from '../../database/seeders/database.seeder.ts'
 
 let app: Application
 
 beforeEach(async () => {
-  app = createApp({ APP_ENV: 'testing', APP_KEY: 'base64:dGVzdGluZy1rZXktdGVzdGluZy1rZXktdGVzdGluZy0=', DB_CONNECTION: 'sqlite', DB_DATABASE: ':memory:' })
+  app = createApp({ APP_ENV: 'testing', APP_KEY: 'base64:' + randomBytes(32).toString('base64'), DB_CONNECTION: 'sqlite', DB_DATABASE: ':memory:' })
   await refreshDatabase(app)
-  await app.run(() => new DatabaseSeeder().run())
+  await seed(app)
 })
 
 describe('posts', () => {
@@ -72,21 +73,21 @@ describe('posts', () => {
   })
 
   it('lets an author write a post', async () => {
-    const response = await client(app).actingAs(demoTokens.alice).postJson('/api/posts', { title: 'My second post' })
+    const response = await client(app).withToken(demoTokens.alice).postJson('/api/posts', { title: 'My second post' })
     response.assertStatus(201).assertJsonPath('data.slug', 'my-second-post').assertJsonPath('data.status', 'draft')
   })
 
   it('stops other authors from editing it', async () => {
-    ;(await client(app).actingAs(demoTokens.bob).patchJson('/api/posts/hello-world', { title: 'Mine now' })).assertProblem(403, 'forbidden')
+    ;(await client(app).withToken(demoTokens.bob).patchJson('/api/posts/hello-world', { title: 'Mine now' })).assertProblem(403, 'forbidden')
   })
 })
 ```
 
-This is the prototype's own example-app test. Read it top to bottom:
+This is the prototype's example-app test, written with the decided 0.2 names (the prototype calls `withToken()` `actingAs()`, and runs its seeder with `new DatabaseSeeder().run()`; `seed(app)` runs `database/seeders/database.seeder.ts`, a `defineSeeder()` file). Read it top to bottom:
 
 1. `createApp({...})` builds **a fresh app** for each test, with test settings: `APP_ENV=testing` and an in-memory SQLite database.
 2. `refreshDatabase(app)` creates every table from the schema your migrations produce (in milliseconds, without replaying each migration).
-3. The seeder adds three published posts and two authors.
+3. `seed(app)` runs the app's seeders: three published posts, two authors, and an API token for each (`demoTokens`, exported by this example app's seeder).
 4. `client(app)` sends requests directly into the app, and each response has assertions you can chain.
 
 **What you'll see:**
@@ -134,7 +135,7 @@ it('hides drafts from other authors', async () => {
 | `npx vitest tests/feature/posts.test.ts` | one file |
 | `npx vitest -t "lets an author"` | tests whose name contains that text |
 | `npx vitest --coverage` | with a coverage report |
-| `npm run test:e2e` | browser tests (when you picked Playwright) |
+| `npm run test:e2e` | browser tests, once you set up Playwright (see [Browser Tests](../browser-tests/)) |
 
 ## Test settings and the test database
 
@@ -214,7 +215,7 @@ Error: Expected status 201, got 419. Body: {"type":"about:blank","title":"Page e
 ```
 
 **Why:** the request used a session cookie, so the CSRF check applies, as it does for a real browser.
-**Fix:** use a bearer token (`actingAs(token)` in the prototype), or skip the check in this test only:
+**Fix:** use a bearer token (`withToken(token)`), or skip the check in this test only:
 
 ```ts
 await client(app).withHeaders({ cookie: 'strutvane_session=abc' }).withoutCsrf().postJson('/api/posts', { title: 'Hi' })

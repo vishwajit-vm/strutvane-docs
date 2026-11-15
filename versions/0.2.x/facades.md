@@ -1,11 +1,11 @@
 ---
 title: Facades
-description: What Laravel's facades are, why Strutvane started with helpers and injection instead, and the typed static accessors planned for 0.2 (Log, Cache, DB, Route, Mail, Storage, Http) that read the current app's container and can be swapped in tests.
+description: Strutvane's facades are typed static accessors (Log, Cache, DB, Route, Mail, Storage, Http, Queue, Event, Bus, Notification, Hash, Crypt, Url) that resolve from the current app's container, so tests can swap them. How they work, how to fake them, and when to inject instead.
 ---
 
 In Laravel, a **facade** is a class with static methods, like `Cache::get('key')` or `Log::info('hi')`, that quietly forwards each call to a real service inside the app's container. It reads like a global, but behind it is an object you can swap.
 
-Strutvane's version is planned for 0.2: **typed static accessors** with the same short names (`Log`, `Cache`, `DB`, `Route`, `Mail`, `Storage`, `Http`), resolved from the **current app's** container, with no magic and with fakes for tests. This page explains how they'll work, and what to use today.
+Strutvane's version is planned for 0.2: **typed static accessors** with Laravel's short names (`Log`, `Cache`, `DB`, `Route`, `Mail`, `Storage`, `Http`, `Queue`, `Event`, `Bus`, `Notification`, `Hash`, `Crypt`, `Url`), resolved from the **current app's** container, with no magic and with fakes for tests. This page explains how they'll work, and what to use today.
 
 :::tip[Coming from Laravel?]
 `Log::info()` becomes `Log.info()`, `Cache::remember()` becomes `Cache.remember()`, `Http::fake()` becomes `Http.fake()`. The differences:
@@ -16,7 +16,7 @@ Strutvane's version is planned for 0.2: **typed static accessors** with the same
 :::
 
 :::caution[Coming in 0.2]
-The accessors are a **gap found on 2026-11-15** and added to the 0.2 plan (Laravel parity matrix). They aren't in any prototype yet. The application core prototype (spike 12) deliberately proved the alternative first: plain [helpers](../helpers/) and constructor injection, with no facades over global state. Everything below marked as a preview may change.
+Facades are **decided** for Strutvane (typed accessors resolved from the current app's container, never from module-level global state) and each one arrives with the feature it fronts. They aren't in a prototype yet: the application core prototype (spike 12) proved the layer underneath, the current-app context, [helpers](../helpers/) and constructor injection. Signatures shown below are a preview.
 :::
 
 ## The smallest example (preview)
@@ -66,6 +66,13 @@ So:
 | `Mail` | the mailer | `Mail::` | `Mail.fake()`, then assert what was sent | 0.2 ([Mail](../mail/)) |
 | `Storage` | file disks | `Storage::` | `Storage.fake()`, a temporary disk | 0.2 / 0.3 ([File Storage](../storage/)) |
 | `Http` | the outgoing HTTP client | `Http::` | `Http.fake()`, `Http.preventStrayRequests()` | 0.2 ([HTTP Client](../http-client/)) |
+| `Queue` | the queue | `Queue::` | `Queue.fake()` | 0.3 ([Queues](../queues/)) |
+| `Event` | the event dispatcher | `Event::` | `Event.fake()` | 0.2 ([Events](../events/)) |
+| `Bus` | dispatching jobs and chains | `Bus::` | a fake that records dispatches | 0.3 ([Queues](../queues/)) |
+| `Notification` | notifications | `Notification::` | `Notification.fake()` | 0.3 ([Notifications](../notifications/)) |
+| `Hash` | password hashing | `Hash::` | — | 0.2 ([Hashing](../hashing/)) |
+| `Crypt` | encryption (`encrypt()` / `decrypt()`) | `Crypt::` | — | 0.2 ([Encryption](../encryption/)) |
+| `Url` | URL generation and signed links (`url.signedRoute()`) | `URL::` | — | 0.2 ([Routing](../routing/)) |
 
 A row arrives together with the feature it fronts: `Cache` can't exist before the cache does.
 
@@ -130,13 +137,14 @@ The shortest, for code that isn't a class you control: a route closure, a small 
 Each accessor that talks to the outside world gets a fake that replaces the real service **in that test's app only**:
 
 ```ts title="tests/feature/welcome-mail.test.ts"
+import { randomBytes } from 'node:crypto'
 import { expect, test } from 'vitest'
 import { Mail } from '@strutvane/framework'
 import { client } from '@strutvane/framework/testing'
 import { createApp } from '../../bootstrap/app.ts'
 
 test('signing up sends a welcome mail', async () => {
-  const app = createApp({ APP_ENV: 'testing', APP_KEY: 'test-key', DB_CONNECTION: 'sqlite' })
+  const app = createApp({ APP_ENV: 'testing', APP_KEY: `base64:${randomBytes(32).toString('base64')}`, DB_CONNECTION: 'sqlite' })
   await app.run(async () => {
     Mail.fake()
     await client(app).postJson('/register', { name: 'Asha', email: 'asha@example.test', password: 'a long password here' })

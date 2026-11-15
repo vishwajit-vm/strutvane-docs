@@ -18,7 +18,7 @@ What's different:
 :::
 
 :::caution[Coming in 0.2]
-Tokens are **proven in the auth prototype** (spike 20: format, digest-only storage, abilities within the allowed list, expiry, last-used throttling, revoke, forged and mutated tokens, and "a disabled feature authenticates nothing"). They aren't released yet. The routes and answers below are the prototype's. The `abilities:` middleware, the API-tokens settings screen and the `tokens:prune` and `token:revoke --all` commands are designed, not built. The feature is named `apiTokens` (the decided name; the prototype still calls the switch `tokens`), and the session cookie `strutvane_session`.
+Tokens are **proven in the auth prototype** (spike 20: format, digest-only storage, abilities within the allowed list, expiry, last-used throttling, revoke, forged and mutated tokens, and "a disabled feature authenticates nothing"). They aren't released yet. The routes and answers below are the prototype's. The `abilities:` middleware, the API-tokens settings screen and the `tokens:prune` and `token:revoke --all` commands are designed, not built. The feature is named `apiTokens` (the decided name; the prototype still calls the switch `tokens`), the session cookie `strutvane_session`, and error codes are lowercase (`unauthenticated`; the prototype uses uppercase).
 :::
 
 ## The smallest example
@@ -127,7 +127,7 @@ export default defineAuthConfig({
 **What you'll see:** asking for `user.delete` or `*` now fails:
 
 ```json
-{"type":"about:blank","title":"Some fields are missing or invalid.","status":422,"code":"VALIDATION_FAILED","issues":[{"field":"abilities","code":"not_allowed"}]}
+{"type":"about:blank","title":"Some fields are missing or invalid.","status":422,"code":"validation_failed","issues":[{"path":["abilities"],"field":"abilities","code":"not_allowed","message":"This token may not get that ability."}]}
 ```
 
 A badly written pattern in the config stops the app at start-up:
@@ -194,7 +194,7 @@ curl -i -X DELETE http://localhost:3000/user/api-tokens/0193a1d5-9c0a-7b21-8d4e-
   -H "Origin: http://localhost:3000" -H "Cookie: strutvane_session=<your session>"
 ```
 
-**What you'll see:** `204 No Content`. The next request with that token gets `401`. Someone else's token id answers exactly like an unknown one, `404 NOT_FOUND`, so ids can't be probed.
+**What you'll see:** `204 No Content`. The next request with that token gets `401`. Someone else's token id answers exactly like an unknown one, `404 not_found`, so ids can't be probed.
 
 ## How long tokens live
 
@@ -205,7 +205,7 @@ curl -i -X DELETE http://localhost:3000/user/api-tokens/0193a1d5-9c0a-7b21-8d4e-
 | `tokens.abilities` | `['*']` | the patterns tokens may carry |
 | `tokens.prefix` | `svp_` | the prefix secret scanners look for |
 
-`expiresInDays` must be a whole number from 1 to `maxExpiryDays`; anything else is `VALIDATION_FAILED` with issue `{"field":"expiresInDays","code":"invalid"}`.
+`expiresInDays` must be a whole number from 1 to `maxExpiryDays`; anything else is `validation_failed` with an issue whose `field` is `expiresInDays` and `code` is `invalid`.
 
 Tokens also die when:
 
@@ -262,7 +262,7 @@ Every invalid token answers the **same** `401`, whatever the reason, so nobody c
 HTTP/1.1 401 Unauthorized
 content-type: application/problem+json
 
-{"type":"about:blank","title":"You need to sign in.","status":401,"code":"UNAUTHENTICATED"}
+{"type":"about:blank","title":"You need to sign in.","status":401,"code":"unauthenticated"}
 ```
 
 | Reason | What the caller sees |
@@ -278,7 +278,7 @@ To find out which one it was, look at the token list in settings (is it there? i
 
 ## Safety rails built in
 
-- Tokens can't be created **while an admin impersonates** a user, because the token would outlive the impersonation.
+- Tokens can't be created **while someone impersonates** a user (impersonating needs the `impersonate` ability), because the token would outlive the impersonation.
 - Creating and revoking tokens emits `token.created` and `token.revoked` events for the [audit log](../audit/), with ids only.
 - No token value ever reaches a log line or an event; a test runs every feature and checks.
 - The `Authorization` header is parsed strictly (at most 200 characters, `Bearer` then one token).
@@ -301,7 +301,7 @@ curl -X DELETE http://localhost:3000/user/api-tokens/<id> -H "Origin: http://loc
 ### My script suddenly gets 401
 
 ```text
-{"type":"about:blank","title":"You need to sign in.","status":401,"code":"UNAUTHENTICATED"}
+{"type":"about:blank","title":"You need to sign in.","status":401,"code":"unauthenticated"}
 ```
 
 **Why:** the token expired (one year by default), was revoked, or the owner reset their password, which revokes all their tokens.
@@ -310,7 +310,7 @@ curl -X DELETE http://localhost:3000/user/api-tokens/<id> -H "Origin: http://loc
 ### Creating a token answers `not_allowed`
 
 ```json
-{"code":"VALIDATION_FAILED","issues":[{"field":"abilities","code":"not_allowed"}]}
+{"code":"validation_failed","issues":[{"path":["abilities"],"field":"abilities","code":"not_allowed","message":"This token may not get that ability."}]}
 ```
 
 **Why:** you asked for an ability outside the app's `tokens.abilities` list, or wrote it with a colon (`post:view`).
@@ -333,7 +333,7 @@ tokens: { abilities: ['post.*', 'tag.view', 'invoice.export'] },
 ### POST /user/api-tokens answers 404
 
 ```text
-{"type":"about:blank","title":"Not found.","status":404,"code":"NOT_FOUND"}
+{"type":"about:blank","title":"Not found.","status":404,"code":"not_found"}
 ```
 
 **Why:** the `apiTokens` feature is off.

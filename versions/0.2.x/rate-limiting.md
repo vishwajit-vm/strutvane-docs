@@ -130,7 +130,7 @@ Route.post('/exports', [ExportController, 'store']).middleware('auth', 'throttle
 |---|---|
 | App-wide | it's in the `api` group already; change the `api` limiter |
 | One route | `.middleware('throttle:5,1')` |
-| A group | `Route.middleware('throttle:reports').group(() => [ … ])` |
+| A group | `Route.middleware('throttle:reports').group(() => { Route.get(…) })` |
 | A whole resource | `Route.apiResource('posts', PostController).middleware('throttle:30,1')` |
 | Some resource actions | `.middlewareFor(['store'], 'throttle:10,1')` |
 | A controller | `static readonly middleware = [throttle({ params: ['10', '1'], only: ['store'] })]` |
@@ -170,13 +170,14 @@ The Protections column shows every `throttle:…` that really applies to each ro
 Freeze the clock so windows are predictable, then send requests:
 
 ```ts title="tests/feature/contact-throttle.test.ts"
+import { randomBytes } from 'node:crypto'
 import { expect, test } from 'vitest'
 import { ClockToken } from '@strutvane/framework'
 import { client } from '@strutvane/framework/testing'
 import { createApp } from '../../bootstrap/app.ts'
 
 test('the contact form allows 5 posts a minute', async () => {
-  const app = createApp({ APP_ENV: 'testing', APP_KEY: 'test-key', DB_CONNECTION: 'sqlite' })
+  const app = createApp({ APP_ENV: 'testing', APP_KEY: `base64:${randomBytes(32).toString('base64')}`, DB_CONNECTION: 'sqlite' })
   app.container.instance(ClockToken, () => new Date('2026-11-14T10:00:00Z'))
   const http = client(app).withoutCsrf()
 
@@ -188,7 +189,7 @@ test('the contact form allows 5 posts a minute', async () => {
 })
 ```
 
-**What you'll see** with `npm test`: the test passes. A new app per test means a fresh set of buckets.
+**What you'll see** with `npm test`: the test passes. A new app per test means a fresh set of buckets. (`withoutCsrf()` skips the CSRF check for the test client; it only works when `APP_ENV=testing`, so it can never switch CSRF off in a real deployment.)
 
 ## With Docker, several processes and several servers
 

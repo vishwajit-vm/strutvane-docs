@@ -36,6 +36,18 @@ export interface PackageEntry {
   /** Number in the hub's 47-package master list, or `null`. */
   readonly checklist: number | null
   readonly note?: string | undefined
+  /** Menu label and page heading in words: "Auth", "Crisp (default)", "Registry compiler". */
+  readonly title: string
+  /** The Laravel equivalent, in words, or `null`. */
+  readonly laravel: string | null
+  /** What using it will look like (a proposal for anything not built), or `null`. */
+  readonly example: PackageExample | null
+}
+
+/** A short code sample shown on a package's page. */
+export interface PackageExample {
+  readonly lang: 'ts' | 'bash' | 'css' | 'json'
+  readonly code: string
 }
 
 /** A group of the catalogue page. */
@@ -152,6 +164,18 @@ export function parsePackagesData(json: unknown, where: string): PackagesData {
     const replacement = nullableString(raw, 'replacement', label, problems)
     const docs = nullableString(raw, 'docs', label, problems)
     if (docs !== null && !SLUG.test(docs)) problems.push(`${label}: "docs" must be a page slug like "packages/auth" (no slashes at the ends, no #).`)
+    const title = raw['title']
+    if (typeof title !== 'string' || title.trim() === '') problems.push(`${label}: "title" is required (the menu label).`)
+    const laravel = nullableString(raw, 'laravel', label, problems)
+    const exampleRaw = raw['example']
+    let example: PackageExample | null = null
+    if (exampleRaw !== null) {
+      if (isRecord(exampleRaw) && typeof exampleRaw['code'] === 'string' && exampleRaw['code'].trim() !== '' && ['ts', 'bash', 'css', 'json'].includes(String(exampleRaw['lang']))) {
+        example = { lang: exampleRaw['lang'] as PackageExample['lang'], code: exampleRaw['code'] }
+      } else {
+        problems.push(`${label}: "example" must be null or { "lang": "ts" | "bash" | "css" | "json", "code": "…" }.`)
+      }
+    }
     const note = raw['note']
     if (note !== undefined && (typeof note !== 'string' || note.trim() === '')) problems.push(`${label}: "note" must be text when present.`)
     if (status === 'retired' && replacement === null) problems.push(`${label} is retired but names no replacement. Say what people use instead.`)
@@ -172,6 +196,9 @@ export function parsePackagesData(json: unknown, where: string): PackagesData {
       docs,
       checklist: typeof checklist === 'number' ? checklist : null,
       note: typeof note === 'string' ? note : undefined,
+      title: String(title),
+      laravel,
+      example,
     }]
   })
   if (problems.length > 0) {
@@ -212,6 +239,105 @@ export function displayName(entry: PackageEntry): string {
 }
 
 /** "Phase 2", or the empty string. */
+/** The page slug of a package: `packages/<id>`. */
+export function packageSlug(entry: PackageEntry): string {
+  return `packages/${entry.id}`
+}
+
+/** The tone of a status banner: drives its colour; the text always says the status in words. */
+export type BannerTone = 'available' | 'progress' | 'proposed' | 'shelved' | 'retired'
+
+/**
+ * The plain-words banner at the top of a package's page. The same text is rendered in the page,
+ * exported to Markdown and checked by the tests, so a page can never claim a status its data
+ * doesn't have.
+ *
+ * @example
+ * ```ts
+ * statusBanner(redis) // { tone: 'proposed', text: 'Proposed: planned for 0.3' }
+ * statusBanner(core)  // { tone: 'retired', text: 'Retired: use @strutvane/framework/core instead' }
+ * ```
+ */
+export function statusBanner(entry: PackageEntry): { readonly tone: BannerTone; readonly text: string } {
+  switch (entry.status) {
+    case 'available':
+      return { tone: 'available', text: 'Available' }
+    case 'preview':
+      return { tone: 'progress', text: 'Preview: published for trying out; it may still change' }
+    case 'in-development':
+      return { tone: 'progress', text: 'In development for 0.2' }
+    case 'shelved':
+      return { tone: 'shelved', text: 'Shelved' }
+    case 'retired':
+      return { tone: 'retired', text: `Retired: use ${entry.replacement ?? 'its replacement'} instead` }
+    case 'planned':
+      if (entry.phase === 2) return { tone: 'proposed', text: 'Proposed: planned for 0.3' }
+      if (entry.phase === 3) return { tone: 'proposed', text: 'Proposed: planned for 1.0' }
+      return { tone: 'proposed', text: `Proposed: planned for a later release (phase ${entry.phase ?? '?'})` }
+  }
+}
+
+/** One menu group generated from the data. */
+export interface PackageMenuGroup {
+  readonly label: string
+  readonly items: ReadonlyArray<{ readonly slug: string; readonly label: string }>
+}
+
+/**
+ * The Packages part of the menu, grouped by status in the order readers look for things:
+ * Overview, Core, Designs, Coming in 0.3, Planned for 1.0, one "Later" group per phase, Retired.
+ * Empty groups are left out, and every entry lands in exactly one group.
+ *
+ * @example
+ * ```ts
+ * packageMenuGroups(data).map((group) => group.label) // ['Overview', 'Core', 'Designs', 'Coming in 0.3 (proposed)', …]
+ * ```
+ */
+export function packageMenuGroups(data: PackagesData): PackageMenuGroup[] {
+  const item = (entry: PackageEntry): { slug: string; label: string } => ({ slug: packageSlug(entry), label: entry.title })
+  const byPhaseThenTitle = (a: PackageEntry, b: PackageEntry): number => (a.phase ?? 0) - (b.phase ?? 0) || a.title.localeCompare(b.title)
+  const active = (entry: PackageEntry): boolean => entry.status !== 'retired' && entry.status !== 'shelved'
+  const designs = data.packages.filter((entry) => entry.kind === 'design')
+  const core = data.packages.filter((entry) => entry.kind !== 'design' && active(entry) && entry.phase === 1)
+  const planned = (phase: number): PackageEntry[] => data.packages.filter((entry) => entry.kind !== 'design' && active(entry) && entry.phase === phase).sort(byPhaseThenTitle)
+  const later = [4, 5, 6, 7, 8].map((phase) => ({ label: `Later (proposed): phase ${phase}`, items: planned(phase).map(item) }))
+  const groups: PackageMenuGroup[] = [
+    { label: 'Overview', items: [{ slug: 'packages/catalogue', label: 'Package Catalogue' }] },
+    { label: 'Core (in development for 0.2)', items: core.map(item) },
+    { label: 'Designs', items: designs.sort((a, b) => Number(a.status === 'shelved') - Number(b.status === 'shelved')).map(item) },
+    { label: 'Coming in 0.3 (proposed)', items: planned(2).map(item) },
+    { label: 'Planned for 1.0 (proposed)', items: planned(3).map(item) },
+    ...later,
+    { label: 'Retired', items: data.packages.filter((entry) => entry.status === 'retired').map(item) },
+  ]
+  return groups.filter((group) => group.items.length > 0)
+}
+
+/**
+ * One package page as Markdown (for "Copy as Markdown" and `llms.txt`).
+ *
+ * @example
+ * ```ts
+ * packagePageMarkdown(auth, (slug) => `https://example.com/docs/0.2.x/${slug}/`)
+ * ```
+ */
+export function packagePageMarkdown(entry: PackageEntry, docsUrl: (slug: string) => string): string {
+  const lines = [`> **${statusBanner(entry).text}**`, '', entry.summary, '']
+  if (entry.replacement !== null) lines.push(`**Use instead:** ${entry.replacement}`, '')
+  if (entry.note !== undefined) lines.push(entry.note, '')
+  if (entry.example !== null) {
+    lines.push(entry.status === 'retired' ? '**Before and after:**' : entry.status === 'in-development' ? '**What using it looks like** (names may still change before 0.2):' : '**What using it will look like** (a proposal; names may change):', '', `\`\`\`${entry.example.lang}`, entry.example.code, '\`\`\`', '')
+  }
+  const facts = [
+    entry.npm === null ? '' : `- **npm:** \`${entry.npm}\``,
+    entry.laravel === null ? '' : `- **Laravel equivalent:** ${entry.laravel}`,
+    entry.phase === null ? '' : `- **Phase:** ${entry.phase}`,
+    entry.repo === null ? '' : `- **Repository:** ${entry.repo}`,
+    entry.docs === null ? '' : `- **Docs:** ${docsUrl(entry.docs)}`,
+  ].filter((line) => line !== '')
+  return [...lines, ...facts].join('\n').trim()
+}
+
 export function phaseText(entry: PackageEntry): string {
   return entry.phase === null ? '' : `Phase ${entry.phase}`
 }

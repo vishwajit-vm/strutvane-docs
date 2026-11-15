@@ -55,7 +55,9 @@ describe('the real versions', () => {
     const version = versions.find((v) => v.id === '0.2.x')
     assert.ok(version)
     const nav = loadNavigation(resolveContentDir(version, { root }), version.id)
-    assert.deepEqual(nav.groups.map((group) => group.label), [
+    // Generated groups (the Packages menu, from src/data/packages.json) sit under their parent.
+    const topLevel = nav.groups.map((group) => group.parent ?? group.label).filter((label, index, all) => all[index - 1] !== label)
+    assert.deepEqual(topLevel, [
       'Prologue', 'Getting Started', 'Architecture Concepts', 'The Basics', 'Digging Deeper', 'Security',
       'Database', 'ORM', 'Auto CRUD & UI', 'Testing', 'Packages', 'CLI Reference',
     ])

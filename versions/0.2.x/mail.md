@@ -277,7 +277,7 @@ import { PostPublished } from '../../app/mail/post-published.mail.tsx'
 
 it('mails the author when a post is published', async () => {
   Mail.fake()
-  await client(app).actingAs(aliceToken).postJson('/api/posts/hello-world/publish', {})
+  await client(app).withToken(aliceToken).postJson('/api/posts/hello-world/publish', {})
   Mail.assertSent(PostPublished, (sent) => sent.post.slug === 'hello-world')
   Mail.assertSentCount(1)
 })

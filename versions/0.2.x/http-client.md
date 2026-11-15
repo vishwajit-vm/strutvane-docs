@@ -107,13 +107,15 @@ Every failure throws an `HttpClientError` with a `code`:
 
 | `code` | Means | Sent anything? |
 |---|---|---|
-| `SSRF_BLOCKED` | The address is private or special | **No**, nothing was sent |
-| `INVALID_URL` | Not a valid http(s) URL, or it has credentials | No |
-| `DNS_FAILED` | The host name couldn't be resolved | No |
-| `CONNECTION_FAILED` | The connection failed or broke | Maybe |
-| `TIMEOUT` | The whole exchange took longer than `timeoutMs` | Maybe |
-| `RESPONSE_TOO_LARGE` | The body was bigger than `maxBytes` | Yes |
-| `TOO_MANY_REDIRECTS` | More than `maxRedirects` | Yes |
+| `ssrf_blocked` | The address is private or special | **No**, nothing was sent |
+| `invalid_url` | Not a valid http(s) URL, or it has credentials | No |
+| `dns_failed` | The host name couldn't be resolved | No |
+| `connection_failed` | The connection failed or broke | Maybe |
+| `timeout` | The whole exchange took longer than `timeoutMs` | Maybe |
+| `response_too_large` | The body was bigger than `maxBytes` | Yes |
+| `too_many_redirects` | More than `maxRedirects` | Yes |
+
+Every code in Strutvane is lowercase `snake_case`. (The prototype still spells these in capitals, `SSRF_BLOCKED`; 0.2 uses the lowercase codes above.)
 
 ```ts title="app/services/link-preview.ts"
 import { HttpClientError, safeFetch } from '@strutvane/framework/security'
@@ -123,7 +125,7 @@ export async function preview(url: string): Promise<string | undefined> {
     const response = await safeFetch(url, { timeoutMs: 3000, maxBytes: 512 * 1024 })
     return /<title>([^<]*)<\/title>/i.exec(response.text())?.[1]
   } catch (error) {
-    if (error instanceof HttpClientError && error.code === 'SSRF_BLOCKED') return undefined   // a hostile link: ignore it
+    if (error instanceof HttpClientError && error.code === 'ssrf_blocked') return undefined   // a hostile link: ignore it
     throw error
   }
 }
@@ -166,7 +168,7 @@ See [Facades](../facades/) for how `Http` is resolved and faked.
 ### My call to `http://localhost:4000` is blocked in development
 
 ```text
-HttpClientError [SSRF_BLOCKED]: localhost is a loopback name.
+HttpClientError [ssrf_blocked]: localhost is a loopback name.
 ```
 
 **Why:** loopback is always blocked; your dev mock service is on it.

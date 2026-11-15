@@ -60,6 +60,7 @@ curl http://localhost:3000/api/tags -H "Authorization: Bearer $TOKEN"
 | GET | `/api/posts/{post}` | One post (by id, or by slug for tables with a slug) | `view` | `200` `{ data }` |
 | PUT/PATCH | `/api/posts/{post}` | Validate and change (PATCH: only the fields sent) | `view`, then `update` | `200` `{ data }` |
 | DELETE | `/api/posts/{post}` | Delete (soft delete when the table has `deleted_at`) | `view`, then `delete` | `204` |
+| POST | `/api/posts/{post}/restore` | Bring back a soft-deleted post (tables with `deleted_at`) | `restore` | `200` `{ data }` |
 
 ### List options
 
@@ -71,6 +72,7 @@ curl http://localhost:3000/api/tags -H "Authorization: Bearer $TOKEN"
 | `sort` | `?sort=-created_at,title` | up to 3 sortable fields; `-` means newest/largest first |
 | `filter[field]` | `?filter[status]=draft` | only filterable fields |
 | `filter[field][op]` | `?filter[price][gte]=10` | operators per field type |
+| `filter[trashed]` | `?filter[trashed]=with` | `with` or `only` deleted rows (soft-delete tables) |
 
 Every bad option is reported **at once** in a `422`, and the message lists what *is* allowed:
 
@@ -79,8 +81,8 @@ Every bad option is reported **at once** in a `422`, and the message lists what 
   "status": 422,
   "code": "validation_failed",
   "issues": [
-    { "field": "sort", "code": "not_sortable", "message": "\"body\" can't be sorted on. Sortable fields: id, title, slug, price, status, author_id, created_at." },
-    { "field": "perPage", "code": "invalid_integer", "message": "Page size must be a whole number from 1 to 100." }
+    { "path": ["sort"], "field": "sort", "code": "not_sortable", "message": "\"body\" can't be sorted on. Sortable fields: id, title, slug, price, status, author_id, created_at." },
+    { "path": ["perPage"], "field": "perPage", "code": "invalid_integer", "message": "Page size must be a whole number from 1 to 100." }
   ]
 }
 ```
@@ -93,6 +95,7 @@ Every bad option is reported **at once** in a `422`, and the message lists what 
 | A record you may not **see** | `404`, exactly like a missing one, so hidden records can't be discovered by guessing URLs |
 | A record you may see but not **change** | `403 forbidden` |
 | A field that isn't in the model's `fillable` list, or isn't a column | `422 unknown_field` |
+| A model hook (`creating`, `updating`, `saving`, `deleting`, `restoring`) returned `false` | `422 write_cancelled` (nothing was saved) |
 | A duplicate value in a unique column | `422` with code `taken` on that field ("That email is already taken.") |
 | Two saves racing for the same unique value | `409 conflict` |
 | A body that isn't JSON | `415` |
@@ -143,7 +146,7 @@ Planned for the 0.2 build (P1): column resize and reorder, saved views, a quick-
 
 ## Who sees what
 
-Everything goes through the model's policy (`app/policies/post.policy.ts`):
+Everything goes through the model's policy, found **by name**: the model `Post` uses `app/policies/post.policy.ts` with no registration (an explicitly set policy overrides it):
 
 | Policy method | Controls |
 |---|---|
@@ -177,13 +180,18 @@ Turn on the opt-in ones in the resource's settings file: `actions: { export: tru
 
 | You want | Do |
 |---|---|
-| No API and no screens for a model | opt the model out (a setting on the model; designed, not built) |
+| No API and no screens for a model | `Model('posts', { fillable, api: false, ui: false })` in the model |
+| Screens but no API, or the other way round | `api: false` or `ui: false` alone |
 | Keep the screens, write the API yourself | `node strut make:controller PostController --model=Post`, route it in `routes/api.ts` |
 | Every line of the API in your file | `node strut make:controller PostController --api` |
 | Keep the API, change the screens | edit `resources/ui/posts.ui.ts` |
 | Hide only the sidebar entry | `navigation: { hidden: true }` in `posts.ui.ts` |
 
 Your own controller extending `ResourceController` keeps every safety check (policies, `visible()`, unique checks, problem+json) and lets you override one step. See [Controllers](../controllers/).
+
+:::caution[Coming in 0.2]
+The `api: false` / `ui: false` model options, policy discovery by name and the `restore` endpoint are decided, not in the prototypes yet (spike 12 asks for the policy on the controller; spike 14's mock API has `restore`).
+:::
 
 ## With teams
 

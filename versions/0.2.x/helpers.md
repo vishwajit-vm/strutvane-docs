@@ -6,7 +6,7 @@ description: The plain, fully typed helper functions you can import anywhere (co
 **Helpers** are small functions you import and call from anywhere in your app's code: `config('app.name')`, `route('posts.show', { post })`, `now()`. They save you from passing the application object around, and every one of them is **fully typed**: a wrong config key or route name is a compile error, not a runtime surprise.
 
 :::tip[Coming from Laravel?]
-`config()`, `route()`, `now()`, `app()`, `redirect()`, `abort()`, `encrypt()` and `decrypt()` work as you expect, and `URL::signedRoute()` is `signedRoute()`.
+`config()`, `route()`, `now()`, `app()`, `redirect()`, `abort()`, `encrypt()` and `decrypt()` work as you expect, and `URL::signedRoute()` is `url.signedRoute()`.
 
 The difference: Laravel's helpers reach a global container. Strutvane's read **the current app** from the request or command that's running, so two apps (two tests) in one process never see each other. Laravel's static facades (`Cache::get()`) are planned as typed accessors resolved the same way: see [Facades](../facades/).
 :::
@@ -47,8 +47,8 @@ What you'll see at `GET /api/home`:
 | `app()` | The current application: `container`, `config`, `url` | `app()` | proven |
 | `redirect()` | A redirector: `.to()`, `.intended()`, `.away()` | `redirect()` | proven |
 | `abort(status, detail?)` | Never returns: stops the request with 401, 403 or 404 | `abort(404)` | proven |
-| `signedRoute(name, params?)` | A tamper-proof URL of a named route | `URL::signedRoute()` | proven |
-| `temporarySignedRoute(name, expiresAt, params?)` | A signed URL that expires | `URL::temporarySignedRoute()` | proven |
+| `url.signedRoute(name, params?, { expiresIn?, oneTime? })` | A tamper-proof URL of a named route | `URL::signedRoute()` | proven (as `signedRoute()`) |
+| `url.temporarySignedRoute(name, expiresAt, params?)` | A signed URL that expires | `URL::temporarySignedRoute()` | proven (as `temporarySignedRoute()`) |
 | `encrypt(value, options?)` / `decrypt(payload, options?)` | An encrypted string / the original value | `encrypt()` / `decrypt()` | proven |
 | `Str`, `Num`, `retry`, `rescue`, `once`, `Pipeline`, `Benchmark`, `Sleep`, `Timebox`, `Lottery` | Everyday utilities | the same names (`Number` is `Num`) | coming in 0.2 |
 | `Concurrency`, `Process` | Run work in parallel; run other programs | the same names | coming in 0.3 |
@@ -58,7 +58,7 @@ What you'll see at `GET /api/home`:
 ```ts
 config('app.name')   // string
 config('app.debug')  // boolean
-config('app.env')    // 'local' | 'testing' | 'production'
+config('app.env')    // 'local' | 'testing' | 'staging' | 'production'
 config('app.nmae')   // compile error: there is no such key
 ```
 
@@ -146,18 +146,18 @@ if (post.status !== 'published') abort(404, 'No such post.')
 
 For other statuses, throw an `HttpError` (see [Responses](../responses/)).
 
-## `signedRoute()` and `temporarySignedRoute()`: links nobody can change
+## `url.signedRoute()` and `url.temporarySignedRoute()`: links nobody can change
 
 A **signed URL** carries a signature made with your `APP_KEY`. Change any part of it (the id, the expiry) and the signature no longer matches. Use them for "unsubscribe" links, downloads, or anything you email.
 
 ```ts title="app/http/controllers/newsletter.controller.ts"
-import { Controller, temporarySignedRoute, type HttpContext } from '@strutvane/framework'
+import { Controller, url, type HttpContext } from '@strutvane/framework'
 
 export class NewsletterController extends Controller {
   unsubscribeLink(ctx: HttpContext): Response {
     const user = ctx.requireUser()
     const in24Hours = new Date(Date.now() + 24 * 60 * 60 * 1000)
-    return ctx.json({ link: temporarySignedRoute('newsletter.unsubscribe', in24Hours, { user: user.id }) })
+    return ctx.json({ link: url.temporarySignedRoute('newsletter.unsubscribe', in24Hours, { user: user.id }) })
   }
 }
 ```
@@ -169,6 +169,14 @@ Route.get('/newsletter/unsubscribe/{user}', [NewsletterController, 'unsubscribe'
 ```
 
 **What you'll see:** the link works until it expires. A changed link answers `403 invalid_signature` ("This link is not valid. It may have been changed or copied incompletely."), an expired one `403 signature_expired` ("This link has expired. Ask for a new one."). See [Routing](../routing/).
+
+**One signer for every link.** Signed routes, the sign-in package's email verification and password reset links, and storage's temporary file URLs all use the same framework signer: an HMAC over the path, the sorted query string, the expiry and a **purpose** (what the link is for), so a link made for one job can't be reused for another. Every bad or expired link, of any kind, answers the same two codes.
+
+**One keyring for every key.** Nothing uses `APP_KEY` directly. Each feature asks the keyring for its own key, derived from `APP_KEY` and the feature's purpose (HKDF-SHA256), and old keys in `APP_PREVIOUS_KEYS` are still accepted after `node strut key:rotate`, so rotating the key doesn't break links already sent.
+
+:::caution[Coming in 0.2]
+The shared signer (with `purpose`) and the derive-by-purpose keyring are the decided design. In the prototype, signed routes and the sign-in package still sign separately.
+:::
 
 ## `encrypt()` and `decrypt()`
 
@@ -278,8 +286,8 @@ const user = await Timebox.call(300, async () => findAndCheck(email, password))
 Planned for phase 2 (0.3) in the parity matrix. Each has its own page.
 :::
 
-- **`Concurrency.run([...])`** runs several independent, CPU-heavy tasks on other threads or processes and returns all results, with a "sync" driver for tests (Laravel's `Concurrency::run`). For several database or HTTP calls at once, plain `Promise.all()` already works today. See [Concurrency](../concurrency/).
-- **`Process.run()`** runs another program **without a shell** (so nothing in an argument can become a second command), with time limits, pools, pipes and a fake for tests (Laravel's `Process`). See [Processes](../processes/).
+- **`Concurrency.run([...])`** runs several independent, CPU-heavy tasks on other threads or processes and returns all results (Laravel's `Concurrency::run`). Worker tasks are **modules**, named like `task('reports/build', args)`, because a closure can't travel to another thread; closures work only with the `sync` driver used in tests. The current team and request context are passed along explicitly. For several database or HTTP calls at once, plain `Promise.all()` already works today. See [Concurrency](../concurrency/).
+- **`Process.run()`** runs another program **without a shell** (so nothing in an argument can become a second command), with time limits, pools, pipes and a fake for tests (Laravel's `Process`). On Windows, `npm` and `npx` are run through Node directly, and other `.cmd` files are refused unless you pass `{ windowsShell: true }`. See [Processes](../processes/).
 
 ## What about collections?
 

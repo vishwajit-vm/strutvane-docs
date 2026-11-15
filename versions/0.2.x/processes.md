@@ -14,7 +14,7 @@ The difference: **there is no shell**. Laravel's `Process::run('ls -la')` passes
 :::
 
 :::caution[Coming in 0.3]
-`Process` is in **phase 2 of the roadmap (0.3)**. The design states: `Process.run()` with no shell, timeouts, a pool and a fake (Laravel parity checklist). Nothing is built yet.
+`Process` is in **phase 2 of the roadmap (0.3)**. The design states: `Process.run()` with no shell, timeouts, a pool and a fake (Laravel parity checklist), and on Windows `npm`/`npx` run as `node <npm-cli.js>` while other `.cmd` files need `{ windowsShell: true }`. Nothing is built yet.
 
 **Planned API (a sketch: names may change before 0.3).** The method names, the result's fields, the option names and the error names below follow Laravel's and aren't final. Every "What you'll see" is "something like this".
 :::
@@ -115,6 +115,7 @@ const result = await Process.run(['node', 'scripts/build-report.js', '--month=20
 | `timeout` | seconds before the process is stopped | a framework default (not decided yet); never "forever" |
 | `env` | extra environment variables, added to the app's | none |
 | `input` | text written to the program's standard input | none |
+| `windowsShell` | **Windows only:** allow a `.cmd` or `.bat` program, started through `cmd.exe` with every argument safely quoted | `false` |
 
 ### Time limits
 
@@ -236,7 +237,23 @@ The program you run must exist **where your app runs**:
 - **Without Docker,** it needs the program on your computer's `PATH`.
 - **In production containers,** the image the installer writes starts from a slim Node image. Add the tools your app runs to your `Dockerfile` (for example with `apt-get install` in the final stage), or run that work elsewhere.
 
-**Windows:** many command-line tools are installed as `.cmd` or `.bat` files (`npm` and `npx` are). Since its April 2024 security releases (CVE-2024-27980), Node refuses to start `.cmd` and `.bat` files without a shell. How `Process.run()` will start such programs on Windows isn't decided yet; prefer calling the real program (`node`, `git`, a `.exe`) directly, for example `['node', 'node_modules/some-tool/bin/cli.js']` instead of `['npx', 'some-tool']`.
+**Windows:** many command-line tools are installed as `.cmd` or `.bat` files instead of real programs, and Node refuses to start those without a shell (since its April 2024 security releases, CVE-2024-27980). `Process.run()` handles this for you:
+
+- **`npm` and `npx` just work.** `Process.run(['npm', 'run', 'build'])` is started as `node <npm-cli.js> run build`, the same way the installer runs npm, so there's no shell and no quoting on any system.
+- **Real programs** (`node`, `git`, anything ending in `.exe`) start directly, as on macOS and Linux.
+- **Any other `.cmd` or `.bat` file is refused** with a friendly error that says what to do, because it could only run through a shell. If you trust it, opt in for that one call with `{ windowsShell: true }`: Strutvane then starts it through `cmd.exe` and quotes every argument safely, so a `&` or `|` in an argument still can't start a second command.
+
+```ts title="app/services/legacy-tool.ts"
+import { Process } from '@strutvane/framework'
+
+// npm: no option needed, on every system.
+await Process.run(['npm', 'run', 'build'], { timeout: 300 })
+
+// A vendor's tool that only exists as a .cmd file on Windows: opt in explicitly.
+await Process.run(['vendor-export.cmd', '--month', '2026-10'], { timeout: 60, windowsShell: true })
+```
+
+On macOS and Linux `windowsShell` does nothing, so the same code runs everywhere.
 
 **macOS / Linux:** programs are found on `PATH` as usual. A program that works in your terminal may not be on the `PATH` of a cron job or a service; pass the full path (`/usr/bin/mysqldump`) when in doubt.
 
@@ -310,13 +327,20 @@ await Process.run(['node', 'scripts/report.js'], { timeout: 10, input: 'y\n' })
 await Process.run(['mysqldump', 'app'], { env: { MYSQL_PWD: process.env.DB_PASSWORD ?? '' } })
 ```
 
-### `npx` works on macOS but fails on Windows
+### A `.cmd` tool works on macOS but is refused on Windows
 
-**Why:** `npx` is a `.cmd` file on Windows, and Node doesn't start `.cmd` files without a shell.
-**Fix:** call `node` with the tool's script directly, which works everywhere:
+Something like this:
+
+```text
+ProcessFailedError: "vendor-export.cmd" is a Windows batch file, which can only run through a shell.
+→ Call the real program instead, or pass { windowsShell: true } to run it through cmd.exe with safe quoting.
+```
+
+**Why:** on Windows the tool is a `.cmd` file, and Strutvane never starts a shell unless you ask. (`npm` and `npx` are the exception: they're started as `node <npm-cli.js>`, so they always work.)
+**Fix:** call the real program if there is one, or opt in for that call:
 
 ```ts
-await Process.run(['node', 'node_modules/some-tool/bin/cli.js', '--help'])
+await Process.run(['vendor-export.cmd', '--month', '2026-10'], { windowsShell: true })
 ```
 
 ## Next steps

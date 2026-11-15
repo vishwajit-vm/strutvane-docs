@@ -8,21 +8,23 @@ An **event** is a short announcement that something happened: "post 42 was publi
 The point is that the code that **emits** (sends) the event doesn't know who listens. Your `PostController` says "a post was published" and moves on; the mail, the cache and the search index each subscribe on their own. Adding a fourth reaction doesn't touch the controller at all.
 
 :::tip[Coming from Laravel?]
-It's Laravel's event system: `Event::dispatch()` becomes `events.emit()`, `Event::listen()` becomes `events.on()`, and listeners can be queued and run only after the database commits (`ShouldDispatchAfterCommit` becomes `afterCommit: true`). `event:list`, `event:cache` and `event:clear` keep their names.
+It's Laravel's event system: `Event::dispatch()` becomes `events.emit()`, `Event::listen()` becomes `events.on()`, `Event::fake()` becomes `Event.fake()`, and listeners can be queued and run only after the database commits (`ShouldDispatchAfterCommit` becomes `afterCommit: true`). `event:list`, `event:cache` and `event:clear` keep their names.
 
 What's different:
 - An event is a **name plus plain data** (`'post.published'`, `{ postId }`), not a class. Names follow `resource.pastTenseVerb`.
 - **A failing listener never breaks the code that emitted the event, or the other listeners.** Its error is collected and logged.
 - Every event carries an id, the time, the team (tenant), the user who caused it and an **idempotency key**, so a listener that runs twice can tell.
-- Model events (`creating`, `saved`…) and observers belong to the ORM; see [ORM: Getting Started](../orm/#model-events-and-observers).
+- Model events (`creating`, `saved`…) and observers belong to the ORM and come in 0.2; see [ORM: Getting Started](../orm/#model-events-and-observers).
 :::
 
 :::caution[Coming in 0.2]
 The **event bus** on this page (`on`, `once`, `emit`, `listenerCount`, error isolation, the event's id, time, tenant, actor and idempotency key) is **built in 0.1** (`@strutvane/core`, with tests) and is being moved into `@strutvane/framework`. It isn't released in its 0.2 form yet, so import paths may still move.
+
+**What 0.2 promises, plainly:** the framework's own domain events (such as `post.created` from the generated API) are dispatched **in-process, after the transaction commits**. In-process means the listeners run inside the same app process, right away. If the process stops between the commit and the listener (a crash, a deploy), that listener's work is **lost**. The durable outbox, which stores each event with the data so it is delivered even after a crash ("never lost"), arrives **with the queue in 0.3**. Until then, don't rely on a listener for something that must happen; do it in the action itself.
 :::
 
 :::caution[Coming in 0.3]
-In **phase 2 (0.3)**: listener classes and **discovery** (listeners found by folder, cached with `event:cache`), **queued listeners**, **subscribers**, `afterCommit: true`, and the `model.changed` event with a redacted diff. **Planned API (a sketch: names may change before 0.3):** `make:listener`, the `app/listeners/` folder and the listener class shape below follow Laravel; they're marked where they appear.
+In **phase 2 (0.3)**, application events get: listener classes and **discovery** (listeners found by folder, cached with `event:cache`), **queued listeners**, **subscribers**, the durable outbox, the `afterCommit: true` option for events you emit yourself, the `Event.fake()` test fake, and the `model.changed` event with a redacted diff. **Planned API (a sketch: names may change before 0.3):** `make:listener`, the `app/listeners/` folder and the listener class shape below follow Laravel; they're marked where they appear.
 :::
 
 ## The smallest example
@@ -202,7 +204,7 @@ AggregateError: 1 listener(s) failed for "post.published"
 
 ## Events from the generated CRUD API
 
-In 0.1, the generated CRUD API emits an event after every write, named after the resource:
+The generated CRUD API emits an event after every write, named after the resource. In 0.1 it does this right after the write; in 0.2 these domain events are dispatched **after the transaction commits**, in-process (see the box at the top of this page):
 
 | Action | Event | Payload |
 |---|---|---|
@@ -245,7 +247,7 @@ export async function publish(postId: string): Promise<void> {
 **What you'll see:** listeners run right after the commit. If anything in the transaction throws, nothing is published **and** no listener runs. The same option exists on [jobs](../queues/#only-after-the-transaction-commits-aftercommit) and mail.
 
 :::caution[Coming in 0.3]
-`afterCommit` is planned for 0.3 (Laravel parity: "Events after the DB commit"). The 0.1 bus delivers immediately.
+The `afterCommit` option for events you emit yourself is planned for 0.3 (Laravel parity: "Events after the DB commit"). In 0.2, the framework's own domain events are already dispatched after the commit, but an `emit()` you call inside `transaction()` is delivered immediately; emit after `transaction()` returns instead.
 :::
 
 ## Listener classes and discovery
@@ -391,7 +393,7 @@ Log.debug('post.published listeners', { count: events.listenerCount('post.publis
 ### Followers got a mail for a post that was never published
 
 **Why:** the event was emitted inside a transaction that was later rolled back.
-**Fix:** emit with `afterCommit: true` (0.3), or emit after `transaction()` returns:
+**Fix:** in 0.2, emit after `transaction()` returns (in 0.3 you can also emit with `afterCommit: true`):
 
 ```ts
 await transaction(async () => {

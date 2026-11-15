@@ -287,12 +287,13 @@ Prefer `static inject`: the class says up front what it depends on, and tests ca
 Because each app has its **own** container (nothing is global), a test can replace any service before the app boots. Strutvane only fills in its defaults (clock, logger, rate limit store) when you haven't bound them yourself:
 
 ```ts title="tests/feature/clock.test.ts"
+import { randomBytes } from 'node:crypto'
 import { expect, it } from 'vitest'
 import { ClockToken, now } from '@strutvane/framework'
 import { createApp } from '../../bootstrap/app.ts'
 
 it('uses a frozen clock', async () => {
-  const app = createApp({ APP_ENV: 'testing', APP_KEY: 'testing-key', DB_CONNECTION: 'sqlite', DB_DATABASE: ':memory:' })
+  const app = createApp({ APP_ENV: 'testing', APP_KEY: `base64:${randomBytes(32).toString('base64')}`, DB_CONNECTION: 'sqlite', DB_DATABASE: ':memory:' })
   app.container.instance(ClockToken, () => new Date('2026-11-14T10:00:00Z'))
   await app.boot()
 
@@ -375,4 +376,4 @@ constructor(db: Connection) {
 
 - [Service Providers](../providers/): where your bindings live.
 - [Controllers](../controllers/): constructor injection in practice.
-- [Helpers, Not Facades](../helpers/): reaching the container from anywhere.
+- [Helpers](../helpers/) and [Facades](../facades/): reaching the container from anywhere.

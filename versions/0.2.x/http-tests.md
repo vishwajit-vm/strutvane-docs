@@ -8,18 +8,19 @@ An **HTTP test** (a feature test) sends a request to one of your routes and chec
 Requests go **straight into your app** in the same process: no server, no port, no network. A typical test takes a few milliseconds.
 
 :::tip[Coming from Laravel?]
-`$this->getJson('/api/posts')` → `await client(app).getJson('/api/posts')`, `$this->actingAs($user)` → `client(app).actingAs(…)`, `assertStatus(201)`, `assertJsonPath('data.slug', 'x')` keep their names, and Laravel's `assertJsonValidationErrors` becomes `assertProblem(422, 'validation_failed')` plus a look at `issues`.
+`$this->getJson('/api/posts')` → `await client(app).getJson('/api/posts')`, `$this->actingAs($user)` → `client(app).actingAs(user)`, a token → `client(app).withToken(token)`, `assertStatus(201)`, `assertJsonPath('data.slug', 'x')` keep their names, and Laravel's `assertJsonValidationErrors` becomes `assertProblem(422, 'validation_failed')` plus a look at `issues`.
 
-What's different: the client is **immutable** (each `actingAs()` or `withHeaders()` gives a new client), and every error is an RFC 9457 problem with a stable `code`, so you assert on the code instead of on English text.
+What's different: the client is **immutable** (each `actingAs()`, `withToken()` or `withHeaders()` gives a new client), and every error is an RFC 9457 problem with a stable `code`, so you assert on the code instead of on English text.
 :::
 
 :::caution[Coming in 0.2]
-`client(app)`, the request methods, `withoutCsrf()`, `withHeaders()` and the assertions `assertStatus`, `assertJsonPath` and `assertProblem` are **proven in the application-core prototype** (spike 12: 24 HTTP tests through `app.handle()` into real SQLite). They aren't released. In the prototype `actingAs()` takes a **bearer token**; acting as a user object with a real session, `asTenant(team)`, and the fluent JSON and validation assertions are designed for 0.2. Those parts are marked below.
+`client(app)`, the request methods, `withoutCsrf()`, `withHeaders()` and the assertions `assertStatus`, `assertJsonPath` and `assertProblem` are **proven in the application-core prototype** (spike 12: 24 HTTP tests through `app.handle()` into real SQLite). They aren't released. The decided names are `actingAs(user)` (a user model, signed in with a real session) and `withToken(token)` (a bearer token); the prototype has only the token form, under the name `actingAs()`. `actingAs(user)`, `asTenant(team)` and the fluent JSON and validation assertions are designed for 0.2. Those parts are marked below.
 :::
 
 ## The smallest example
 
 ```ts title="tests/feature/posts.test.ts"
+import { randomBytes } from 'node:crypto'
 import { beforeEach, it } from 'vitest'
 import type { Application } from '@strutvane/framework'
 import { client, refreshDatabase } from '@strutvane/framework/testing'
@@ -28,7 +29,7 @@ import { createApp } from '../../bootstrap/app.ts'
 let app: Application
 
 beforeEach(async () => {
-  app = createApp({ APP_ENV: 'testing', APP_KEY: 'base64:dGVzdGluZy1rZXktdGVzdGluZy1rZXktdGVzdGluZy0=', DB_CONNECTION: 'sqlite', DB_DATABASE: ':memory:' })
+  app = createApp({ APP_ENV: 'testing', APP_KEY: 'base64:' + randomBytes(32).toString('base64'), DB_CONNECTION: 'sqlite', DB_DATABASE: ':memory:' })
   await refreshDatabase(app)
 })
 
@@ -66,19 +67,21 @@ await client(app).getJson('/api/posts?filter[status]=published&sort=-created_at&
 
 Each request comes from the address `203.0.113.10`, so rate limits and IP rules behave as for a real visitor.
 
-### As someone: `actingAs()`
+### With an API token: `withToken()`
 
-In the prototype, `actingAs()` sends a bearer token:
+`withToken()` sends `Authorization: Bearer <token>` (proven in the prototype under the name `actingAs()`):
 
 ```ts
-const asAlice = client(app).actingAs(demoTokens.alice)
+const asAlice = client(app).withToken(demoTokens.alice)
 await asAlice.postJson('/api/posts', { title: 'My second post' })
 ```
 
 The client is **immutable**: `client(app)` is still a guest after that line. Keep `asAlice` around to make several requests as Alice.
 
+### As a signed-in user: `actingAs()`
+
 :::caution[Coming in 0.2]
-**Planned API (a sketch: names may change).** The testing kit will accept a user (`actingAs(user)`), signing them in with a real session cookie and the CSRF token handled for you, and `asTenant(team)` to pick the current team. Their exact signatures aren't final.
+**Planned API (a sketch).** `actingAs(user)` takes a user model and signs them in with a real session cookie, the CSRF token handled for you; `asTenant(team)` picks the current team. Both are decided names; their exact signatures aren't final.
 :::
 
 ```ts
@@ -131,7 +134,7 @@ Dot paths use numbers for list items: `data.0.title` is the first post's title.
 Every failure message includes the body (the first 2,000 characters), so a failing test explains itself:
 
 ```text
-Error: Expected status 201, got 422. Body: {"type":"about:blank","title":"Validation failed","status":422,"code":"validation_failed","issues":[{"field":"title","code":"too_short","message":"Title must be at least 3 characters long."}]}
+Error: Expected status 201, got 422. Body: {"type":"about:blank","title":"Validation failed","status":422,"code":"validation_failed","issues":[{"path":["title"],"field":"title","code":"too_short","message":"Title must be at least 3 characters long."}]}
 ```
 
 ```text
@@ -148,7 +151,7 @@ Error: Expected problem+json, got text/html.
 
 ```ts
 it('creates a post and points at it', async () => {
-  const response = await client(app).actingAs(demoTokens.alice).postJson('/api/posts', { title: 'Hello world' })
+  const response = await client(app).withToken(demoTokens.alice).postJson('/api/posts', { title: 'Hello world' })
   response.assertStatus(201).assertJsonPath('data.slug', 'hello-world')
   expect(response.headers.get('location')).toBe('/api/posts/hello-world')
 })
@@ -158,9 +161,9 @@ it('creates a post and points at it', async () => {
 
 ```ts
 it('needs a title', async () => {
-  const response = await client(app).actingAs(demoTokens.alice).postJson('/api/posts', { body: 'No title' })
+  const response = await client(app).withToken(demoTokens.alice).postJson('/api/posts', { body: 'No title' })
   response.assertProblem(422, 'validation_failed')
-  expect(response.path('issues')).toContainEqual(expect.objectContaining({ field: 'title', code: 'required' }))
+  expect(response.path('issues')).toContainEqual(expect.objectContaining({ path: ['title'], field: 'title', code: 'required' }))
 })
 ```
 
@@ -168,8 +171,9 @@ it('needs a title', async () => {
 
 ```ts
 it('refuses fields that are not fillable', async () => {
-  const response = await client(app).actingAs(demoTokens.alice).postJson('/api/posts', { title: 'Hi there', author_id: 99 })
+  const response = await client(app).withToken(demoTokens.alice).postJson('/api/posts', { title: 'Hi there', author_id: 99 })
   response.assertProblem(422, 'validation_failed').assertJsonPath('issues.0', {
+    path: ['author_id'],
     field: 'author_id',
     code: 'unknown_field',
     message: '"author_id" is not a field you can send here. Remove it from the request body.',
@@ -183,8 +187,8 @@ A client can't set `author_id` (it's set from the signed-in user), so it can't p
 
 ```ts
 it('hides drafts as missing, and refuses changes others can see', async () => {
-  ;(await client(app).actingAs(demoTokens.bob).getJson('/api/posts/alice-draft')).assertStatus(404)
-  ;(await client(app).actingAs(demoTokens.bob).patchJson('/api/posts/hello-world', { title: 'Mine now' })).assertProblem(403, 'forbidden')
+  ;(await client(app).withToken(demoTokens.bob).getJson('/api/posts/alice-draft')).assertStatus(404)
+  ;(await client(app).withToken(demoTokens.bob).patchJson('/api/posts/hello-world', { title: 'Mine now' })).assertProblem(403, 'forbidden')
 })
 ```
 
@@ -281,12 +285,12 @@ Error: Expected status 201, got 419. Body: {…"code":"csrf_token_mismatch"…}
 ```
 
 **Why:** the request carries a session cookie, so CSRF applies.
-**Fix:** use a bearer token, or `.withoutCsrf()` on that client.
+**Fix:** use a bearer token (`withToken()`), or `.withoutCsrf()` on that client.
 
-### `actingAs` didn't stick for my second request
+### `withToken` didn't stick for my second request
 
-**Why:** the client is immutable. `client(app).actingAs(t)` returns a **new** client; calling `client(app)` again gives a guest.
-**Fix:** keep the returned client: `const asAlice = client(app).actingAs(t)`.
+**Why:** the client is immutable. `client(app).withToken(t)` returns a **new** client; calling `client(app)` again gives a guest.
+**Fix:** keep the returned client: `const asAlice = client(app).withToken(t)`.
 
 ### `assertJsonPath('data.title', …)` gets `undefined`
 

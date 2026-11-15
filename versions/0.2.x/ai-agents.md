@@ -15,7 +15,7 @@ This page is about agents that **help you build** the app. Letting agents **use*
 - **Works today:** this docs site's **Copy as Markdown**, **View as Markdown**, `llms.txt` and `llms-full.txt` for every version.
 - **Proven in prototypes:** the installer writes `AGENTS.md` when you answer yes to question 24 (spike 13); `route:list --json`, `about --json` (without secrets) and `model:show` (spike 12); the debug error page's **Copy as Markdown for AI** button (spike 12). Not released yet; coming in 0.2.
 - **Coming in 0.3:** `@strutvane/agent-tools` (skills from every installed package, a local MCP dev server, offline docs search). Until it's published, the installer doesn't offer the package, only the basic `AGENTS.md`.
-- **Planned after 0.3:** `@strutvane/mcp-server` (phase 5: agents using your running app under your policies) and `@strutvane/ai` (phase 7: AI features in your app).
+- **Coming after 1.0:** `@strutvane/mcp-server` (phase 5: agents using your running app under your policies) and `@strutvane/ai` (phase 7: AI features in your app).
 :::
 
 ## The smallest example
@@ -97,8 +97,8 @@ node strut model:show Post
 
 ```json
 [
-  { "method": "GET|HEAD", "uri": "api/posts", "name": "posts.index", "action": "PostController@index", "middleware": "api, auth:optional" },
-  { "method": "POST", "uri": "api/posts", "name": "posts.store", "action": "PostController@store", "middleware": "api, auth" }
+  { "method": "GET|HEAD", "uri": "/api/posts", "name": "posts.index", "action": "PostController@index", "middleware": "api, auth:optional" },
+  { "method": "POST", "uri": "/api/posts", "name": "posts.store", "action": "PostController@store", "middleware": "api, auth" }
 ]
 ```
 
@@ -140,13 +140,13 @@ Agents run commands with your permissions. A few rules keep that safe:
 
 ## Agents using your app: MCP server (later)
 
-:::caution[Planned after 0.3]
+:::caution[Coming after 1.0]
 `@strutvane/mcp-server` (phase 5; installer question 29, "Let AI agents use your app safely") exposes your app to AI agents as MCP tools, under your **policies and tenancy**: an agent acting for a user can do only what that user may do. Laravel's equivalent is Laravel MCP.
 :::
 
 ## AI features in your app (later)
 
-:::caution[Planned after 0.3]
+:::caution[Coming after 1.0]
 `@strutvane/ai` (phase 7; installer question 28) adds AI features inside your app, with providers such as Anthropic, OpenAI, Google or a local model. API keys go only into `.env`, typed later; the installer never asks for them.
 :::
 

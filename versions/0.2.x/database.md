@@ -512,7 +512,7 @@ stop()
 |---|---|
 | Several named connections (for example a second, read-only reporting database), and a model choosing its connection | Coming in 0.2 (designed; the prototype has one connection) |
 | Automatic retry of a transaction that hit a deadlock | Coming in 0.2 |
-| Read and write hosts (`read` / `write` in `config/database.ts`, `sticky: true`) | Coming in 1.0 |
+| Read and write hosts (`read` / `write` in `config/database.ts`, `sticky: true`) | Coming before 1.0 |
 | Redis | The `@strutvane/redis` package, coming in 0.3 |
 | MongoDB and other non-SQL databases | Not planned: Strutvane focuses on relational databases |
 

@@ -16,6 +16,7 @@
     "typecheck": "tsc --noEmit -p .",
     "test": "tsc --noEmit -p . && node --test \"test/*.test.ts\"",
     "verify": "npm run build && npm run check:links && npm test",
+    "packages:pages": "node scripts/package-pages.ts",
     "sync": "node scripts/sync-from-hub.mjs"
   },
   "dependencies": {

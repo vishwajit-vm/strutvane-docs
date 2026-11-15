@@ -12,7 +12,7 @@ It's Laravel's cache: `Cache::remember('key', $ttl, fn)` becomes `Cache.remember
 
 What's different:
 - **Every key is prefixed with the current team (tenant) automatically**, and you can't turn that off by accident, so one customer can never read another customer's cached numbers.
-- `Cache` is a **typed accessor** resolved from the container, not a facade with `__callStatic` magic, and you can swap it in tests.
+- `Cache` is a **facade** in Strutvane's sense: a typed static accessor that resolves from the current application's container (no `__callStatic` magic, no global state), so tests can swap it.
 - The default store is `database`, so a new app needs no Redis.
 :::
 
@@ -164,7 +164,7 @@ await Cache.forget('settings.homepage-banner')
 
 ## Every key is per team
 
-When your app has **teams** (each customer company is a team; see [Tenancy](../tenancy/)), the cache adds the current team's id to every key for you. Alice in team **Acme** and Bob in team **Globex** can both call `Cache.remember('posts.published-count', …)`, and they get **two separate entries**:
+When your app has **teams** (each customer company is a team, and `config/tenancy.ts` has `enabled: true`; see [Tenancy](../tenancy/)), the cache adds the current team's id to every key for you. Alice in team **Acme** and Bob in team **Globex** can both call `Cache.remember('posts.published-count', …)`, and they get **two separate entries**:
 
 ```text
 team:7:posts.published-count    → 128   (Acme's posts)
