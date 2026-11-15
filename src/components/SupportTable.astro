@@ -1,0 +1,100 @@
+---
+/**
+ * The support table, rendered from `versions.json` at build time.
+ *
+ * Use it on every version's Release Notes page:
+ *
+ * ```mdx
+ * import SupportTable from '@docs-components/SupportTable.astro'
+ *
+ * <SupportTable />
+ * ```
+ *
+ * Every version's build reads the same `versions.json` from `main`, so even old docs show
+ * today's dates. Status is written in words, never shown by colour alone, and the line
+ * you are reading is marked.
+ */
+import context from 'virtual:strutvane-docs/context'
+import { buildingVersion } from '../../scripts/lib/site-context.ts'
+import { STATUS_LABELS, supportRows } from '../../scripts/lib/support-table.ts'
+
+const rows = supportRows(context.supportTable, buildingVersion(context).line)
+---
+
+<div class="docs-support-table">
+  <table>
+    <thead>
+      <tr>
+        <th scope="col">Version</th>
+        <th scope="col">Node</th>
+        <th scope="col">Release</th>
+        <th scope="col">Bug fixes until</th>
+        <th scope="col">Security fixes until</th>
+        <th scope="col">Status</th>
+      </tr>
+    </thead>
+    <tbody>
+      {rows.map((row) => (
+        <tr class:list={{ reading: row.reading }} data-support-line={row.version}>
+          <th scope="row">
+            {row.version}
+            {row.reading && <span class="docs-reading">you are reading these docs</span>}
+          </th>
+          <td>{row.node}</td>
+          <td>{row.release}</td>
+          <td>{row.bugFixesUntil}</td>
+          <td>{row.securityUntil}</td>
+          <td><span class={`docs-status docs-status--${row.status}`}>{row.statusLabel}</span></td>
+        </tr>
+      ))}
+    </tbody>
+  </table>
+  <p class="docs-legend">
+    Legend:
+    <span class="docs-status docs-status--active">{STATUS_LABELS.active}</span>
+    <span class="docs-status docs-status--security">{STATUS_LABELS.security}</span>
+    <span class="docs-status docs-status--eol">{STATUS_LABELS.eol}</span>
+  </p>
+</div>
+
+<style>
+  .docs-support-table {
+    overflow-x: auto;
+  }
+  .docs-support-table tr.reading th,
+  .docs-support-table tr.reading td {
+    background-color: var(--sl-color-accent-low);
+  }
+  .docs-reading {
+    display: block;
+    font-size: var(--sl-text-xs);
+    font-weight: 400;
+    color: var(--sl-color-gray-3);
+  }
+  .docs-status {
+    display: inline-block;
+    padding: 0.05rem 0.5rem;
+    border-radius: 999px;
+    font-size: var(--sl-text-xs);
+    white-space: nowrap;
+  }
+  .docs-status--active {
+    background-color: var(--docs-ok-bg);
+    color: var(--docs-ok-text);
+  }
+  .docs-status--security {
+    background-color: var(--docs-warning-bg);
+    color: var(--docs-warning-text);
+  }
+  .docs-status--eol {
+    background-color: var(--docs-danger-bg);
+    color: var(--docs-danger-text);
+  }
+  .docs-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    align-items: center;
+    font-size: var(--sl-text-sm);
+  }
+</style>

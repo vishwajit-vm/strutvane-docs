@@ -1,0 +1,254 @@
+---
+title: Package Catalogue
+description: How Strutvane is built for 100+ packages, how one catalogue feeds the installer, node strut install and these docs, and the status of every first-party package (in development, planned, shelved or retired).
+---
+
+import PackageCatalogue from '@docs-components/PackageCatalogue.astro'
+
+Strutvane's core is small on purpose. Everything else (a log viewer, billing, search, charts) is a **package**: a separate npm package that adds one feature to your app and installs itself completely with one command. There will be **more than 100** of them over time, so everything that deals with "the list of packages" is driven by data, not by code that names each package.
+
+:::tip[Coming from Laravel?]
+`node strut install:billing` is like `composer require laravel/cashier` followed by `php artisan cashier:install`, in one step: it adds the package, its config, `.env` keys, migrations, routes and screens. `node strut add` is an interactive picker over the whole catalogue, and the installer's "Extra features" question is the same picker at project creation. First-party packages are `@strutvane/<name>`; community packages are `strutvane-<name>`, like Spatie's packages next to Laravel's own.
+:::
+
+:::caution[Coming in 0.2]
+The package manifest and the catalogue index are part of phase 1 (0.2). The installer side (question 22 reading a catalogue, filtering it and asking packages' follow-up questions) is proven in a prototype (spike 13, with a 33-entry sample catalogue of packages that don't exist yet). `node strut install:<name>`, `node strut add`, the hub's catalogue build and the conformance kits are designed, not built yet. No package below is released.
+:::
+
+## The smallest example
+
+Add a package to an app you already have:
+
+```bash
+node strut install:log-viewer
+```
+
+**What it will do** (something like this; the exact wording isn't final):
+
+```text
+  ✔ Added @strutvane/log-viewer with npm
+  ✔ Registered its provider in bootstrap/providers.ts
+  ✔ Added its sidebar entry (Logs)
+
+  Next: open http://localhost:3000/_strutvane/logs
+```
+
+With Docker, type the same command on your computer: like every `node strut` command, it runs inside the app container. See [Docker](../../docker/).
+
+## Three ways in, one installer
+
+Every way of adding a package runs the same **installer protocol** (the fixed steps every package follows to install itself), so the result is identical whichever you use:
+
+| Way | When you'd use it |
+|---|---|
+| Installer question 22, "Extra features" | While creating the app with `npm create strutvane@latest` |
+| `node strut install:<name>` | You know the package you want |
+| `node strut add` | You want to browse or search the catalogue |
+
+**Install order never changes the result:** installing billing before search gives the same app as search before billing.
+
+### What `install:<name>` does
+
+1. Adds the package with npm.
+2. Asks the package's own follow-up questions, if it has any (billing asks "Stripe or Paddle?").
+3. Writes its config file (`config/<name>.ts`) and adds its `.env` keys, with secrets generated into `.env` only, never into `.env.example`.
+4. Copies its migrations into `database/migrations/`, where they become ordinary migrations of your app.
+5. Registers its provider in `bootstrap/providers.ts`, which adds its routes, commands, screens and sidebar entries.
+
+## Choosing packages while you create the app
+
+Question 22 never shows a flat list of 100+ packages. It shows a short **popular** list, grouped, then offers to search the rest:
+
+```text
+? Extra features? (popular first; space to toggle, enter to confirm)
+  Operations     log viewer (selected), queue dashboard, inspector, health
+  Data           charts and dashboards, search, import/export, API explorer
+  Back office    activity log, settings, media library, PDF, privacy, backups
+  Integrations   feature flags, webhooks, GraphQL, realtime, notification channels
+  Money          billing, invoicing
+  AI             AI SDK, MCP server
+? Search the full catalogue for more? (7 more packages)
+```
+
+(The groups are from the blueprint; the screen above is a sketch of the prototype's two prompts.)
+
+- The **log viewer** is pre-selected.
+- Only packages that are **published** and **compatible** with the framework version being installed are offered. That's why the list grows release by release without the installer changing.
+- When you pick a package that has follow-up questions, they come right after, in both Recommended and Custom mode.
+
+The same choices as flags, for CI or scripts:
+
+```bash
+npm create strutvane@latest my-app -- --features log-viewer,billing,search --feature-option billing.provider=paddle --yes
+```
+
+`--features none` picks nothing. `--feature-option <id>.<question>=<value>` answers a picked package's follow-up question; leave it out to take the package's default.
+
+## How it works: one manifest, one index
+
+### One manifest per package
+
+Every package describes itself in a `strutvane` block in its own `package.json`. Reading it runs no code.
+
+:::caution[Coming in 0.2]
+The fields are decided; the exact shape below is a sketch and not final.
+:::
+
+```json title="package.json"
+{
+  "name": "@strutvane/billing",
+  "version": "0.2.0",
+  "peerDependencies": { "@strutvane/framework": "^0.2" },
+  "strutvane": {
+    "id": "billing",
+    "name": "Billing",
+    "description": "Subscriptions, plans and a customer portal",
+    "category": "money",
+    "tags": ["subscriptions", "stripe", "paddle"],
+    "framework": "^0.2",
+    "installs": {
+      "config": ["config/billing.ts"],
+      "env": ["BILLING_PROVIDER"],
+      "migrations": true,
+      "routes": true,
+      "screens": true,
+      "sidebar": ["Billing"]
+    },
+    "questions": [
+      {
+        "id": "provider",
+        "label": "Billing: which payment provider?",
+        "default": "stripe",
+        "choices": [
+          { "value": "stripe", "label": "Stripe" },
+          { "value": "paddle", "label": "Paddle (merchant of record)" }
+        ]
+      }
+    ],
+    "docs": "https://vishwajit-vm.github.io/strutvane-docs/docs/latest/packages/billing/"
+  }
+}
+```
+
+Follow-up questions are **declarative**: a label, choices and a default, as data. Nothing from a package runs before it is installed.
+
+### One catalogue index
+
+CI in the Strutvane hub builds one file, `catalogue.json`, from the published manifests. The installer, `node strut install`, `node strut add`, the package pages of these docs and the AI agent tools all read that one file, so a new package appears everywhere with no code change.
+
+The index is treated as **untrusted input**. In the prototype:
+
+- an entry with a bad shape is skipped, never offered;
+- package names must be `@strutvane/<name>` or `strutvane-<name>`, so a name can't sneak in a path like `../`;
+- a follow-up question that asks for a key, secret, token or password is refused: secrets are never typed into the installer, they go into `.env` later.
+
+### One conformance kit per kind of package
+
+Before a package can be listed, its CI must pass:
+
+- the **installer-protocol test** (it installs itself completely, in any order);
+- the **security attack kit** for its surface (for example tenancy, uploads or injection tests);
+- a type-check against the current framework.
+
+Designs also pass `designConformance()` (see [Designs](../../designs/)).
+
+### Versions
+
+- The **core train** moves in lockstep before 1.0: framework, auth, ui, the first-party designs, create-strutvane and the app skeleton all release the same version.
+- **Add-ons** release on their own version numbers, with a peer range on the framework (`^0.2`). The catalogue records which add-on versions work with which framework line.
+
+### Community packages
+
+Community packages are named `strutvane-<name>`, use the same manifest and get a **verified** badge in the catalogue once they pass the same kits.
+
+## Every first-party package
+
+These cards come from **one data file** (`src/data/packages.json` in the docs repository). The same file feeds this page, its Markdown export and the release notes, so a package can never be "planned" here and "retired" somewhere else. Every card says its **status** in words:
+
+| Status | What it means |
+|---|---|
+| **Available** | Released on npm, with a stable version on `latest`. Nothing is available yet: 0.2 hasn't been released. |
+| **Preview** | Published for trying out (the `next` dist-tag); it may still change. |
+| **In development** | Being built for the current line (phase 1, which is 0.2). |
+| **Planned** | On the roadmap for a later phase. The installer offers it only once it's published. |
+| **Shelved** | Explored, then put aside. It may come back later. |
+| **Retired** | No longer part of Strutvane. The card says what to use instead. |
+
+A **phase** is a step of the roadmap: phase 1 is 0.2, phase 2 is 0.3, phase 3 leads to 1.0, and phases 4 to 8 come after 1.0. Use the two filters to narrow the list; each card links to its docs page and repository when they exist. Link to one package with its anchor, for example [`#pkg-auth`](#pkg-auth).
+
+<PackageCatalogue />
+
+:::caution[Planned after 0.2]
+Every package in phase 2 or later is planned after 0.2. The installer only offers a package once it is published, so in 0.2 the "Extra features" question offers only what has shipped.
+:::
+
+## Common mistakes
+
+### "is not an available package"
+
+```text
+These options do not work together:
+  - --features "billing" is not an available package (unknown, unpublished, or not for this framework version). Search with: node strut add
+
+Run with --help to see every option.
+```
+
+**Why:** the id is misspelt, the package isn't published yet, or it doesn't support your framework version.
+
+**Fix:** search the catalogue for the right id, and check the package's phase above:
+
+```bash
+node strut add
+```
+
+### My `--feature-option` is refused
+
+```text
+These options do not work together:
+  - --feature-option billing.provider=braintree is not a choice. Use one of: stripe, paddle
+
+Run with --help to see every option.
+```
+
+**Why:** follow-up questions only accept the choices the package declares.
+
+**Fix:** use one of the listed values:
+
+```bash
+npm create strutvane@latest my-app -- --features billing --feature-option billing.provider=paddle --yes
+```
+
+### "belongs to no picked feature with that question"
+
+```text
+These options do not work together:
+  - --feature-option billing.provider belongs to no picked feature with that question
+
+Run with --help to see every option.
+```
+
+**Why:** you answered a question for a package you didn't pick.
+
+**Fix:** add the package to `--features`, or drop the option.
+
+### My options were ignored
+
+**Why:** with `npm create`, flags before `--` are kept by npm itself and never reach the installer.
+
+**Fix:** put the installer's flags after `--`:
+
+```bash
+npm create strutvane@latest my-app -- --features search --yes
+```
+
+### I edited a package's files and lost my changes
+
+**Why:** files under `node_modules/` belong to npm and are replaced on every install or upgrade.
+
+**Fix:** change the package's behaviour through the files it copied into your app (`config/<name>.ts`, its migrations, owned screens) or through its documented options.
+
+## Next steps
+
+- [Installation](../../installation/): question 22 and every other installer question.
+- [Designs](../../designs/): the design packages.
+- [`@strutvane/log-viewer`](../log-viewer/): the package every new app starts with.

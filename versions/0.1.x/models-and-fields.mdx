@@ -1,0 +1,148 @@
+---
+title: Models and fields
+description: What a model is, every field type explained in plain words with an example, and the modifiers that change how a field behaves.
+---
+
+import { Aside, CardGrid, LinkCard } from '@astrojs/starlight/components';
+
+**What you'll learn**
+
+- What a "model" is, and why it's the heart of a Strutvane app
+- Every field type, with a plain explanation and an example
+- Modifiers like `optional`, `unique` and `filterable`
+
+<Aside type="caution" title="Pre-release (0.1.0-next): APIs may still change">
+The field types and modifiers on this page are implemented in `@strutvane/framework` `0.1.0-next.0`. Types marked **Planned** at the end aren't built yet.
+</Aside>
+
+## What is a model?
+
+A **model** describes one kind of thing your app keeps track of: a customer, an invoice, a product. Think of it as the **column headings of a spreadsheet**:
+
+| name | email | tier |
+|---|---|---|
+| Ada Ltd | hi@ada.dev | pro |
+| Bob & Co | bob@bob.co | free |
+
+As a Strutvane model, that spreadsheet looks like this:
+
+```ts title="app/models/customer.model.ts"
+import { defineModel, field } from '@strutvane/framework'
+
+export const Customer = defineModel('Customer', {
+  name:  field.string(120).searchable().sortable(),
+  email: field.email().unique(),
+  tier:  field.enum(['free', 'pro', 'enterprise']).default('free').filterable(),
+})
+```
+
+Each line is a **field**: a name (`email`) plus a type (`field.email()`). That one file is enough for Strutvane to create the database table, the API, the validation and the screens.
+
+<Aside type="tip">
+Every field is **required** unless you add `.optional()` or a `.default(…)`. You never forget to make something mandatory.
+</Aside>
+
+## Field types
+
+### Text
+
+| Type | Plain meaning | Example |
+|---|---|---|
+| `field.string(max?)` | Short text, like a name or title (255 characters unless you say otherwise) | `title: field.string(200)` |
+| `field.text()` | Long text, like notes or a description | `notes: field.text().optional()` |
+| `field.email()` | An email address, checked automatically | `email: field.email()` |
+| `field.url()` | A web address | `website: field.url().optional()` |
+| `field.uuid()` | A unique id from another system | `externalId: field.uuid()` |
+
+### Numbers
+
+| Type | Plain meaning | Example |
+|---|---|---|
+| `field.integer()` | Whole numbers | `quantity: field.integer().min(0)` |
+| `field.bigInteger()` | Very large whole numbers (sent as text, so nothing is rounded) | `views: field.bigInteger()` |
+| `field.decimal(p, s)` | Exact decimals. `decimal(12, 2)` means up to 12 digits, 2 after the dot. Use it for money. | `amount: field.decimal(12, 2)` |
+| `field.float()` | Approximate decimals (fine for measurements, **not** for money) | `weightKg: field.float()` |
+
+<Aside type="note">
+Decimal values travel as text (`"1250.50"`), so no cent is ever lost to rounding.
+</Aside>
+
+### Choices and yes/no
+
+| Type | Plain meaning | Example |
+|---|---|---|
+| `field.boolean()` | Yes or no | `active: field.boolean().default(true)` |
+| `field.enum([...])` | Exactly one value from a fixed list | `status: field.enum(['draft', 'sent', 'paid'])` |
+
+### Dates and times
+
+| Type | Plain meaning | Example |
+|---|---|---|
+| `field.date()` | A calendar date | `dueDate: field.date()` |
+| `field.datetime()` | A moment in time, stored in UTC | `startsAt: field.datetime()` |
+
+### Links between models (relations)
+
+| Type | Plain meaning | Example |
+|---|---|---|
+| `field.belongsTo('Company')` | "This contact works at one company" | `company: field.belongsTo('Company')` |
+| `field.hasMany('Contact')` | "This company has many contacts" | `contacts: field.hasMany('Contact')` |
+
+A `belongsTo` value must point to a record the caller can see, in the same tenant. Another company's id is refused, even if it exists.
+
+### Structured data
+
+| Type | Plain meaning | Example |
+|---|---|---|
+| `field.json()` | Flexible structured data | `settings: field.json().optional()` |
+
+## Modifiers: fine-tuning a field
+
+Modifiers are chained after the type, like `field.string().unique().searchable()`.
+
+| Modifier | What it does | Example |
+|---|---|---|
+| `.optional()` / `.nullable()` | May be empty (fields are required by default) | `notes: field.text().optional()` |
+| `.unique()` | No two records may share this value (per tenant, on tenant models) | `email: field.email().unique()` |
+| `.index()` | Adds a database index, for faster lookups | `code: field.string(20).index()` |
+| `.default(value)` | The value used when none is given | `.default('draft')` |
+| `.min()` / `.max()` | Limits for numbers, or for text length | `.min(0).max(100)` |
+| `.regex(pattern)` | Text must match a pattern | `.regex(/^INV-\d+$/)` |
+| `.searchable()` | Included when someone types in the search box (text fields) | `title: field.string().searchable()` |
+| `.filterable(...ops?)` | Can be used in filters. Pass operators to allow only those. | `status: field.enum([...]).filterable()` |
+| `.sortable()` | Can be used for sorting (`?sort=-amount`) | `amount: field.decimal(12, 2).sortable()` |
+| `.hidden()` | Never sent out by the API | `internalCode: field.string().hidden()` |
+| `.readOnly()` | Sent out, but can't be changed through the API | `invoiceNo: field.string().readOnly()` |
+| `.writeOnce()` | Can be set when creating, never changed afterwards | `customer: field.belongsTo('Customer').writeOnce()` |
+| `.sensitive()` | Masked in logs and the audit history | `taxId: field.string().sensitive()` |
+| `.label('…')` / `.help('…')` | The friendly name and hint text shown in forms | `.label('Due date').help('When payment is expected')` |
+
+<Aside type="tip" title="Safe by default">
+Nothing is searchable, filterable or sortable unless you say so. That keeps the API fast and stops people from filtering on fields they shouldn't. A modifier that doesn't make sense, like `.searchable()` on a number, is refused when the model is defined, not later.
+</Aside>
+
+## Model options
+
+The third argument switches on extra behaviour for the whole model:
+
+```ts title="app/models/invoice.model.ts"
+export const Invoice = defineModel('Invoice', { /* fields */ }, {
+  timestamps: true,   // createdAt and updatedAt (on by default)
+  softDeletes: true,  // "delete" moves records to a bin you can restore from
+  tenant: true,       // each customer company sees only its own invoices
+  audit: true,        // records who changed what, and when
+  title: 'number',    // which field to show in pickers and breadcrumbs
+})
+```
+
+You can also set `table` (the database table name) and `label` / `pluralLabel` (the names shown in the UI). Sensible defaults are worked out from the model name.
+
+## Planned field types
+
+These are part of the design, but not built yet: `phone`, `slug`, `password`, `richText` / `markdown`, `color`, `money`, `percent`, `set`, `time`, `duration`, `hasOne`, `manyToMany`, `address` and `geoPoint`. Until then, use `string`, `decimal`, `enum` or `json`.
+
+## Next steps
+
+<CardGrid>
+  <LinkCard title="Migrations" description="How your models become database tables." href="../migrations/" />
+</CardGrid>

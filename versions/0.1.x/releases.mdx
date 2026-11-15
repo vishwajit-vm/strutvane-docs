@@ -1,0 +1,16 @@
+---
+title: Release Notes
+description: What Strutvane 0.1 was, why it never became a stable release, and the support status of every version.
+---
+
+import SupportTable from '@docs-components/SupportTable.astro'
+
+Strutvane 0.1 was the first architecture of the framework (the "v1" design): models declared with `defineModel()` were the source of truth, migrations were generated from them, and the CRUD API and UI were rendered at runtime. It was only ever published as pre-releases (`0.1.0-next.N`) and is **not supported**.
+
+Strutvane 0.2 replaces it with Laravel's flow: migrations are the source of truth, `node strut` is the command line, and everything is generated once by `node strut migrate`. Read the [upgrade guide for the current version](../../latest/upgrade/) to move an app across.
+
+## Support policy
+
+This table comes from the project's live support table, so it is up to date even on these old pages:
+
+<SupportTable />

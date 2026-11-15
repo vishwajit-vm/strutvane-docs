@@ -1,0 +1,458 @@
+---
+title: Docker
+description: Run your whole app in containers, like Laravel Sail. What runs where, how node strut forwards into the container, the services commands, ports and .env keys, Windows, macOS and Linux notes, and the optional production Dockerfile and dev container.
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components'
+
+When you answer **"With Docker"** during [installation](../installation/), your app, its database and a test mail inbox all run in **containers**. A container is a small, isolated Linux machine that Docker runs on your computer, built from a ready-made **image** (a snapshot of an operating system with a program installed, such as MySQL 8.4). Everyone on your team then runs exactly the same versions, and you never install MySQL or PostgreSQL yourself.
+
+You keep typing the same commands as without Docker. `node strut migrate` on your computer is passed into the app container for you, so this page is mostly about what happens behind that, and what to do when it gets in the way.
+
+:::tip[Coming from Laravel?]
+This is Laravel Sail. `./vendor/bin/sail up -d` → `node strut services:up`, `sail artisan migrate` → plain `node strut migrate` (forwarding is automatic, no `sail` prefix), `sail npm install` → `node strut npm install`, `sail shell` → `node strut shell`. The `.env` names follow Sail: `DB_HOST=db`, `FORWARD_DB_PORT`, `FORWARD_MAILPIT_PORT`.
+
+The difference: Strutvane's installer writes the Docker setup, starts it and migrates for you, and `up`/`down` keep their Laravel meaning (maintenance mode). Docker uses `services:up` and `services:down`.
+:::
+
+:::caution[Coming in 0.2]
+Docker mode is proven in the installer prototype (spike 13), with real runs of SQLite, MySQL 8.4 and PostgreSQL 18 in Docker on Windows. It isn't released yet. Each part of this page that is still only designed says so in its own box.
+:::
+
+## The smallest example
+
+Create an app with Docker, then use it every day:
+
+```bash
+npm create strutvane@latest my-app -- --docker --yes
+cd my-app
+npm run dev
+```
+
+**What you'll see** (something like this; the installer's own lines are shown on [Installation](../installation/)):
+
+```text
+✔ Files written (33 files in /home/you/my-app)
+✔ Secrets generated in .env (APP_KEY, DB_PASSWORD, DB_ROOT_PASSWORD, AUTH_SECRET)
+✔ Ports checked (3000 free; 3306 free; 8025 free)
+✔ Containers running and healthy (app, db, mailpit)  15.3s
+✔ Dependencies installed with npm (added 13 packages)
+✔ Migrations run (3 new, 3 total); Admin created: admin@my-app.test; Database seeded
+✔ Git repository created (main, 1 commit)
+```
+
+Then `npm run dev` starts the API and the UI **inside the app container**, and you open [http://localhost:3000](http://localhost:3000) on your computer as usual. Emails your app sends land in the test inbox at [http://localhost:8025](http://localhost:8025).
+
+## What runs where
+
+The installer writes `docker/compose.yaml`, a **Compose file**: one file that lists the containers your app needs and how they connect. It has up to three **services** (Compose's word for one kind of container):
+
+| Service | Image | What it does |
+|---|---|---|
+| `app` | `node:24` | Your app. It idles and waits; every `node strut` command and `npm run dev` runs inside it. |
+| `db` | `mysql:8.4` (default) or `postgres:18-alpine` | Your database. There is no `db` service with SQLite, which is a file in your project. |
+| `mailpit` | `axllent/mailpit:v1.33` | A test inbox that catches every email your app sends, so nothing reaches real people. |
+
+And three **volumes** (places where Docker keeps files):
+
+| Volume | What's in it |
+|---|---|
+| `..:/app` | Your project folder, shared with the container. You edit files on your computer; the container sees the change at once. |
+| `node-modules` | Your installed packages, kept inside Docker. They are built for Linux, so they never clash with your own operating system. |
+| `db-data` | The database's data. It survives `services:down`. |
+
+What runs **inside the app container** in Docker mode:
+
+- the API and the React UI dev server (`npm run dev`, which is `node strut dev`);
+- `npm install` and every other npm command (through `node strut npm`);
+- `migrate`, seeding, queue workers, the scheduler and every other `node strut` command.
+
+What still runs **on your computer**: Docker itself, your editor, your browser, and `strut.js`, the small file that forwards commands. So you still need Node.js on your computer to run the installer and `node strut` itself, but your app's code, its packages and its tools all live in the container.
+
+:::note[Why `docker/compose.yaml` isn't committed]
+The local Docker setup is for development only, so it is **git-ignored** (ADR-0006), as are `.env` and `.strutvane/`. Strutvane's own repositories never commit Docker files. Your app **may** commit two Docker files, but only when you ask for them: the [production Dockerfile](#the-production-dockerfile) and the [dev container](#the-dev-container) (ADR-0021).
+:::
+
+## How forwarding works
+
+`strut.js` checks one thing first: did you choose Docker for this project? (The installer records the answer in `.strutvane/env.json`.) If you did, and the command was typed on your computer rather than inside the container, it forwards it:
+
+```text
+node strut migrate
+  → docker compose -p my-app --env-file .env -f docker/compose.yaml exec app node strut migrate
+```
+
+Inside the container (where `STRUTVANE_IN_CONTAINER=1` is set), the same file runs the command itself. Without Docker, it always runs on your computer. So one command works in both modes, and in every shell.
+
+Three kinds of command always run **on your computer**, because they manage the containers themselves:
+
+- `setup` (`npm run setup`), which resumes the installer;
+- `services:up`, `services:down` and `services:status`.
+
+Forwarded commands keep your terminal's colours and input when you type them yourself, and switch to plain output (`-T`) in CI or when you pipe the output. **The exit code comes back unchanged**, so scripts and CI can rely on it.
+
+### Typical: a day's work
+
+```bash
+node strut services:up                                  # start app, db and mailpit (once after a reboot)
+npm run dev                                             # API + UI, in the container
+node strut make:migration create_tags_table --seeder    # in a second terminal: forwarded too
+node strut migrate
+```
+
+**What you'll see:** the same output as without Docker. The only sign that Docker is involved is that it works without Node packages or a database on your computer.
+
+## Starting and stopping the services
+
+| Command | What it runs | When you need it |
+|---|---|---|
+| `node strut services:up` | `docker compose up -d --wait` | After a reboot, or after `services:down`. It returns once every service is **healthy** (the database accepts connections). |
+| `node strut services:down` | `docker compose down` | To stop everything. Your data stays in the `db-data` volume. |
+| `node strut services:down --volumes` | `docker compose down -v` | To start over with an **empty database**. |
+| `node strut services:status` | `docker compose ps` | To see which services are running. |
+
+```bash
+node strut services:status
+```
+
+**What you'll see** is Docker Compose's own table, something like:
+
+```text
+NAME             IMAGE                   SERVICE   STATUS                    PORTS
+my-app-app-1     node:24                 app       Up 2 minutes              127.0.0.1:3000->3000/tcp
+my-app-db-1      mysql:8.4               db        Up 2 minutes (healthy)    127.0.0.1:3306->3306/tcp
+my-app-mailpit-1 axllent/mailpit:v1.33   mailpit   Up 2 minutes (healthy)    127.0.0.1:8025->8025/tcp
+```
+
+Every command uses your project's own name (`-p my-app`, from `COMPOSE_PROJECT_NAME`), so it never touches another project's containers.
+
+:::danger[`--volumes` deletes your local database]
+`services:down --volumes` removes the `db-data` volume: every row in your development database is gone. In the prototype it doesn't ask first; a confirmation is planned. Run `node strut migrate` afterwards to recreate the tables and seed again.
+:::
+
+:::caution[Coming in 0.2]
+`node strut services:logs` (follow the services' output) and `node strut db:shell` (open a MySQL or PostgreSQL prompt in the `db` container) are in the blueprint but not built yet. Until then, Docker's own commands work: `docker compose -p my-app -f docker/compose.yaml logs -f db`.
+:::
+
+## Running npm, npx, node and a shell in the container
+
+Like Sail, `node strut` passes four commands straight through to the app container:
+
+| You type | It runs in the container | Use it for |
+|---|---|---|
+| `node strut npm <args>` | `npm <args>` | Adding or updating packages |
+| `node strut npx <args>` | `npx <args>` | One-off tools |
+| `node strut node <args>` | `node <args>` | A quick script |
+| `node strut shell` | `bash` (or `sh` when the image has no bash) | Looking around inside the container |
+
+### Small: add a package
+
+```bash
+node strut npm install date-fns
+```
+
+**What you'll see:** npm's usual output. The package is installed into the `node-modules` volume, built for Linux, and `package.json` and `package-lock.json` change in your project folder as usual.
+
+### Typical: run a tool or a script
+
+```bash
+node strut npx tsc --noEmit
+node strut node scripts/report.ts
+```
+
+**What you'll see:** the tool's output, and its exit code passed back to your shell. `node strut npx tsc --noEmit` exits with `0` when there are no type errors and with a non-zero code when there are, exactly as `npx tsc` would, so CI fails when it should.
+
+### Advanced: arguments arrive exactly as you typed them
+
+Arguments go to the container as a list, never through a shell on the way, so characters that shells treat specially arrive untouched. The prototype tests `a&b`, `$(...)` and `%PATH%`:
+
+```bash
+node strut node -e "console.log(process.argv.slice(1))" "a&b" "100%PATH%"
+```
+
+**What you'll see:**
+
+```text
+[ 'a&b', '100%PATH%' ]
+```
+
+Your own shell still reads the line first, so quote anything it would change, as you would for any command.
+
+Without Docker, the same four commands run on your computer, so scripts that use them work in both modes.
+
+## Ports
+
+Every port a container publishes is bound to **127.0.0.1**, so only your own computer can reach it. Nobody else on your Wi-Fi can open your app, your database or your test inbox.
+
+| `.env` key | Default | What it is |
+|---|---|---|
+| `APP_PORT` | `3000` | The app (API and UI on one port, hot reload included) |
+| `FORWARD_DB_PORT` | `3306` (MySQL), `5432` (PostgreSQL) | The database, as seen **from your computer** (for a database GUI) |
+| `FORWARD_MAILPIT_PORT` | `8025` | The test inbox |
+
+During installation, the installer checks each port first. When one is in use, it picks the next free one and writes it into `.env` ("port 3306 is in use; using 3307"). Mailpit's mail port (1025) is never published: only the app talks to it, over Docker's own network.
+
+Inside the container the dev server listens on `0.0.0.0` (`APP_HOST`), because that is the only way traffic from your computer reaches it. A **Host allowlist** still answers any request whose `Host` header isn't `localhost`, `127.0.0.1`, `[::1]` or your `APP_URL`'s host with `403`, which blocks DNS-rebinding tricks.
+
+## The `.env` keys in Docker mode
+
+The installer writes these for you. The app reaches other services by their **service name** (`db`, `mailpit`), because inside Docker's network that is their address:
+
+```ini title=".env (Docker mode, MySQL)"
+APP_PORT=3000
+
+DB_CONNECTION=mysql
+DB_HOST=db
+DB_PORT=3306
+FORWARD_DB_PORT=3306
+DB_DATABASE=my_app
+DB_TEST_DATABASE=my_app_test
+DB_USERNAME=my_app
+DB_PASSWORD=generated-for-you
+DB_ROOT_PASSWORD=generated-for-you
+
+MAIL_MAILER=smtp
+MAIL_HOST=mailpit
+MAIL_PORT=1025
+FORWARD_MAILPIT_PORT=8025
+
+COMPOSE_PROJECT_NAME=my-app
+STRUT_UID=1000
+STRUT_GID=1000
+```
+
+- `DB_PORT` is the port **inside** Docker's network; `FORWARD_DB_PORT` is the one on your computer. A database GUI on your computer connects to `127.0.0.1:FORWARD_DB_PORT`.
+- `DB_ROOT_PASSWORD` is the database image's administrator password. It's generated and your app never uses it.
+- `STRUT_UID` and `STRUT_GID` are the user the app container runs as (see [Platform notes](#platform-notes)).
+- Every password is generated into `.env` only, never into `.env.example`, and never on a command line. See [Configuration](../configuration/) for every other key.
+
+### PostgreSQL: two database users
+
+With PostgreSQL, the installer creates two **roles** (database users) on the first start:
+
+| `.env` key | Role | Used for |
+|---|---|---|
+| `DB_MIGRATION_USERNAME` | `my_app_owner` | Running migrations. It owns the tables. |
+| `DB_USERNAME` | `my_app_app` | Everything else. It is not a superuser and can't bypass row-level security. |
+
+Why two: PostgreSQL's row-level security (which keeps teams apart, see [Security Features](../security/)) doesn't apply to a table's owner or to a superuser. Running the app as a plain role means the database itself enforces the rule.
+
+### The test database
+
+A second database, `DB_TEST_DATABASE` (`my_app_test`), is created next to the development one on the first start, so `npm test` never touches your local data.
+
+## Teammates and a fresh clone
+
+The Docker files and `.env` are git-ignored, so a teammate who clones the project has neither. They run:
+
+```bash
+git clone https://github.com/acme/my-app.git
+cd my-app
+npm run setup
+```
+
+`npm run setup` resumes the installer: it writes the Docker setup and `.env` with fresh secrets, starts the containers, installs packages and migrates.
+
+:::caution[Coming in 0.2]
+In the prototype, `npm run setup` resumes an existing setup from `.strutvane/setup.json`, which a fresh clone doesn't have. The product will run the installer in "resume" mode for a fresh clone instead. This is designed, not built yet.
+:::
+
+## Docker or not: switching later
+
+:::caution[Not decided yet]
+There is no command to move an existing project between Docker and no Docker. The blueprint doesn't define one yet. Today, the answer you give the installer is the one the project keeps.
+:::
+
+## Platform notes
+
+<Tabs syncKey="os">
+  <TabItem label="Windows">
+
+- Install **Docker Desktop** and start it before `npm create` or `node strut services:up`. If it isn't running, the installer offers to retry, to continue without Docker using SQLite, or to stop.
+- **Keep the project inside WSL2** (for example `\\wsl$\Ubuntu\home\you\my-app`) for fast file watching. On a Windows folder (`C:\Users\you\my-app`), file-change events don't cross into the container reliably, so the dev server **polls** for changes (`CHOKIDAR_USEPOLLING=1`, `STRUT_WATCH_POLLING=1`). That works, but reloads can lag. (WSL2 is recommended; its effect on watching wasn't measured in the prototype.)
+- **Line endings:** shell scripts you commit and run inside the container must keep `LF` line endings. If git converts them to `CRLF` (`core.autocrlf=true`), Linux can't run them (`$'\r': command not found`). Use `git config core.autocrlf input` for the project, or work inside WSL2. The installer writes its own Docker files with `LF`.
+- PowerShell, cmd and Windows Terminal all work: `node strut` needs no wrapper and no execution-policy change.
+
+  </TabItem>
+  <TabItem label="macOS">
+
+- Install **Docker Desktop** (or another Docker engine) and start it first.
+- Docker Desktop maps file ownership for you, so files the container writes are yours.
+- File events across the shared folder can be unreliable, so the dev server polls for changes, as on Windows.
+
+  </TabItem>
+  <TabItem label="Linux">
+
+- Install Docker Engine and the Compose plugin.
+- If Docker says `permission denied` on `docker.sock`, add yourself to the `docker` group, then log out and back in:
+
+  ```bash
+  sudo usermod -aG docker $USER
+  ```
+
+- The app container runs as **your** user id (`STRUT_UID`/`STRUT_GID` from your account), so files it writes into your project are yours, not root's. (This is written and unit-tested, but the prototype was only run on Windows.)
+
+  </TabItem>
+</Tabs>
+
+:::note[Your editor and `node_modules`]
+In Docker mode, packages live in the `node-modules` volume inside Docker. Your project folder on your computer only has an empty `node_modules` folder, so an editor running on your computer can't read the packages' types. Opening the folder from inside the container (for example VS Code's "Dev Containers: Attach to Running Container…") or using the [dev container](#the-dev-container) avoids that.
+:::
+
+## The production Dockerfile
+
+Everything above is for development. For **production**, many hosts (Kubernetes, Fly, Cloud Run, ECS) want a **Docker image**: a packaged copy of your built app that the host runs. The installer can write a secure one for you, and this one you **commit**.
+
+You ask for it in one of three ways:
+
+```bash
+npm create strutvane@latest my-app -- --deploy docker   # question 35 "Where will you deploy?" → Docker image
+node strut docker:prod                                   # later, in an existing app
+```
+
+or by picking **Docker image** when the installer asks "Where will you deploy?".
+
+It writes:
+
+- **`Dockerfile`**, in three **stages** (separate build steps whose leftovers are thrown away): one builds your app with `npm ci --ignore-scripts` and `node strut build`, one installs production dependencies only, and the last copies only `build/` and those dependencies into a clean `node:24-bookworm-slim` image. The final image runs as the non-root `node` user, exposes port 3000 and has a `HEALTHCHECK` that calls `/up`.
+- **`.dockerignore`**, which keeps `.env*`, `.git`, `node_modules`, `storage/` and tests (plus `docker/`, `.strutvane/`, `.devcontainer/`, `.vscode/` and local SQLite files) out of the build, so no secret can end up in the image.
+- **`deploy/README.md`**, the recipe:
+
+```bash
+docker build -t my-app .
+docker run -p 3000:3000 --env APP_KEY=your-key --env DB_HOST=your-db-host my-app
+```
+
+**What you'll see:** Docker builds the three stages, then the container starts and answers `GET /up`. Settings reach the container as environment variables from your host's dashboard (the keys are listed in `.env.example`); never copy `.env` into an image.
+
+:::caution[Coming in 0.2]
+The `Dockerfile` and `.dockerignore` are generated by the installer prototype and their content is tested (non-root, no secrets, no `.env*`), but the image itself hasn't been built or run yet. `node strut docker:prod` is designed, not built. The blueprint also says the production image sets `LOG_CHANNEL=stderr` and `LOG_FORMAT=json` (so the host collects logs as JSON lines, see [Logging](../logging/)); the prototype's template doesn't set them yet.
+:::
+
+## The dev container
+
+A **dev container** is a Docker setup your editor opens directly: GitHub Codespaces and VS Code Dev Containers start it, and you work inside it with nothing installed on your computer. It's also opt-in and **committed**, so the whole team gets it:
+
+```bash
+npm create strutvane@latest my-app -- --dev-container
+```
+
+or answer yes to "Add a dev container for Codespaces?" (part of question 36, editor setup; the default is no).
+
+It writes `.devcontainer/devcontainer.json` and `.devcontainer/compose.yaml`: one `app` service on `node:24-bookworm`, running as the `node` user, which runs `npm ci --ignore-scripts` when it's created and forwards port 3000. It contains no secrets: it reads `../.env` at runtime if there is one (create it with `npm run setup`, or use Codespaces secrets).
+
+:::caution[Coming in 0.2]
+Generated by the installer prototype (content tested, not yet opened in Codespaces). It has **no database service**: SQLite works as it is; for MySQL or PostgreSQL, point the `DB_*` keys at a server you run.
+:::
+
+## Common mistakes
+
+### "The app container is not running"
+
+```text
+The app container is not running. Start it with: node strut services:up
+```
+
+**Why:** Docker mode forwards commands into the `app` container, and it isn't started (after a reboot, or after `services:down`).
+**Fix:**
+
+```bash
+node strut services:up
+```
+
+### "Docker is not answering"
+
+```text
+Docker is not answering (Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docker daemon running?). Start Docker Desktop, then: node strut services:up
+```
+
+**Why:** Docker Desktop (or the Docker engine) isn't running. The text in brackets is Docker's own message and varies by system.
+**Fix:** start Docker Desktop, wait until it says it's running, then:
+
+```bash
+node strut services:up
+```
+
+### "permission denied" on docker.sock (Linux)
+
+```text
+Docker is not answering (permission denied while trying to connect to the Docker daemon socket at unix:///var/run/docker.sock). Start Docker Desktop, then: node strut services:up
+```
+
+**Why:** your user isn't allowed to talk to Docker. (Docker's part of the message is shortened here; it continues with the socket address.)
+**Fix:** join the `docker` group, log out and back in, then retry:
+
+```bash
+sudo usermod -aG docker $USER
+```
+
+### "Docker was not found"
+
+```text
+Docker was not found. Install Docker Desktop (https://docs.docker.com/get-docker/), or run without Docker.
+```
+
+**Why:** the `docker` program isn't on your `PATH`. For safety, `node strut` only looks in absolute `PATH` folders, never in the current folder.
+**Fix:** install Docker Desktop (or Docker Engine on Linux), open a new terminal and check:
+
+```bash
+docker --version
+```
+
+### "COMPOSE_PROJECT_NAME is missing in .env"
+
+```text
+COMPOSE_PROJECT_NAME is missing in .env. Run: npm run setup
+```
+
+**Why:** `.env` is missing or was replaced, for example after a fresh clone or copying `.env.example` by hand.
+**Fix:**
+
+```bash
+npm run setup
+```
+
+### `services:up` says a port is already allocated
+
+```text
+Error response from daemon: ... Bind for 127.0.0.1:3306 failed: port is already allocated
+```
+
+**Why:** something else (often a MySQL installed on your computer, or another project's containers) uses that port. The installer moves ports only while it runs; afterwards the ports in `.env` stay as they are. (This is Docker's message, so the exact wording depends on your Docker version.)
+**Fix:** pick a free port in `.env`, then start again:
+
+```ini title=".env"
+FORWARD_DB_PORT=3307
+```
+
+```bash
+node strut services:up
+```
+
+### I ran `npm install` on my computer and the app can't find the package
+
+**Why:** in Docker mode the app's packages live in the `node-modules` volume inside Docker. `npm install` on your computer writes to your computer's folder, which the container doesn't use, and builds native packages for the wrong operating system.
+**Fix:** install through the container:
+
+```bash
+node strut npm install date-fns
+```
+
+### Saving a file doesn't reload the app on Windows
+
+**Why:** the project sits on a Windows drive, so file-change events don't reach the container and the dev server falls back to polling, which can lag.
+**Fix:** move the project into WSL2 and work from there:
+
+```bash
+cd ~
+git clone https://github.com/acme/my-app.git
+cd my-app
+npm run setup
+```
+
+## Next steps
+
+- [Installation](../installation/): the Docker question and everything else the installer asks.
+- [Configuration](../configuration/): every `.env` key.
+- [CLI Reference](../cli-reference/): every `node strut` command.
+- [Deployment](../deployment/): taking the app to production.

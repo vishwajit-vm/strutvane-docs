@@ -1,0 +1,237 @@
+{
+  "home": "introduction",
+  "groups": [
+    {
+      "label": "Prologue",
+      "items": [
+        "releases",
+        {
+          "slug": "versioning",
+          "label": "Versioning & Support"
+        },
+        "upgrade",
+        "deprecations",
+        "contributions"
+      ]
+    },
+    {
+      "label": "Getting Started",
+      "items": [
+        "introduction",
+        "installation",
+        {
+          "slug": "docker",
+          "label": "Docker"
+        },
+        "configuration",
+        "structure",
+        {
+          "slug": "first-crud",
+          "label": "Your First CRUD"
+        },
+        "frontend",
+        {
+          "slug": "designs",
+          "label": "Designs"
+        },
+        "starter-kits",
+        "ai-agents",
+        "deployment"
+      ]
+    },
+    {
+      "label": "Architecture Concepts",
+      "items": [
+        "lifecycle",
+        "container",
+        "providers",
+        {
+          "slug": "facades",
+          "label": "Facades"
+        },
+        {
+          "slug": "helpers",
+          "label": "Helpers"
+        }
+      ]
+    },
+    {
+      "label": "The Basics",
+      "items": [
+        "routing",
+        "middleware",
+        "csrf",
+        "controllers",
+        "requests",
+        "validation",
+        {
+          "slug": "precognition",
+          "label": "Precognition"
+        },
+        "responses",
+        "errors",
+        "logging"
+      ]
+    },
+    {
+      "label": "Digging Deeper",
+      "items": [
+        "strut-console",
+        "cache",
+        {
+          "slug": "concurrency",
+          "label": "Concurrency"
+        },
+        "events",
+        "storage",
+        "http-client",
+        "localization",
+        "mail",
+        {
+          "slug": "maintenance-mode",
+          "label": "Maintenance Mode"
+        },
+        "notifications",
+        {
+          "slug": "optimization",
+          "label": "Optimization"
+        },
+        {
+          "slug": "processes",
+          "label": "Processes"
+        },
+        {
+          "slug": "prompts",
+          "label": "Prompts"
+        },
+        "queues",
+        "rate-limiting",
+        "scheduling"
+      ]
+    },
+    {
+      "label": "Security",
+      "items": [
+        {
+          "slug": "security",
+          "label": "Security Features"
+        },
+        "authentication",
+        "authorization",
+        "email-verification",
+        "passwords",
+        "two-factor",
+        "api-tokens",
+        "tenancy",
+        "audit",
+        "encryption",
+        "hashing"
+      ]
+    },
+    {
+      "label": "Database",
+      "items": [
+        {
+          "slug": "database",
+          "label": "Getting Started"
+        },
+        "queries",
+        "pagination",
+        "migrations",
+        "seeding"
+      ]
+    },
+    {
+      "label": "ORM",
+      "items": [
+        {
+          "slug": "orm",
+          "label": "Getting Started"
+        },
+        {
+          "slug": "orm-querying",
+          "label": "Querying"
+        },
+        "orm-relationships",
+        "orm-scopes",
+        "orm-casts",
+        "orm-mass-assignment",
+        "orm-pagination",
+        "orm-soft-deletes",
+        "orm-slugs",
+        "orm-transactions",
+        "orm-tenancy",
+        "orm-collections",
+        "orm-factories",
+        "orm-resources"
+      ]
+    },
+    {
+      "label": "Auto CRUD & UI",
+      "items": [
+        "crud",
+        "crud-sidebar",
+        "crud-customising",
+        "crud-slugs",
+        "crud-search",
+        "charts"
+      ]
+    },
+    {
+      "label": "Testing",
+      "items": [
+        {
+          "slug": "testing",
+          "label": "Getting Started"
+        },
+        "http-tests",
+        "database-testing",
+        "mocking",
+        "browser-tests"
+      ]
+    },
+    {
+      "label": "Packages",
+      "items": [
+        {
+          "slug": "packages/catalogue",
+          "label": "Package Catalogue"
+        },
+        "packages/framework",
+        "packages/auth",
+        "packages/ui",
+        "packages/create-strutvane",
+        "packages/strutvane",
+        "packages/log-viewer",
+        "packages/files",
+        "packages/redis",
+        "packages/queue-dashboard",
+        "packages/inspector",
+        "packages/observability",
+        "packages/search",
+        "packages/import-export",
+        "packages/agent-tools",
+        "packages/social-login",
+        "packages/sso",
+        "packages/oauth-server",
+        "packages/mcp-server",
+        "packages/feature-flags",
+        "packages/webhooks",
+        "packages/billing",
+        "packages/realtime",
+        "packages/notification-channels",
+        "packages/dashboards",
+        "packages/ai",
+        "packages/workflows",
+        "packages/browser-testing",
+        "packages/backup"
+      ]
+    },
+    {
+      "label": "CLI Reference",
+      "items": [
+        "cli-reference"
+      ]
+    }
+  ]
+}

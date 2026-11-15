@@ -1,0 +1,79 @@
+---
+/**
+ * The version banner above every page.
+ *
+ * - End of life (0.1.x today): "You're reading the docs for Strutvane 0.1, which has reached
+ *   end of life", with a link to the same page in the current version. Like Laravel's
+ *   "You're browsing the documentation for an old version".
+ * - Security-only lines, `main` previews and a not-yet-released current line get their own
+ *   short note.
+ *
+ * A page's own `banner` front matter (Starlight's feature) still shows underneath.
+ */
+import Default from '@astrojs/starlight/components/Banner.astro'
+import context from 'virtual:strutvane-docs/context'
+import { versionNotice } from '../../scripts/lib/site-context.ts'
+
+const notice = versionNotice(context, Astro.locals.starlightRoute.id)
+const target = notice?.samePage ? 'Read this page' : 'Read the docs'
+---
+
+{notice && (
+  <div class={`docs-version-banner docs-version-banner--${notice.kind}`} data-docs-version-banner={notice.kind} data-pagefind-ignore role="note">
+    {notice.kind === 'eol' && (
+      <p>
+        <strong>You're reading the docs for Strutvane {notice.readingLine}, which has reached end of life</strong> and no longer gets fixes.{' '}
+        <a href={notice.currentUrl}>{target} for Strutvane {notice.currentLine}</a>, the current version.
+      </p>
+    )}
+    {notice.kind === 'security' && (
+      <p>
+        <strong>Strutvane {notice.readingLine} only gets security fixes now.</strong>{' '}
+        Plan your upgrade: <a href={notice.currentUrl}>{target.toLowerCase()} for Strutvane {notice.currentLine}</a>.
+      </p>
+    )}
+    {notice.kind === 'next' && (
+      <p>
+        <strong>These are the docs for the next, unreleased version.</strong> Things here may still change.{' '}
+        <a href={notice.currentUrl}>{target} for Strutvane {notice.currentLine}</a>, the current release.
+      </p>
+    )}
+    {notice.kind === 'prerelease' && (
+      <p>
+        <strong>Strutvane {notice.readingLine} is still being built.</strong> These pages describe how it will work; anything marked
+        "Coming in {notice.readingLine}" doesn't exist yet.
+        {notice.releasesUrl && <> <a href={notice.releasesUrl}>Release notes and support policy</a>.</>}
+      </p>
+    )}
+  </div>
+)}
+<Default />
+
+<style>
+  .docs-version-banner {
+    padding: 0.75rem var(--sl-nav-pad-x);
+    font-size: var(--sl-text-sm);
+    line-height: 1.5;
+    text-align: center;
+    text-wrap: balance;
+    border-block-end: 1px solid var(--sl-color-hairline);
+  }
+  .docs-version-banner p {
+    margin: 0;
+  }
+  .docs-version-banner a {
+    color: inherit;
+    font-weight: 600;
+    text-decoration: underline;
+  }
+  .docs-version-banner--eol,
+  .docs-version-banner--security {
+    background-color: var(--docs-warning-bg);
+    color: var(--docs-warning-text);
+  }
+  .docs-version-banner--next,
+  .docs-version-banner--prerelease {
+    background-color: var(--sl-color-accent-low);
+    color: var(--sl-color-accent-high);
+  }
+</style>

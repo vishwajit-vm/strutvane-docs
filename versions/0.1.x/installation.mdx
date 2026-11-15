@@ -1,0 +1,98 @@
+---
+title: Quick start
+description: The planned flow for creating your first Strutvane project, with every setup question explained in plain words.
+---
+
+import { Aside, CardGrid, LinkCard, Steps, Tabs, TabItem } from '@astrojs/starlight/components';
+
+**What you'll learn**
+
+- How you'll create a new Strutvane project with one command
+- What each setup question means, and what to pick
+- What you'll see in the browser a few minutes later
+
+<Aside type="caution" title="Planned, not available yet">
+These commands don't work yet. The packages are built and tested at `0.1.0-next`, but they aren't on npm yet and aren't wired together end to end. This page shows the **intended** experience so you can give feedback early. See the roadmap.
+</Aside>
+
+## Before you start
+
+You'll need:
+
+- **Node.js 24 or newer.** This is the program that runs JavaScript and TypeScript on your computer. Check by running `node --version`.
+- **A package manager**, the tool that downloads libraries. Strutvane works with pnpm, npm, yarn and bun. We use **pnpm** in the examples.
+- **Docker (optional).** It runs a database on your computer without installing one. You can skip it and use SQLite, a database that's just a file.
+
+## Create your project
+
+<Steps>
+
+1. **Run the starter.**
+
+   <Tabs>
+     <TabItem label="pnpm">
+     ```bash
+     pnpm create strutvane@next acme
+     ```
+     </TabItem>
+     <TabItem label="npm">
+     ```bash
+     npm create strutvane@next acme
+     ```
+     </TabItem>
+   </Tabs>
+
+   `acme` is your project's name, so pick anything you like.
+
+2. **Answer a few questions.** Here's what each one means:
+
+   | Question | What it means | If unsure, pick |
+   |---|---|---|
+   | What are you building? | **Full-stack** = API and screens. **API only** = no screens (for a mobile app, say). **UI only** = screens for an API that already exists. | Full-stack |
+   | Database | Where your data lives. PostgreSQL is the most capable. SQLite is the simplest (a single file). | PostgreSQL (with Docker) or SQLite (without) |
+   | Authentication | How people sign in: email and password, a magic link, or Google, Microsoft or GitHub | Email + password |
+   | Multi-tenant? | Will several **companies** use your app, each seeing only their own data? See Multi-tenancy. | No (you can turn it on later) |
+   | Extras | Background jobs, cache, email, audit log, monitoring | Leave the defaults |
+   | Docker for local services? | Runs the database, cache and a test mailbox in Docker, on your machine only | Yes, if you have Docker |
+
+3. **Start the local services and the app.**
+
+   ```bash
+   cd acme
+   pnpm sv up     # starts the database etc. in Docker (local only)
+   pnpm dev       # starts your app
+   ```
+
+4. **Open your browser.**
+
+   | Address | What you'll see |
+   |---|---|
+   | `http://localhost:3000` | Your app's login page. Sign in with the admin account printed during setup. |
+   | `http://localhost:3000/docs` | Interactive API documentation. You can try requests right there. |
+   | `http://localhost:3000/api/v1/...` | The API itself |
+   | `http://localhost:8025` | A test mailbox that catches every email your app sends while developing |
+
+</Steps>
+
+## Add your first model
+
+```bash
+pnpm sv make:model Product name:string price:decimal(10,2) "status:enum(draft,active)"
+pnpm sv migrate
+```
+
+Refresh the browser. A **Products** item appears in the menu, with a table, a form and a detail page. The API at `/api/v1/products` works, and it's documented at `/docs`.
+
+## What just got created?
+
+Your project folder now contains real, readable files: configuration, your models, the database migrations, a `.env` file with your local settings, and a `.env.example` that documents every setting. See [Project structure](../structure/) and [Environment variables](../configuration/).
+
+<Aside type="tip">
+Every command can preview its changes first. Add `--dry-run --diff` to see exactly which files it would create or change, without touching anything.
+</Aside>
+
+## Next steps
+
+<CardGrid>
+  <LinkCard title="CLI commands" description="Every command with an example." href="../cli-reference/" />
+</CardGrid>

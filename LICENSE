@@ -1,7 +1,8 @@
 This repository uses two licenses:
 
   1. Source code (configuration, scripts, components, styles): MIT License (below).
-  2. Documentation content (everything under src/content/): Creative Commons
+  2. Documentation content (everything under versions/, and under src/content/
+     on the frozen 0.1.x branch): Creative Commons
      Attribution 4.0 International (CC BY 4.0), https://creativecommons.org/licenses/by/4.0/
      You may share and adapt the content for any purpose, provided you give
      appropriate credit to "The Strutvane Authors" and indicate if changes were made.

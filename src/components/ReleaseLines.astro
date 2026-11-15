@@ -1,0 +1,51 @@
+---
+/**
+ * Every version line with its branch, npm dist-tag, install command and docs path, rendered from
+ * `versions.json` at build time (the same file as the support table).
+ *
+ * ```mdx
+ * import ReleaseLines from '@docs-components/ReleaseLines.astro'
+ *
+ * <ReleaseLines />
+ * ```
+ */
+import context from 'virtual:strutvane-docs/context'
+import { releaseLineRows } from '../../scripts/lib/support-table.ts'
+
+const rows = releaseLineRows(context.supportTable)
+---
+
+<div class="docs-release-lines">
+  <table>
+    <thead>
+      <tr>
+        <th scope="col">Line</th>
+        <th scope="col">Branch</th>
+        <th scope="col">npm dist-tag</th>
+        <th scope="col">Create an app</th>
+        <th scope="col">Docs</th>
+        <th scope="col">Node</th>
+        <th scope="col">Status</th>
+      </tr>
+    </thead>
+    <tbody>
+      {rows.map((row) => (
+        <tr data-release-line={row.version}>
+          <th scope="row">{row.version}</th>
+          <td><code>{row.branch}</code></td>
+          <td><code>{row.distTag}</code></td>
+          <td><code>{row.install}</code></td>
+          <td><code>{row.docs}</code></td>
+          <td>{row.node}</td>
+          <td>{row.statusLabel}</td>
+        </tr>
+      ))}
+    </tbody>
+  </table>
+</div>
+
+<style>
+  .docs-release-lines {
+    overflow-x: auto;
+  }
+</style>

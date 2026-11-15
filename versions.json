@@ -1,0 +1,27 @@
+{
+  "current": "0.2",
+  "lines": [
+    {
+      "line": "0.2",
+      "branch": "0.2.x",
+      "distTag": "latest",
+      "node": ">=24.3",
+      "released": null,
+      "bugFixesUntil": null,
+      "securityUntil": null,
+      "docs": "/docs/0.2.x/",
+      "status": "active"
+    },
+    {
+      "line": "0.1",
+      "branch": "0.1.x",
+      "distTag": "next",
+      "node": ">=24",
+      "released": null,
+      "bugFixesUntil": null,
+      "securityUntil": null,
+      "docs": "/docs/0.1.x/",
+      "status": "eol"
+    }
+  ]
+}

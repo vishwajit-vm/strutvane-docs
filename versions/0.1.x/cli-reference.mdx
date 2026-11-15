@@ -1,0 +1,142 @@
+---
+title: CLI commands
+description: A friendly list of the Strutvane CLI commands, grouped by task, each with a plain explanation and an example, plus the commands that are still planned.
+---
+
+import { Aside, CardGrid, LinkCard } from '@astrojs/starlight/components';
+
+**What you'll learn**
+
+- Every command that works today, grouped by what you're trying to do
+- An example for each, plus flags that work everywhere
+- What exit codes mean, and which commands are still planned
+
+<Aside type="caution" title="Pre-release (0.1.0-next): APIs may still change">
+These commands are implemented in `strutvane` and `@strutvane/cli` `0.1.0-next.0`. Commands and flags may still change before `0.1.0`. The complete technical reference lives in the [blueprint](https://github.com/vishwajit-vm/strutvane/blob/main/docs/09-cli-reference.md).
+</Aside>
+
+## How to run commands
+
+Inside a project, use `pnpm sv <command>`. Outside a project, use `npx strutvane <command>`.
+
+`make:model` and `make model` both work, so use whichever feels natural. Unique prefixes work too: `pnpm sv mi:st` runs `migrate:status`.
+
+## Flags that work everywhere
+
+| Flag | What it does | Example |
+|---|---|---|
+| `--dry-run --diff` | Show what would change, without changing anything | `pnpm sv make:model Tag name:string --dry-run --diff` |
+| `--yes`, `--no-interactive` | Accept the defaults / never ask a question | `pnpm sv add notify --yes` |
+| `--json` | Exactly one JSON document on stdout, for scripts and CI | `pnpm sv routes --json` |
+| `--force` | Allow overwriting where a command would otherwise stop | `pnpm sv key:generate --force` |
+| `--cwd <path>`, `--env <name>` | Run in another folder / against another environment | `pnpm sv env:check --env production` |
+| `--verbose`, `--quiet`, `--no-color` | More output / less output / plain text | `pnpm sv doctor --quiet` |
+| `--help` | Explain a command | `pnpm sv make:model --help` |
+
+## Outside a project
+
+| Command | Plain meaning | Example |
+|---|---|---|
+| `strutvane new` | Create a new project (runs `create-strutvane`) | `npx strutvane new acme` |
+| `strutvane doctor --global` | Check your machine (Node.js version and so on) | `npx strutvane doctor --global` |
+| `strutvane --version` / `help` | Versions / help | `npx strutvane --version` |
+
+## Checking your project
+
+| Command | Plain meaning | Example |
+|---|---|---|
+| `sv about` | Versions of the CLI, Node.js and every Strutvane package (handy for bug reports) | `pnpm sv about` |
+| `sv doctor` | Checks Node.js, `package.json`, env files, `.gitignore`, the registry and plugin compatibility | `pnpm sv doctor` |
+| `sv env:check` | Compares `.env` with `.env.example`: missing, unknown, empty and invalid keys, and secrets committed by mistake. Never prints values. | `pnpm sv env:check --strict` |
+| `sv key:generate` | Writes a secure `APP_KEY` to `.env`. Never prints it unless you pass `--show`. | `pnpm sv key:generate` |
+
+## Making things (generators)
+
+| Command | Creates | Example |
+|---|---|---|
+| `sv make:model` | A model, deny-by-default policy, factory, seeder and feature test (`--all` adds the resource). Run it without fields for an interactive field builder. | `pnpm sv make:model Invoice number:string:unique --all` |
+| `sv make:resource` | Extra behaviour for a model, with `--actions` and `--hooks` | `pnpm sv make:resource Invoice --hooks beforeCreate,afterUpdate` |
+| `sv make:policy` | Authorization rules, from a template: `default`, `owner`, `tenant-admin` or `readonly` | `pnpm sv make:policy Invoice --template owner` |
+| `sv make:migration` | A hand-written migration (`--sql`, `--table`) | `pnpm sv make:migration backfill_invoice_numbers --sql` |
+| `sv make:seeder` | Starting data (`--model`, `--count`) | `pnpm sv make:seeder DemoData --model Invoice --count 50` |
+| `sv make:factory` | A fake-data recipe, from the model's field types | `pnpm sv make:factory Invoice` |
+| `sv make:test` | A feature, unit or end-to-end test | `pnpm sv make:test invoice-approval` |
+
+**Field syntax** for `make:model`: `name:type[(args)][:modifier[(args)]]…`, for example:
+
+```bash
+pnpm sv make:model Deal title:string(200):searchable "company:belongsTo(Company)" \
+  "amount:decimal(12,2):min(0):sortable" "stage:enum(lead,won,lost):default(lead):filterable" closeDate:date:optional
+```
+
+<Aside type="tip">
+Put quotes around fields that contain brackets or commas, like `"stage:enum(lead,won,lost)"`, so your terminal doesn't misread them. A mistake is reported with the exact column: `default "sent" is not one of: draft, paid. (column 33)`.
+</Aside>
+
+## Database and running
+
+These commands come from `@strutvane/framework`. If it isn't installed, the CLI tells you how to add it.
+
+| Command | Plain meaning | Example |
+|---|---|---|
+| `sv migrate` | Write a migration from your model changes and apply it (`--name`, `--pretend`, `--allow-destructive`, `--rename`, `--separate`) | `pnpm sv migrate --name add_sku` |
+| `sv migrate:status` | Applied, pending and changed migrations | `pnpm sv migrate:status` |
+| `sv db:seed` | Fill the database with seed data (`--class` for one seeder) | `pnpm sv db:seed` |
+| `sv dev` | Run the app and restart it when `app/`, `config/` or `.env` change | `pnpm sv dev` |
+| `sv build` | Check the app boots, and build the web UI with Vite | `pnpm sv build` |
+| `sv start` | Start the app server (`--port`, `--host`) | `pnpm sv start --port 8080` |
+
+## Inspecting your app
+
+| Command | Plain meaning | Example |
+|---|---|---|
+| `sv registry:build` | Compiles your models, policies and routes into `.strutvane/registry.gen.ts`, without running your code. `--check` fails if it's out of date. | `pnpm sv registry:build --check` |
+| `sv registry:watch` | Rebuilds the registry whenever you save | `pnpm sv registry:watch` |
+| `sv routes` | Every endpoint, with its permission | `pnpm sv routes` |
+| `sv models` | Every model, with its fields and relations | `pnpm sv models` |
+| `sv permissions` | Every permission your app uses | `pnpm sv permissions` |
+
+## Packages and upgrades
+
+| Command | Plain meaning | Example |
+|---|---|---|
+| `sv add <package>` | Install a package and run its installer: all or nothing, with a preview. Unknown flags become installer answers. | `pnpm sv add notify --dry-run --diff` |
+| `sv remove <package>` | Undo it (keeps files you edited) | `pnpm sv remove notify` |
+| `sv upgrade` | Bump Strutvane packages, merge template improvements into your files (three-way), then type-check | `pnpm sv upgrade --channel next` |
+
+<Aside type="note">
+`notify` is an example name. `sv add` works with any package that ships a devkit installer. The first-party installers (`sv add auth`, `sv add ui`) are **Planned**.
+</Aside>
+
+## Exit codes
+
+Scripts and CI can tell what happened from the exit code:
+
+| Code | Meaning |
+|---|---|
+| `0` | Success |
+| `1` | Something failed unexpectedly |
+| `2` | Wrong usage: unknown command or flag, or input needed but prompting is off |
+| `3` | Validation failed: field specs, env problems, doctor failures |
+| `4` | Conflict: merge conflicts, a file already exists, `APP_KEY` already set |
+| `5` | Database error |
+| `6` | Action needed: the registry or migrations are out of date (`--check`) |
+| `7` | Incompatible versions |
+| `130` | Interrupted (Ctrl+C) |
+
+## Planned commands
+
+These are part of the design, but not built yet:
+
+| Area | Commands |
+|---|---|
+| Local services | `sv up`, `sv down` |
+| Database | `sv migrate:rollback`, `sv migrate:fresh`, `sv db:pull`, `sv db:shell` |
+| More generators | `sv make:action`, `sv make:job`, `sv make:event`, `sv make:listener`, `sv make:mail`, `sv make:command`, `sv make:page` |
+| API | `sv api:docs`, `sv api:client`, `sv api:version` |
+| Auth, tenants and audit | `sv auth:user:create`, `sv auth:role:create`, `sv auth:permissions:sync`, `sv auth:matrix`, `sv auth:explain`, `sv auth:token:create`, `sv auth:sso:add`, `sv tenant:create`, `sv audit:verify` |
+| UI | `sv ui:add`, `sv ui:theme`, `sv eject ui`, `sv eject api` |
+| Everyday helpers | `sv tinker`, `sv queue:work`, `sv cache:clear`, `sv test`, `sv lang:check` |
+
+## Next steps
+

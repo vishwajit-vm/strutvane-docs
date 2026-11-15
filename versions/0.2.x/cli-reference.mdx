@@ -1,0 +1,1203 @@
+---
+title: CLI Reference
+description: Every node strut command, grouped like artisan, with its options, a copy-pasteable example, the output you'll see, and an honest status for each one (proven in a prototype, designed, or planned after 0.2).
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components'
+
+`node strut` is your app's **command line**: the small program you type commands into to create files, run migrations, inspect routes and look after your app. It's Strutvane's `php artisan`. It lives in `strut.js` in your project's root folder and works the same in PowerShell, cmd, bash and zsh.
+
+```bash
+node strut <command> [arguments] [options]
+```
+
+An **argument** is a value the command needs, like the name in `make:migration create_posts_table`. An **option** (or flag) starts with `--` and changes what the command does, like `--json`.
+
+This page lists **every** command in Strutvane 0.2, grouped the way Laravel groups artisan's commands. Because 0.2 isn't released yet, each command has a status:
+
+| Status | Meaning |
+|---|---|
+| **Prototype** | It runs today in one of the prototypes (a **spike**: a small experiment that proves a design). The output on this page is copied from a real run. The name and options are expected to stay. |
+| **Designed** | Decided in the 0.2 blueprint, but not built yet. Marked "Coming in 0.2". Output is "something like this". |
+| **After 0.2** | Planned for a later release. Marked "Planned after 0.2", with the roadmap phase. |
+
+:::tip[Coming from Laravel?]
+The names are artisan's: `php artisan route:list` → `node strut route:list`, `php artisan migrate` → `node strut migrate`, `php artisan make:controller` → `node strut make:controller`, `php artisan down` → `node strut down`, `sail shell` → `node strut shell`.
+
+Differences: inspection commands accept `--json` for scripts and AI agents; Docker's own commands are `services:up` / `services:down`, because `up` and `down` mean maintenance mode, as in Laravel; and `npx strutvane <command>` does exactly the same as `node strut <command>`.
+:::
+
+## The smallest example
+
+```bash
+node strut list
+```
+
+**What you'll see** (from the application-core prototype, spike 12):
+
+```text
+Strutvane console. Usage: node strut <command> [arguments] [options]
+
+Available commands:
+  about            Show the app name, environment, database, routes and providers
+  serve            Serve the application on the local HTTP server
+ make
+  make:controller  Create a new controller class
+  make:migration   Create a migration (and the model, for create_*_table)
+ model
+  model:show       Show a model's columns, casts and API behaviour
+ route
+  route:list       List every registered route
+
+Run `node strut help <command>` for details.
+```
+
+In a real 0.2 app the list is longer: packages and your own app add commands, and they all show up here.
+
+## Docker mode runs everything in the container
+
+When you chose **with Docker** in the installer, your app runs inside an `app` **container** (an isolated Linux box that Docker runs on your computer), like Laravel Sail. You still type `node strut <command>` on your computer as usual. `strut.js` notices Docker mode and **forwards** the command into the container, so it runs there with the container's Node.js and database connection.
+
+| Command | Where it runs in Docker mode |
+|---|---|
+| `setup` | On your computer (it resumes the installer, which starts the containers itself) |
+| `services:up`, `services:down`, `services:status` | On your computer (they talk to Docker) |
+| **Everything else**, including `dev`, `migrate`, `make:*`, `npm`, `npx`, `node`, `shell` | Inside the `app` container |
+
+Without Docker, every command runs on your computer. You type exactly the same commands either way. See [Docker](../docker/) for the whole setup.
+
+:::caution[Coming in 0.2]
+Forwarding is proven in the installer prototype (spike 13), which generates `strut.js`. It has been run with real Docker on Windows; macOS and Linux runs are still to do.
+:::
+
+## Commands at a glance
+
+**General**
+
+| Command | What it does | Status |
+|---|---|---|
+| [`list`](#list) | List every command (the same as `node strut` alone) | Prototype |
+| [`help <command>`](#help) | Usage, arguments, options and examples for one command | Prototype |
+| [`dev`](#dev) | Run the API and the UI with hot reload (`npm run dev`) | Prototype |
+| [`serve`](#serve) | Run the app on a local HTTP server, without the UI dev server | Prototype |
+| [`build`](#build) | Build for production (`npm run build`) | Prototype (stub) |
+| [`test`](#test) | Run your tests (`npm test`) | Prototype (stub) |
+| [`setup`](#setup) | Finish or repeat setup (`npm run setup`) | Prototype |
+
+**Make**
+
+| Command | What it does | Status |
+|---|---|---|
+| [`make:migration <name>`](#makemigration) | A migration, plus the model for `create_*_table` | Prototype |
+| [`make:controller <name>`](#makecontroller) | A controller and its deny-by-default policy | Prototype |
+| [`make:model`, `make:policy`, `make:request`, `make:seeder`, `make:factory`](#the-other-make-commands) | One file of that kind | Designed |
+
+**Database**
+
+| Command | What it does | Status |
+|---|---|---|
+| [`migrate`](#migrate) | Run new migrations, regenerate types, API and UI, seed in development | Prototype (stub) |
+| [`migrate:status`, `migrate:rollback`, `migrate:fresh --seed`](#migratestatus-migraterollback-and-migratefresh) | Inspect, undo, rebuild | Designed |
+| [`db:seed`](#dbseed) | Run the seeders again | Prototype (stub) |
+| [`db:shell`](#dbshell) | Open a database shell | Designed |
+
+**Inspect**
+
+| Command | What it does | Status |
+|---|---|---|
+| [`route:list`](#routelist) | Every route; `--security` shows protections and opt-outs | Prototype |
+| [`about`](#about) | The app's name, environment, database, routes and navigation | Prototype |
+| [`model:show <model>`](#modelshow) | A model's columns and how the API treats each one | Prototype |
+| [`doctor`](#doctor) | Check your setup and report problems | Designed |
+| [`repl`](#repl) | An interactive console inside your app (Laravel's `tinker`) | Designed |
+
+**Packages**
+
+| Command | What it does | Status |
+|---|---|---|
+| [`install:<name>`](#installname) | Install a package and run its installer | Designed |
+| [`add`](#add) | Pick packages from the catalogue, with search | Designed |
+
+**Docker services and pass-throughs**
+
+| Command | What it does | Status |
+|---|---|---|
+| [`services:up`](#servicesup) | Start the containers | Prototype |
+| [`services:down [--volumes]`](#servicesdown) | Stop the containers (`--volumes` also deletes their data) | Prototype |
+| [`services:status`](#servicesstatus) | List the containers and their state | Prototype |
+| [`services:logs`](#serviceslogs) | Follow the containers' output | Designed |
+| [`shell`](#shell) | A shell inside the app container | Prototype |
+| [`npm <args>`, `npx <args>`, `node <args>`](#npm-npx-and-node) | Run npm, npx or node where the app runs | Prototype |
+
+**Maintenance mode**
+
+| Command | What it does | Status |
+|---|---|---|
+| [`down`](#down-and-up) | Put the app in maintenance mode (`--secret`, `--retry`, `--refresh`, `--render`) | Designed |
+| [`up`](#down-and-up) | Bring it back | Designed |
+
+**Caches and optimisation**
+
+| Command | What it does | Status |
+|---|---|---|
+| [`optimize`, `optimize:clear`](#caches-and-optimisation) | Build or clear every production cache in one go | Designed |
+| `config:cache`, `config:clear` | The merged config snapshot | Designed |
+| `route:cache`, `route:clear` | The compiled route table | Designed |
+| `event:cache`, `event:clear`, `event:list` | Discovered event listeners | Designed |
+| `cache:clear [--store=redis]`, `cache:forget <key>` | The application cache | After 0.2 |
+| `ui:clear` | Vite's dev cache and the built UI assets | Designed |
+| [`sync`](#sync) | Regenerate everything in `.strutvane/` from your migrations | Designed |
+| `log:clear` | Local log files | Designed |
+| `storage:link`, `storage:prune-temp` | The public disk link, stale uploads | Designed (no phase yet) |
+
+**Queues and the scheduler**
+
+| Command | What it does | Status |
+|---|---|---|
+| [`queue:restart`, `queue:clear`, `queue:retry <id\|all>`, `queue:flush`](#queues-and-the-scheduler) | Workers and jobs | After 0.2 |
+| `schedule:list`, `schedule:run`, `schedule:work` | The scheduler | After 0.2 |
+
+**Security**
+
+| Command | What it does | Status |
+|---|---|---|
+| [`key:generate`](#keygenerate-and-keyrotate) | Create `APP_KEY` | Designed |
+| [`key:rotate`](#keygenerate-and-keyrotate) | A new key; the old one moves to `APP_PREVIOUS_KEYS` | Designed |
+| [`env:encrypt`, `env:decrypt`](#envencrypt-and-envdecrypt) | Encrypt `.env.production` so it can be committed | Designed |
+| [`session:flush`, `token:revoke --all`](#sessionflush-and-tokenrevoke-all) | Sign everyone out after an incident | Designed |
+| [`security:check`](#securitycheck) | Flag insecure settings | Designed |
+
+**Logging**
+
+| Command | What it does | Status |
+|---|---|---|
+| [`log:tail`](#logtail) | Follow the logs live, filtered by level and channel | Designed |
+| [`log:list`](#loglist-and-logclear) | List log files | Designed |
+| [`log:clear [--days=N]`](#loglist-and-logclear) | Delete local log files | Designed |
+
+**Designs**
+
+| Command | What it does | Status |
+|---|---|---|
+| [`design:use <name>`](#designuse) | Switch the UI's design package | Designed |
+| [`design:eject`](#designeject) | Copy the design's source into your app | Designed |
+
+**Users and auth**
+
+| Command | What it does | Status |
+|---|---|---|
+| [`user:password <email>`](#userpassword) | Set a new one-time password and show it once | Prototype (stub) |
+| [`user:create --password-env`](#usercreate) | Create a user (for example a production admin) | Designed |
+| [`tokens:prune`](#tokensprune-and-authclear-resets) | Delete expired personal access tokens | Designed |
+| [`auth:clear-resets`](#tokensprune-and-authclear-resets) | Delete expired reset tokens, email links and invitations | Designed |
+
+**Deploy, UI and charts**
+
+| Command | What it does | Status |
+|---|---|---|
+| [`docker:prod`](#dockerprod) | Write a production `Dockerfile` and `.dockerignore` | Designed |
+| [`ui:sync`](#uisync) | Regenerate the admin UI's metadata after a migration | Designed |
+| [`charts:sync`](#chartssync) | Regenerate chart suggestions after a migration | After 0.2 |
+
+## General
+
+### list
+
+```bash
+node strut list
+```
+
+Lists every command, grouped by the part before the colon (`make`, `model`, `route`). Running `node strut` with no command shows the same list. Packages and your app can add commands; they show up here too.
+
+### help
+
+```bash
+node strut help make:controller
+node strut make:controller --help     # the same
+```
+
+**What you'll see:**
+
+```text
+Create a new controller class
+
+Usage: node strut make:controller <name> [options]
+
+Arguments:
+  name                The class name, ending in Controller (PostController) (required)
+
+Options:
+  -r, --resource      Write all 7 resource actions (index, create, store, show, edit, update, destroy)
+  --api               Write the 5 API actions (no create/edit form pages)
+  -m, --model=<value> Inherit the API actions from ResourceController for this model
+  --force             Overwrite the file if it exists
+
+Examples:
+  node strut make:controller ReportController
+  node strut make:controller PostController --resource
+  node strut make:controller PostController --api
+  node strut make:controller PostController --model=Post
+```
+
+`<name>` is required; `[name]` would be optional. Options with `=<value>` take a value: `--model=Post` or `--model Post`.
+
+### dev
+
+```bash
+npm run dev          # the same as: node strut dev
+```
+
+Starts your app for development: the API and the React UI on **one port**, with hot reload. Packages can register extra processes (a queue worker, the scheduler) that `dev` starts too, like Laravel's `composer run dev`.
+
+**What you'll see** (the installer prototype's stub app):
+
+```text
+  My Blog  development
+  App + API   http://localhost:3000
+  Press Ctrl+C to stop
+```
+
+The dev server listens on `127.0.0.1` only, and answers only your own host names (`localhost`, `127.0.0.1`, `[::1]` and `APP_URL`'s host), so a web page you visit can't reach it through a DNS trick. Inside the Docker container it listens on `0.0.0.0`, and Docker publishes the port on your computer's `127.0.0.1` only.
+
+:::caution[Coming in 0.2]
+The prototype's `dev` serves a stub app. The UI dev server (Vite) and package processes inside `dev` are designed, not built yet.
+:::
+
+### serve
+
+Runs your app on a local HTTP server, without the UI dev server.
+
+| Option | Default | What it does |
+|---|---|---|
+| `--host=<value>` | `127.0.0.1` | The address to listen on (`0.0.0.0` to reach it from other devices) |
+| `--port=<value>` | `3000` | The port |
+
+```bash
+node strut serve --port=8000
+```
+
+**What you'll see:**
+
+```text
+  Server running on http://127.0.0.1:8000  (Ctrl+C to stop)
+```
+
+<kbd>Ctrl</kbd>+<kbd>C</kbd> closes the server and the database connection cleanly. For day-to-day work use `npm run dev`.
+
+### build
+
+```bash
+npm run build        # the same as: node strut build
+npm start            # runs build/server.js
+```
+
+Builds your app for production into `build/server.js`, which `npm start` runs.
+
+**What you'll see:**
+
+```text
+Built build/server.js (start it with: npm start)
+```
+
+:::caution[Coming in 0.2]
+In the installer prototype, `build` writes a placeholder server. Bundling and `vite build` for the UI are designed, not built yet.
+:::
+
+### test
+
+```bash
+npm test             # the same as: node strut test
+```
+
+Runs your tests. The test database is separate from your development database (`DB_TEST_DATABASE` in `.env`), so tests never touch your local data.
+
+:::caution[Coming in 0.2]
+The prototype runs Node's built-in test runner on `tests/**/*.test.ts`. New apps will use Vitest (installer question "Which tests do you want?"); that wiring is designed, not built yet.
+:::
+
+### setup
+
+```bash
+npm run setup        # the same as: node strut setup
+```
+
+Finishes setup when the installer stopped part-way (for example Docker wasn't running), or repeats the steps that aren't done. It reads `.strutvane/setup.json`, skips every step that's already done, and continues from the first unfinished one. In Docker mode it always runs on your computer, because it may have to start the containers. See [Installation](../installation/).
+
+If there is no setup to resume, it stops with:
+
+```text
+No .strutvane/setup.json found, so there is no setup to resume. (Spike: a fresh clone would run npx create-strutvane --resume here.)
+```
+
+:::caution[Coming in 0.2]
+Resuming is proven in the installer prototype (spike 13), including a real failure and a real resume. Setting up a **fresh clone** for a teammate (`.strutvane/setup.json` isn't committed) is designed, not built yet.
+:::
+
+## Make
+
+`make:*` commands write new files into your project. They never overwrite a file unless you pass `--force`. They work even before `.env` exists, so you can scaffold first and configure later. Run with no arguments, a `make:*` command will ask its questions interactively (designed, not built yet).
+
+### make:migration
+
+Creates a migration in `database/migrations/`, named with the current time (UTC) so migrations always run in order. A `create_<table>_table` name also creates the model.
+
+| Argument / option | What it does |
+|---|---|
+| `<name>` | snake_case: `create_posts_table`, `add_subtitle_to_posts_table`, or anything else for a blank migration |
+| `-s`, `--seeder` | Also create a seeder |
+| `-f`, `--factory` | Also create a factory |
+
+```bash
+node strut make:migration create_posts_table --seeder --factory
+```
+
+**What you'll see:**
+
+```text
+  Created database/migrations/2026_11_14_093000_create_posts_table.ts
+  Created app/models/post.ts
+  Created database/seeders/post.seeder.ts
+  Created database/factories/post.factory.ts
+
+  Next: add your columns to the migration, then run `node strut migrate`.
+  Then call PostSeeder from database/seeders/database.seeder.ts.
+```
+
+| Name | You get |
+|---|---|
+| `create_posts_table` | `schema.create('posts', …)` with `t.id()` and `t.timestamps()`, plus `app/models/post.ts` (kept if it already exists) |
+| `add_subtitle_to_posts_table`, `remove_excerpt_from_posts_table` | `schema.table('posts', …)` in `up` and `down` |
+| anything else (`backfill_slugs`) | Empty `up` and `down` |
+
+:::caution[Coming in 0.2]
+The blueprint says `--seeder` alone adds a seeder **and** a factory, and registers the seeder in `database/seeders/database.seeder.ts` for you. The prototype has separate `--seeder` and `--factory` flags and asks you to register the seeder yourself. The final behaviour isn't settled.
+:::
+
+See [Migrations](../migrations/) and [Seeding](../seeding/).
+
+### make:controller
+
+Creates a controller in `app/http/controllers/`, named `<name>.controller.ts`.
+
+| Argument / option | What you get |
+|---|---|
+| `<name>` | PascalCase ending in `Controller`: `PostController` |
+| *(no option)* | An empty controller with one `index` action |
+| `-m`, `--model=<value>` | A `ResourceController` for that model (all 5 API actions inherited) and a policy |
+| `--api` | The 5 API actions written out, each calling `authorize()`, and a policy |
+| `-r`, `--resource` | The 7 actions, including the `create` and `edit` form-page actions, and a policy |
+| `--force` | Overwrite the controller if it already exists |
+
+```bash
+node strut make:controller PostController --model=Post
+```
+
+**What you'll see:**
+
+```text
+  Created app/http/controllers/post.controller.ts
+  Created app/policies/post.policy.ts (denies everyone but admins until you edit it)
+
+  Next: route it in routes/api.ts:
+    Route.apiResource('posts', PostController)
+  and bind the model in bootstrap/app.ts: withRouting({ bindings: { post: Post } })
+```
+
+The generated policy **denies everyone except admins**, so a new endpoint is never open by accident. See [Controllers](../controllers/).
+
+### The other make commands
+
+:::caution[Coming in 0.2]
+Designed in the blueprint, not built yet. Names and flags follow artisan.
+:::
+
+| Command | What it will create |
+|---|---|
+| `make:model Post` | `app/models/post.ts`. Flags: `-m` a migration, `-f` a factory, `-s` a seeder, `-c` a controller, `-a` all of them |
+| `make:policy PostPolicy` | `app/policies/post.policy.ts`, denying everyone but admins |
+| `make:request StorePostRequest` | A form request (validation) in `app/http/requests/` |
+| `make:seeder PostSeeder` | `database/seeders/post.seeder.ts` |
+| `make:factory PostFactory` | `database/factories/post.factory.ts` |
+
+```bash
+node strut make:model Post -a
+```
+
+**What you'll see** (something like this; the exact wording isn't final): one "Created …" line per file, then a "Next:" hint, as with `make:migration`.
+
+## Database
+
+### migrate
+
+```bash
+node strut migrate
+```
+
+Runs every migration that hasn't run yet, then regenerates your types and metadata, the CRUD API and the UI pages, and seeds in development. In Docker mode it runs inside the app container.
+
+**What you'll see** (the installer prototype's stub, with `--seed`):
+
+```text
+  ran  0001_01_01_000000_create_users_table
+  ran  0001_01_01_000001_create_sessions_table
+  ran  0001_01_01_000002_create_cache_table
+Migrations run (3 new, 3 total)
+Admin created: admin@my-blog.test
+  One-time password (shown once, change it at first sign-in): q7Vd-3kPz-Xm2c-8RtL
+Database seeded
+```
+
+| Option | What it does | Status |
+|---|---|---|
+| `--seed` | Run the seeders again on purpose | Prototype (stub) |
+| `--pretend` | Print the SQL without running it | Designed |
+| `--step` | Apply one migration at a time | Designed |
+| `--force` | Needed with `--seed` in production | Designed |
+| `--isolated` | Take a lock so only one server migrates during a deploy | Designed |
+
+If the database can't be reached, `migrate` exits with code **3** (not 1), so the installer can offer Retry or Skip:
+
+```text
+Cannot reach MySQL at db:3306 (ECONNREFUSED). Start the database (Docker: node strut services:up), check DB_* in .env, then run: npm run setup
+```
+
+:::caution[Coming in 0.2]
+Migrating with batches and rollback is proven in the schema prototype (spike 10, on SQLite and PostgreSQL), and `migrate --seed` runs in the installer prototype's stub (spike 13, also on real MySQL 8.4). The full `migrate` (types, API, UI, seeders tracked once, the safety lint) is designed, not built as one command yet. See [Migrations](../migrations/).
+:::
+
+### migrate:status, migrate:rollback and migrate:fresh
+
+:::caution[Coming in 0.2]
+Designed, not built as commands yet (batches and rollback are proven in spike 10).
+:::
+
+```bash
+node strut migrate:status          # which migrations have run, and in which batch
+node strut migrate:rollback        # undo the last batch
+node strut migrate:fresh --seed    # drop everything, migrate again and seed (development only)
+```
+
+**What you'll see:** `migrate:status` prints one row per migration with "Ran" or "Pending" and its batch number. `migrate:rollback` prints one line per migration it undid. The exact wording isn't final.
+
+### db:seed
+
+```bash
+node strut db:seed
+```
+
+Runs the seeders again. It refuses to seed with `APP_ENV=production` or `staging`, because seeded accounts are for development only:
+
+```text
+Refusing to seed with APP_ENV=production: seeded accounts are for development only. Create a production admin with: node strut user:create --password-env
+```
+
+When the first admin already exists, the seeder leaves it alone:
+
+```text
+Admin exists: admin@my-blog.test (password unchanged)
+Database seeded
+```
+
+See [Seeding](../seeding/).
+
+### db:shell
+
+:::caution[Coming in 0.2]
+Designed, not built yet.
+:::
+
+```bash
+node strut db:shell
+```
+
+Opens your database's own shell (`mysql`, `psql` or `sqlite3`), connected with the settings in `.env`. In Docker mode it opens inside the containers.
+
+## Inspect
+
+The inspect commands boot your whole app, so they're also the quickest check that it starts: a bad `.env` value, an unknown middleware alias or a missing binding fails here. Most accept `--json` for scripts and AI agents.
+
+### route:list
+
+Shows every route in the order they're matched.
+
+| Option | What it does |
+|---|---|
+| `--path=<value>` | Only routes whose URI contains this text |
+| `--name=<value>` | Only routes whose name contains this text |
+| `--security` | Show the protections, opt-outs and warnings of each route |
+| `--json` | Print JSON, for scripts and agents |
+
+```bash
+node strut route:list --path=posts
+```
+
+**What you'll see** (the prototype's example app):
+
+```text
+  Method     URI                             Name           Action                  Middleware
+  ---------  ------------------------------  -------------  ----------------------  ------------------
+  GET        /api/posts                      posts.index    PostController@index    api, auth:optional
+  POST       /api/posts                      posts.store    PostController@store    api, auth
+  GET        /api/posts/{post:slug}          posts.show     PostController@show     api, auth:optional
+  PUT|PATCH  /api/posts/{post:slug}          posts.update   PostController@update   api, auth
+  DELETE     /api/posts/{post:slug}          posts.destroy  PostController@destroy  api, auth
+  POST       /api/posts/{post:slug}/publish  posts.publish  PostController@publish  api, auth
+  GET        /posts/{post:slug}              posts.page     SpaController@show      web
+
+  Showing 7 of 15 routes.
+```
+
+#### Seeing the security of every route
+
+`--security` replaces the middleware column with the **protections** that really apply to each route, after groups, the route itself, the controller and handler wrappers have all been taken into account. Every **opt-out** (a protection someone switched off) is listed with where it was switched off, and an unsafe route with no CSRF check at all is a warning.
+
+```bash
+node strut route:list --security --path=posts
+```
+
+**What you'll see:**
+
+```text
+  Method     URI                             Name           Protections                        Opt-outs  Warnings
+  ---------  ------------------------------  -------------  ---------------------------------  --------  --------
+  GET        /posts/{post:slug}              posts.page     csrf
+  GET        /api/posts                      posts.index    csrf, auth:optional, throttle:api
+  POST       /api/posts                      posts.store    csrf, auth, throttle:api
+  GET        /api/posts/{post:slug}          posts.show     csrf, auth:optional, throttle:api
+  PUT|PATCH  /api/posts/{post:slug}          posts.update   csrf, auth, throttle:api
+  DELETE     /api/posts/{post:slug}          posts.destroy  csrf, auth, throttle:api
+  POST       /api/posts/{post:slug}/publish  posts.publish  csrf, auth, throttle:api
+
+  7 routes, 0 opt-outs, 0 warnings.
+```
+
+An opt-out reads like `! csrf (route)`, `! csrf (controller)` or `! csrf (app: webhooks/*)`; a warning reads like `! unsafe method with no CSRF check`. See [CSRF Protection](../csrf/) and [Security Features](../security/).
+
+With `--json`:
+
+```bash
+node strut route:list --name=admin. --json
+```
+
+```json
+[
+  {
+    "method": "GET",
+    "uri": "/api/admin/stats",
+    "name": "admin.stats",
+    "action": "StatsController@show",
+    "middleware": "api, auth, admin"
+  }
+]
+```
+
+### about
+
+A summary of the app. Secrets (like `APP_KEY`) are never printed.
+
+```bash
+node strut about
+```
+
+**What you'll see:**
+
+```text
+
+  Application
+    name          My Blog
+    environment   local
+    debug         true
+    url           http://localhost:3000
+
+  Runtime
+    node          v24.21.0
+    platform      win32
+
+  Database
+    connection    sqlite
+    driverLoaded  true
+    tables        authors, posts
+
+  Http
+    routes        15
+    namedRoutes   14
+
+  Console
+    commands      6
+
+  Navigation
+    Posts, Authors
+```
+
+`debug` is `true` only when the debug page would really be shown (`APP_DEBUG=true` **and** a local or testing environment). `--json` prints the same as JSON.
+
+:::caution[Coming in 0.2]
+The installed version and its support status (from the [support table](../releases/)) will be added to `about`.
+:::
+
+### model:show
+
+Shows one model's columns and how the generated API treats each: is it writable, hidden, searchable, sortable, filterable?
+
+| Argument / option | What it does |
+|---|---|
+| `<model>` | The model class (`Post`) or table (`posts`) |
+| `--json` | Print the full metadata as JSON |
+
+```bash
+node strut model:show Post
+```
+
+**What you'll see** (something like this):
+
+```text
+
+  Post  (table posts)
+  Route key: slug · Soft deletes: yes · Default sort: -created_at
+
+  Column      Cast      Fillable  Hidden  Search  Sort  Filters
+  ----------  --------  --------  ------  ------  ----  ---------------------
+  id          integer                             yes   eq,ne,in,gt,gte,lt,lte
+  title       string    yes               text    yes   eq,ne,in,contains
+  slug        string    yes               exact   yes   eq,in
+  body        string?   yes               text          null
+  status      string    yes                       yes   eq,ne,in
+  author_id   integer                             yes   eq,ne,in
+  created_at  datetime                            yes   gt,gte,lt,lte
+```
+
+It reads `.strutvane/resources.json`, which `node strut migrate` generates from your migrations.
+
+### doctor
+
+:::caution[Coming in 0.2]
+Designed, not built yet.
+:::
+
+```bash
+node strut doctor
+node strut doctor --json
+```
+
+Checks your setup and reports problems with a fix for each: the Node.js version, `.env` against `.env.example`, whether the committed `.strutvane/` files match your migrations, `npm audit` findings, deprecated settings, and whether your Strutvane line is security-only or end of life.
+
+### repl
+
+:::caution[Coming in 0.2]
+Designed, not built yet.
+:::
+
+```bash
+node strut repl
+```
+
+An interactive console inside your app, like Laravel's `tinker`: type `await Post.query().count()` and see the answer. It runs with your app booted, so models, `config()` and `route()` all work.
+
+## Packages
+
+:::caution[Coming in 0.2]
+Designed, not built yet. The package catalogue it reads is proven in the installer prototype (spike 13) with a sample catalogue. See [Package Catalogue](../packages/catalogue/).
+:::
+
+### install:name
+
+```bash
+node strut install:log-viewer
+```
+
+Installs a package with npm and runs its installer: it writes the package's config file, adds its `.env` keys (to `.env.example` without secrets), copies its migrations into `database/migrations/`, registers its provider in `bootstrap/providers.ts`, and adds its routes, screens and sidebar entries. Packages can ask a few follow-up questions of their own. Installing packages in a different order never changes the result.
+
+**What you'll see:** one line per step, then what to do next. The exact wording isn't final.
+
+### add
+
+```bash
+node strut add
+```
+
+An interactive picker over the whole official catalogue: popular packages first, grouped, and type-to-search for the rest. It installs what you pick through the same installer as `install:<name>`. It only offers packages that are published and work with your framework version.
+
+## Docker services and pass-throughs
+
+These commands exist in Docker mode. Without Docker, `services:*` stops with a message, and the pass-throughs run on your computer. See [Docker](../docker/).
+
+### services:up
+
+```bash
+node strut services:up
+```
+
+Starts the containers (app, database, Mailpit) and waits until they're healthy, up to three minutes. It runs `docker compose up -d --wait` for this project only.
+
+### services:down
+
+```bash
+node strut services:down              # stop the containers; your data is kept
+node strut services:down --volumes    # also delete the database's data
+```
+
+:::danger[--volumes deletes your local database]
+`--volumes` removes the database volume, so every row in your local database is gone. In the prototype it doesn't ask first; a confirmation is planned.
+:::
+
+### services:status
+
+```bash
+node strut services:status
+```
+
+Lists the containers and whether they're running (`docker compose ps`).
+
+### services:logs
+
+:::caution[Coming in 0.2]
+Named in the blueprint, not built yet.
+:::
+
+```bash
+node strut services:logs
+```
+
+Follows the containers' own output. For your app's log files, use [`log:tail`](#logtail).
+
+### shell
+
+```bash
+node strut shell
+```
+
+Opens a shell inside the app container (bash, or sh when the image has no bash), like `sail shell`. Without Docker, it opens your own shell (`cmd.exe` on Windows, `$SHELL` elsewhere). Type `exit` to leave.
+
+### npm, npx and node
+
+```bash
+node strut npm install dayjs          # npm inside the container
+node strut npx vitest run             # npx inside the container
+node strut node --version             # the container's Node.js
+```
+
+These run `npm`, `npx` and `node` **where your app runs**. In Docker mode that's the app container, so packages are installed for Linux, into the container's `node_modules`. Without Docker, they run on your computer.
+
+Arguments arrive exactly as you typed them: no shell sits in between, so characters like `&`, `$(…)` or `%PATH%` are passed as plain text. The exit code of the program is passed through, so scripts can rely on it.
+
+**What you'll see** for `node strut node --version` in Docker mode:
+
+```text
+v24.21.0
+```
+
+## Maintenance mode
+
+### down and up
+
+:::caution[Coming in 0.2]
+Designed (exactly as in Laravel), not built yet.
+:::
+
+```bash
+node strut down --secret=let-me-in --retry=60
+node strut up
+```
+
+`down` puts the app in **maintenance mode**: every request gets a "be right back" page with status 503 until you run `up`.
+
+| Option | What it does |
+|---|---|
+| `--secret=<value>` | Visiting `/<value>` sets a cookie that lets you (and only you) use the app while it's down |
+| `--retry=<seconds>` | Sends a `Retry-After` header, so clients know when to try again |
+| `--refresh=<seconds>` | Tells the browser to reload the page after that many seconds |
+| `--render=<view>` | Show your own page instead of the default one |
+
+## Caches and optimisation
+
+:::caution[Coming in 0.2]
+Designed (artisan's `optimize` family), not built yet. `cache:*` depends on the cache, which the roadmap places in phase 2.
+:::
+
+| Command | Clears or builds |
+|---|---|
+| `optimize` / `optimize:clear` | Every production cache below, in one go |
+| `config:cache` / `config:clear` | The merged config snapshot |
+| `route:cache` / `route:clear` | The compiled route table |
+| `event:cache` / `event:clear` / `event:list` | Discovered listeners |
+| `cache:clear [--store=redis]` / `cache:forget <key>` | The application cache |
+| `ui:clear` | Vite's dev cache and the built UI assets |
+| `sync` | Everything in `.strutvane/` (types, resources, UI, charts), regenerated from the migrations |
+| `log:clear` | Local log files |
+| `storage:link` / `storage:prune-temp` | The public disk link and stale uploads |
+
+```bash
+node strut optimize          # on the server, after deploying
+node strut optimize:clear    # back to "read everything fresh"
+```
+
+**What you'll see:** one line per cache it built or cleared. The exact wording isn't final.
+
+### sync
+
+```bash
+node strut sync
+```
+
+Regenerates every machine-owned file in `.strutvane/` (types, `resources.json`, the UI registry, charts) from your migrations, without touching the database. `migrate` does this for you; `sync` is for when the generated files are missing or stale, for example after resolving a merge conflict in them. Files you own are never overwritten.
+
+## Queues and the scheduler
+
+:::caution[Planned after 0.2]
+Queues and the scheduler are in phase 2 of the roadmap (0.3).
+:::
+
+| Command | What it does |
+|---|---|
+| `queue:restart` | Tell workers to finish their current job and restart (after a deploy) |
+| `queue:clear` | Delete the jobs waiting in a queue |
+| `queue:retry <id\|all>` | Retry one failed job, or all of them |
+| `queue:flush` | Delete every failed job |
+| `schedule:list` | Show the scheduled tasks and when they run next |
+| `schedule:run` | Run the tasks that are due now (called every minute by cron) |
+| `schedule:work` | Run the scheduler in the foreground, for development |
+
+## Security
+
+:::caution[Coming in 0.2]
+Designed in the blueprint's security features, not built yet. See [Security Features](../security/).
+:::
+
+### key:generate and key:rotate
+
+```bash
+node strut key:generate
+node strut key:rotate
+```
+
+`key:generate` creates `APP_KEY`, the key your app signs and encrypts with (the installer already did this for you). `key:rotate` creates a new key and moves the old one to `APP_PREVIOUS_KEYS`, so existing cookies and encrypted values keep working while they're re-encrypted with the new key.
+
+### env:encrypt and env:decrypt
+
+```bash
+node strut env:encrypt
+node strut env:decrypt
+```
+
+Encrypts `.env.production` into a file you can commit, and decrypts it on the server with a key you keep outside git.
+
+### session:flush and token:revoke --all
+
+```bash
+node strut session:flush
+node strut token:revoke --all
+```
+
+After an incident: `session:flush` signs every user out of the browser, and `token:revoke --all` revokes every personal access token, so scripts and apps have to get new ones.
+
+### security:check
+
+```bash
+node strut security:check
+```
+
+Flags insecure settings before they reach production:
+
+- debug on in production;
+- a missing `APP_KEY`;
+- an `APP_URL` that isn't HTTPS;
+- insecure cookies;
+- CORS `*` together with credentials;
+- a weak Content Security Policy;
+- high-severity `npm audit` findings;
+- developer tools under `/_strutvane/*` reachable without sign-in.
+
+**What you'll see:** one line per check, passed or failed, with the fix for each failure. The exact wording isn't final.
+
+## Logging
+
+:::caution[Coming in 0.2]
+Designed (ADR-0022), not built yet. See [Logging](../logging/).
+:::
+
+### log:tail
+
+```bash
+node strut log:tail
+```
+
+Follows your app's logs live, like Laravel Pail. You can filter by level and by channel (the flag names aren't final). It merges the files of every process (the web server, queue workers, the scheduler) by time, and works in Docker mode through forwarding.
+
+### log:list and log:clear
+
+```bash
+node strut log:list
+node strut log:clear --days=7
+```
+
+`log:list` lists the log files in `storage/logs`. `log:clear` deletes them; with `--days=N` it keeps the last N days.
+
+## Designs
+
+:::caution[Coming in 0.2]
+Designed, not built yet. The installer prototype already writes `config/ui.ts` and `resources/ui/theme.css`, and tells you about `design:use`. See [Designs](../designs/).
+:::
+
+### design:use
+
+```bash
+node strut design:use vivid
+```
+
+Switches your UI to another design package: it installs the package and updates `config/ui.ts`. Your screens don't change, because they only use `@strutvane/ui` components, and your own `resources/ui/theme.css` is kept.
+
+### design:eject
+
+```bash
+node strut design:eject
+```
+
+Copies the current design's source into `resources/ui/design/`, so you can change anything. From then on the design is your code, and upgrades no longer touch it.
+
+## Users and auth
+
+### user:password
+
+```bash
+node strut user:password admin@my-blog.test
+```
+
+Sets a new **one-time password** for a user and shows it once. The user has to change it at their next sign-in. The installer tells you about this command when it didn't show the first admin's password (for example in CI).
+
+**What you'll see:**
+
+```text
+New one-time password for admin@my-blog.test (shown once, change it at first sign-in): q7Vd-3kPz-Xm2c-8RtL
+```
+
+:::caution[Coming in 0.2]
+Proven in the installer prototype's stub (spike 13). The real command comes with `@strutvane/auth`.
+:::
+
+### user:create
+
+:::caution[Coming in 0.2]
+Designed, not built yet.
+:::
+
+```bash
+node strut user:create --password-env
+```
+
+Creates a user, for example the first admin on a production server, where seeding is refused. `--password-env` reads the password from an environment variable instead of the command line, so it never lands in your shell history.
+
+### tokens:prune and auth:clear-resets
+
+:::caution[Coming in 0.2]
+Designed, not built yet.
+:::
+
+```bash
+node strut tokens:prune
+node strut auth:clear-resets
+```
+
+Housekeeping, usually from the scheduler: `tokens:prune` deletes expired personal access tokens; `auth:clear-resets` deletes expired password-reset tokens, email links and team invitations. See [Authentication](../authentication/).
+
+## Deploy, UI and charts
+
+### docker:prod
+
+:::caution[Coming in 0.2]
+Designed, not built as a command yet. The installer prototype writes the same files when you answer "Docker image" to "Where will you deploy?".
+:::
+
+```bash
+node strut docker:prod
+```
+
+Writes a production `Dockerfile` and `.dockerignore` that you commit: a multi-stage build with `npm ci`, a non-root user, a health check on `/up` and no secrets inside. See [Docker](../docker/).
+
+### ui:sync
+
+:::caution[Coming in 0.2]
+Proven in the auto CRUD UI prototype (spike 14) as a script; not built as a `node strut` command yet. `migrate` will run it for you.
+:::
+
+```bash
+node strut ui:sync
+```
+
+Regenerates `.strutvane/ui.gen.ts` and, **for new tables only**, writes `resources/ui/<table>.ui.ts` files you own. It never overwrites an owned file; it reports new columns that an explicit list doesn't show.
+
+### charts:sync
+
+:::caution[Planned after 0.2]
+Charts are in phase 3 of the roadmap. Proven in the charts prototype (spike 16). See [Charts](../charts/).
+:::
+
+```bash
+node strut charts:sync
+```
+
+Turns `resources.json` into chart suggestions and writes `resources/charts/<table>.charts.ts` files once, for new tables only.
+
+## Typos get a suggestion
+
+Every mistake on the command line prints what went wrong and a fix, and exits with code `1`:
+
+```bash
+node strut rout:list
+```
+
+```text
+  ✖ There is no "rout:list" command.
+  → Did you mean `node strut route:list`?
+```
+
+```bash
+node strut make:controller PostController --resorce
+```
+
+```text
+  ✖ make:controller has no --resorce option.
+  → Did you mean --resource?
+```
+
+```bash
+node strut make:migration
+```
+
+```text
+  ✖ make:migration needs <name>.
+  → Example: node strut make:migration <name>  (more: node strut help make:migration)
+```
+
+## Exit codes
+
+| Code | Meaning |
+|---|---|
+| `0` | The command succeeded |
+| `1` | Something needs fixing: an unknown command or option, a missing argument, a bad `.env` value, a file that already exists. The message says what to do |
+| `3` | `migrate` or `db:seed` couldn't reach the database. Start it, check `DB_*` in `.env`, and try again |
+| any | `shell`, `npm`, `npx` and `node` pass through the exit code of the program they ran |
+
+Scripts and CI can rely on them: `node strut route:list || exit 1`.
+
+## Setting a variable for one command
+
+Sometimes you want to run one command with a different setting, without editing `.env`. Real environment variables always win over `.env`:
+
+<Tabs syncKey="os">
+  <TabItem label="macOS / Linux">
+
+```bash
+APP_ENV=testing node strut route:list
+```
+
+  </TabItem>
+  <TabItem label="Windows (PowerShell)">
+
+```powershell
+$env:APP_ENV='testing'; node strut route:list
+```
+
+The variable stays set for the rest of that PowerShell window. Remove it with `Remove-Item Env:APP_ENV`.
+
+  </TabItem>
+  <TabItem label="Windows (cmd)">
+
+```bat
+set APP_ENV=testing && node strut route:list
+```
+
+  </TabItem>
+</Tabs>
+
+In Docker mode the variable is set on your computer, not in the container, so it doesn't reach a forwarded command. Set it inside the container instead: `node strut shell`, then run the command there.
+
+## Common mistakes
+
+### "There is no … command"
+
+```text
+  ✖ There is no "migrate" command.
+  → Run `node strut list` to see every command.
+```
+
+**Why:** the command is misspelled, or it doesn't exist yet in the build you're running (check its status on this page).
+
+**Fix:** check the spelling with `node strut list`.
+
+### Every command fails with "The app can't start"
+
+```text
+  ✖ The app can't start: 1 environment variable needs attention.
+  - APP_KEY is required (a text value); add it to .env (read in config/app.ts)
+  → Fix the values in .env (see .env.example for every key) and start again.
+```
+
+**Why:** most commands boot the app, and booting checks every setting.
+
+**Fix:** fix `.env` as the message says. `make:*` commands work even before `.env` exists, so you can scaffold first.
+
+### "… already exists, so nothing was written"
+
+```text
+  ✖ app/http/controllers/post.controller.ts already exists, so nothing was written.
+  → Pick another name, or add --force to overwrite it (your changes in that file would be lost).
+```
+
+**Why:** `make:*` never overwrites your files by accident.
+
+**Fix:** pick another name, or add `--force` if you really want to replace the file.
+
+### `npm run strut route:list -- --json` behaves oddly
+
+**Why:** through `npm run`, npm takes options for itself unless they come after `--`, and it prints its own lines around the output.
+
+**Fix:** call it directly, which needs no `--`:
+
+```bash
+node strut route:list --json
+```
+
+### "The app container is not running"
+
+```text
+The app container is not running. Start it with: node strut services:up
+```
+
+**Why:** your project is in Docker mode, so the command is forwarded into the `app` container, and that container is stopped (for example after a restart of your computer).
+
+**Fix:**
+
+```bash
+node strut services:up
+```
+
+### "There are no services to start or stop"
+
+```text
+This project runs without Docker, so there are no services to start or stop.
+```
+
+**Why:** you chose **without Docker** in the installer, so there are no containers. The database is your own server or an SQLite file.
+
+**Fix:** start your own database server if you use one, then carry on with `npm run dev`. See [Docker](../docker/) for running with containers.
+
+### "Dependencies are not installed yet"
+
+```text
+Dependencies are not installed yet. Run: npm run setup
+```
+
+**Why:** you ran a command in a project whose packages aren't installed, for example right after `git clone`.
+
+**Fix:**
+
+```bash
+npm run setup
+```
+
+## Next steps
+
+- [Installation](../installation/): the installer, and what `setup` resumes.
+- [Docker](../docker/): Docker mode, services and pass-throughs in depth.
+- [Migrations](../migrations/): what `make:migration` writes and `migrate` runs.
+- [Security Features](../security/): the protections `route:list --security` shows.

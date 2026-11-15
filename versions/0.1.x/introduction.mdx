@@ -1,0 +1,97 @@
+---
+title: What is Strutvane?
+description: A plain-words explanation of Strutvane, who it is for, and what it is not, with a restaurant kitchen analogy.
+---
+
+import { Aside, Card, CardGrid, LinkCard } from '@astrojs/starlight/components';
+
+**What you'll learn**
+
+- What Strutvane does, in plain words
+- Who it's for, and who it's not for
+- How it saves you time, shown with a real example
+
+<Aside type="caution" title="Planned, not available yet">
+Strutvane is being built in public. The packages are implemented and tested at `0.1.0-next`, but aren't released yet. This page explains how it works once everything ships.
+</Aside>
+
+## The short version
+
+Strutvane is a **toolkit for building business apps in TypeScript**. Think of apps like a customer list, an invoicing tool, a helpdesk, or an HR portal.
+
+You describe your data. Strutvane builds the rest:
+
+- the **database tables** that store your data
+- the **API**, the doorway other programs use to read and save that data
+- the **logins and permissions** (who can see or change what)
+- the **screens**: tables, forms and detail pages
+
+## An analogy: the restaurant kitchen
+
+Imagine you open a restaurant. You want to focus on **your recipes**, the thing that makes you special.
+
+You *don't* want to build the ovens, wire the electricity and design the order system yourself.
+
+| In a restaurant | In Strutvane |
+|---|---|
+| Your recipes (what makes you unique) | Your **models** (what your data looks like) and your business rules |
+| The kitchen: ovens, fridges, plumbing | The **database, API and screens** that Strutvane builds |
+| The door staff checking reservations | **Auth**: logins, roles and permissions |
+| Separate tables for separate parties | **Multi-tenancy**: each customer company only sees its own data |
+
+You still own the kitchen. If you want a different oven, you can swap it. That's the difference between Strutvane and many "no-code" tools: **everything it builds is normal code in your project.**
+
+## A real example
+
+Say you need a list of customers. Without Strutvane you would typically:
+
+1. write a database migration to create a `customers` table
+2. write code to list, create, update and delete customers
+3. add validation ("email must look like an email")
+4. add permission checks ("only admins can delete")
+5. build a table screen, a form and a detail page
+
+With Strutvane, you write **this**:
+
+```ts title="app/models/customer.model.ts"
+import { defineModel, field } from '@strutvane/framework'
+
+export default defineModel('Customer', {
+  name:  field.string().required().searchable(),
+  email: field.email().unique(),
+  phone: field.phone().optional(),
+  tier:  field.enum(['free', 'pro', 'enterprise']).default('free').filterable(),
+})
+```
+
+…then run one command (`pnpm sv migrate`). Steps 1 to 5 are done for you. Need something special, like "send a welcome email when a customer is created"? You add just that piece. See Levels of control.
+
+## Who it's for
+
+<CardGrid>
+  <Card title="Teams building business apps" icon="seti:config">
+    Admin panels, internal tools, customer portals and SaaS products, especially ones with logins, roles and lots of forms.
+  </Card>
+  <Card title="TypeScript developers" icon="seti:typescript">
+    If you know a bit of TypeScript (or JavaScript), you can use Strutvane. Its error messages tell you what went wrong and how to fix it.
+  </Card>
+  <Card title="Agencies and freelancers" icon="star">
+    Build client projects faster and hand over clean code the client fully owns.
+  </Card>
+  <Card title="Enterprise teams" icon="approve-check">
+    Roles, audit logs, single sign-on and multi-tenancy come built in, at no extra cost.
+  </Card>
+</CardGrid>
+
+## What Strutvane is **not**
+
+- **Not a no-code tool.** You write a little TypeScript. In return, you're never stuck.
+- **Not a hosting service.** You run your app wherever you like.
+- **Not a black box.** The generated code lives in your project, and you can read and change all of it.
+- **Not for every app.** For a static blog or a game, simpler tools fit better.
+
+## Next steps
+
+<CardGrid>
+  <LinkCard title="Quick start" description="What creating your first project will look like." href="../installation/" />
+</CardGrid>

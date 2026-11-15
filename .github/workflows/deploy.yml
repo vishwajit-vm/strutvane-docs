@@ -1,5 +1,12 @@
-# Builds the docs and publishes them to GitHub Pages.
-# One-time setup in the repo: Settings → Pages → Build and deployment → Source: "GitHub Actions".
+# Builds every docs version, checks it, and publishes it to GitHub Pages.
+#
+# `npm run verify` is the gate: it builds each version (one Astro build per version, merged
+# into dist/ with the redirects), checks every internal link and anchor across all versions,
+# type-checks, and runs the tests (including tests on the built site). Any broken link or
+# failing test fails this job, and nothing is deployed.
+#
+# One-time setup (done): Settings → Pages → Build and deployment → Source: "GitHub Actions".
+# Actions are pinned by full commit SHA (resolved with `git ls-remote` on 2026-11-15).
 name: Deploy docs
 
 on:
@@ -7,7 +14,7 @@ on:
     branches: [main]
   workflow_dispatch:
 
-# Only one deployment at a time; a newer push cancels an older, still-queued one.
+# One deployment at a time; a newer run waits instead of cancelling one that is deploying.
 concurrency:
   group: pages
   cancel-in-progress: false
@@ -21,22 +28,28 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      # pnpm version comes from "packageManager" in package.json (works on any Node version)
-      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+        with:
+          # Full history and every branch: a docs line can be read from its own branch
+          # (`{ git: { ref: 'origin/0.2.x', path: 'content' } }` in docs.sources.ts).
+          fetch-depth: 0
+          persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
-          cache: pnpm
+          cache: npm
       - name: Install
-        run: pnpm install --frozen-lockfile
+        run: npm ci
       - id: pages
         uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
-      - name: Build (includes link check)
-        run: pnpm build
+      - name: Build, link check and tests
+        run: npm run verify
         env:
-          # Uses the Pages URL GitHub assigns, so a custom domain works automatically.
+          # The Pages URL GitHub assigns (https://vishwajit-vm.github.io + /strutvane-docs).
           DOCS_SITE: ${{ steps.pages.outputs.origin }}
           DOCS_BASE: ${{ steps.pages.outputs.base_path || '/' }}
       - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
@@ -46,6 +59,7 @@ jobs:
   deploy:
     needs: build
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       pages: write
       id-token: write

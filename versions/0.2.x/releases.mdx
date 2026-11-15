@@ -1,0 +1,139 @@
+---
+title: Release Notes
+description: What a Strutvane version promises, the support table, and what is new, deprecated and retired in 0.2, with the replacement for everything retired.
+---
+
+import SupportTable from '@docs-components/SupportTable.astro'
+
+This page sums up how Strutvane's versions work, shows the support table, and lists what is new, deprecated and retired in 0.2, with the replacement for everything retired. A **version line** is a family of releases that never break each other: 0.2.0, 0.2.1 and 0.2.2 are the 0.2 line. The full policy is on [Versioning & Support](../versioning/).
+
+:::tip[Coming from Laravel?]
+It's Laravel's policy: one version number for the framework's core packages, a yearly major release from 1.0, **18 months of bug fixes and 2 years of security fixes**, and a support table on every version's Release Notes page. Before 1.0, each `0.N` line plays the role of a major. Docs for each line live at `/docs/<line>.x/`, like `laravel.com/docs/12.x/`.
+:::
+
+## Versioning in one minute
+
+- **Within a line, nothing breaks.** 0.2.0, 0.2.1 and 0.2.2 are the 0.2 line; `npm update` keeps you inside it safely.
+- **A new line may break.** Before 1.0 each `0.N` line plays the role of a major; every breaking change is in the [upgrade guide](../upgrade/).
+- **The core packages share one number.** Framework, auth, ui, the designs and the installer release together; add-ons have their own versions.
+- **Each line has a branch, an npm dist-tag and its own docs.** `latest` is the current line.
+
+The full rules (support windows, branches, dist-tags, where fixes go, how deprecations and retirements work) are on [Versioning & Support](../versioning/).
+
+<SupportTable />
+
+This table is generated from the project's one support table (`versions.json`) every time the docs are built, so it is the same, and current, in every version of these docs.
+
+## What's new in Strutvane 0.2
+
+:::caution[Coming in 0.2]
+0.2 hasn't been released yet. This is what it is being built to deliver.
+:::
+
+Strutvane 0.2 rebuilds the framework around **Laravel's flow**. If you used 0.1, read the [upgrade guide](../upgrade/) first.
+
+### New in 0.2
+
+The packages that make up 0.2 (all in development): [`@strutvane/framework`](../packages/catalogue/#pkg-framework), [`@strutvane/auth`](../packages/catalogue/#pkg-auth), [`@strutvane/ui`](../packages/catalogue/#pkg-ui), [`create-strutvane`](../packages/catalogue/#pkg-create-strutvane), [`strutvane`](../packages/catalogue/#pkg-strutvane), [`@strutvane/log-viewer`](../packages/catalogue/#pkg-log-viewer), and the designs [`@strutvane/design-crisp`](../packages/catalogue/#pkg-design-crisp) (default) and [`@strutvane/design-vivid`](../packages/catalogue/#pkg-design-vivid).
+
+**One command to start.** `npm create strutvane@latest my-app` asks what you need (7 quick questions in Recommended mode, or every option in Custom mode), then installs, sets up the database (MySQL by default), migrates, seeds and makes a first commit. See [Installation](../installation/).
+
+**Migrations are the source of truth.** Columns are written in migrations with a Laravel-style Schema builder, and your TypeScript types are generated from them:
+
+```ts
+schema.create('posts', (t) => {
+  t.id()
+  t.string('title', 200)
+  t.slug('slug').from('title')
+  t.timestamps()
+})
+```
+
+**`node strut`, the project CLI.** Strutvane's `php artisan`: `make:migration`, `migrate`, `db:seed`, `route:list`, `doctor` and more. It works the same in PowerShell, cmd, bash and zsh.
+
+**An automatic CRUD API and admin UI.** `node strut migrate` gives every table with a model a REST API with search, filters, sorting and pagination, plus list, form and detail screens and a sidebar entry, behind sign-in and policies. See [Your First CRUD](../first-crud/).
+
+**The Strutvane ORM.** Models are classes (`class Post extends Model('posts')`) with a fully typed query builder, relationships, eager loading, scopes, soft deletes and factories.
+
+**Auth built in.** Email and password or email-link sign-in, email verification, password reset, two-factor authentication, passkeys, API tokens, teams and impersonation, each switched on or off in `config/auth.ts`. Public registration is off until you turn it on. See [Authentication](../authentication/).
+
+**Docker or not, your choice.** With Docker, everything runs in containers like Laravel Sail, and `node strut` forwards each command into the app container. A production `Dockerfile` and a dev container are written only if you ask for them. See [Docker](../docker/).
+
+**Pick a design.** The admin UI's look is a separate package: **Crisp** (the default) or **Vivid**, switchable later. See [Designs](../designs/).
+
+**Secure by default, in every style.** CSRF, security headers, trusted hosts and proxies, rate limits and more are on by default, and each can be adjusted per app, route, group, controller or handler. `route:list --security` shows every opt-out. See [Security Features](../security/) and [CSRF Protection](../csrf/).
+
+**Logging like Laravel.** Channels (`single`, `daily`, `stack`, `stderr`, `slack`, your own) chosen in `.env`, with secrets always redacted. See [Logging](../logging/).
+
+**Built for 100+ packages.** One catalogue drives the installer's feature list and `node strut install:<name>`. See [Package Catalogue](../packages/catalogue/).
+
+**npm only.** No pnpm or yarn needed, anywhere.
+
+### Deprecated in 0.2
+
+Nothing in 0.2's own API is deprecated yet: the line hasn't had its first release. Deprecations made during 0.2 are listed here and on the [Deprecations](../deprecations/) page, and each one keeps working until at least 0.3.
+
+Two npm names will be **deprecated on npm** once `@strutvane/framework` 0.2 is published, each with a pointer to its replacement (installing them still works, with a warning):
+
+- the old part packages [`@strutvane/core`](../packages/catalogue/#pkg-core), [`@strutvane/contracts`](../packages/catalogue/#pkg-contracts), [`@strutvane/cli`](../packages/catalogue/#pkg-cli) and [`@strutvane/devkit`](../packages/catalogue/#pkg-devkit);
+- [`@strutvane/logs`](../packages/catalogue/#pkg-logs).
+
+### Removed and retired in 0.2 (with replacements)
+
+| Retired | Use instead |
+|---|---|
+| [`@strutvane/core`](../packages/catalogue/#pkg-core) | `@strutvane/framework/core`. The repository was archived on 2026-11-15. |
+| [`@strutvane/contracts`](../packages/catalogue/#pkg-contracts) | `@strutvane/framework/contracts`. The repository was archived on 2026-11-15. |
+| [`@strutvane/cli`](../packages/catalogue/#pkg-cli) | `@strutvane/framework/console`, run as `node strut`. The repository was archived on 2026-11-15. |
+| [`@strutvane/devkit`](../packages/catalogue/#pkg-devkit) | `@strutvane/framework/devkit`. The repository was archived on 2026-11-15. |
+| [`@strutvane/logs`](../packages/catalogue/#pkg-logs) | Logging in the framework, configured from `.env` ([Logging](../logging/)), plus [`@strutvane/log-viewer`](../packages/catalogue/#pkg-log-viewer) for the screen. |
+| [The launcher and release channels](../packages/catalogue/#pkg-launcher) (`pnpm sv`, the `@next`-only starter) | `node strut` and `npm create strutvane@latest`. |
+| [The registry compiler](../packages/catalogue/#pkg-registry-compiler) | Migrations as the source of truth ([Migrations](../migrations/)). |
+| [Command-line field specs](../packages/catalogue/#pkg-field-spec-parser) (`title:string(120)`) | Columns written in migrations with the Schema builder. |
+| [`upgrade` and its three-way merge](../packages/catalogue/#pkg-upgrade-merge) | Owned files are never overwritten; `auto()` picks up new columns. |
+| [Better Auth as the default engine](../packages/catalogue/#pkg-better-auth-default) | `@strutvane/auth`'s own engine ([Authentication](../authentication/)). |
+
+The [upgrade guide](../upgrade/) shows the before and after for each one.
+
+### Shelved
+
+- [The Glass design](../packages/catalogue/#pkg-design-glass) was explored as a mockup and put aside on 2026-11-15 in favour of Crisp and Vivid. It is the first candidate for a future design.
+
+## Common mistakes
+
+### `npm update` didn't move me to the next line
+
+**Why:** `^0.2.4` means "any 0.2 release from 0.2.4 on", never 0.3. That's on purpose: a new line may break things, so you move to it deliberately.
+**Fix:** follow the [upgrade guide](../upgrade/), then change the range:
+
+```json title="package.json"
+"@strutvane/framework": "^0.3.0"
+```
+
+### The starter refuses an old version
+
+```text
+npm create strutvane@0.1 my-app
+```
+
+**Why:** 0.1 has reached end of life, so it gets no fixes, including security fixes. The starter refuses end-of-life lines by default.
+**Fix:** use the current line (`npm create strutvane@latest my-app`). If you really need the old one (for example to reproduce an old bug), pass `--allow-eol`:
+
+```bash
+npm create strutvane@0.1 my-app -- --allow-eol
+```
+
+:::caution[Coming in 0.2]
+`--allow-eol`, the `latest-<line>` dist-tags and the support status in `node strut about` / `doctor` are designed (ADR-0020) and arrive with 0.2.
+:::
+
+### I'm reading the docs for the wrong version
+
+**Why:** a search engine or an old link took you to another line's docs.
+**Fix:** use the version switcher at the top of the page; it keeps you on the same page when it exists. Links that start with `/docs/latest/` always go to the current line.
+
+## Next steps
+
+- [Versioning & Support](../versioning/): branches, dist-tags, support windows and deprecations.
+- [Upgrade Guide](../upgrade/): moving from 0.1 to 0.2.
+- [Package Catalogue](../packages/catalogue/): every package and its status.

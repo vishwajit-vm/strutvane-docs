@@ -1,0 +1,17 @@
+---
+/**
+ * The page title. On narrow screens the "Copy as Markdown" tools sit under it; on wide screens
+ * they move to the right column, above "On this page" (see PageSidebar.astro).
+ */
+import Default from '@astrojs/starlight/components/PageTitle.astro'
+import PageTools from './PageTools.astro'
+---
+
+<Default />
+<div class="docs-title-tools lg:sl-hidden"><PageTools /></div>
+
+<style>
+  .docs-title-tools {
+    margin-block-start: 0.75rem;
+  }
+</style>

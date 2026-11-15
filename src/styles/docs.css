@@ -1,0 +1,321 @@
+/*
+ * Strutvane docs theme.
+ *
+ * The LAYOUT and reading rhythm follow Laravel's docs (studied 2026-11-14 at
+ * laravel.com/docs/13.x/installation): a slim top bar, a left menu of collapsible groups, a
+ * ~40rem content column with generous line height, headings with a calm weight, and "On this
+ * page" on the right. The LOOK is Strutvane's own: steel-blue neutrals with an amber "vane"
+ * accent, Inter for text and JetBrains Mono for code (both SIL Open Font License, self-hosted
+ * through @fontsource, so readers' browsers make no third-party font requests).
+ *
+ * Every colour is a variable defined once per theme below. Dark is the default, like Laravel's.
+ */
+
+/* ---------------------------------------------------------------- palette (dark, default) */
+:root {
+  /* Accent: amber, for links, the current menu item and focus rings. */
+  --sl-color-accent-low: #3a2a07;
+  --sl-color-accent: #f5a524;
+  --sl-color-accent-high: #ffd98a;
+
+  /* Steel-blue neutrals, from text (gray-1) down to the page background (black). */
+  --sl-color-white: #f4f7fb;
+  --sl-color-gray-1: #e3e9f1;
+  --sl-color-gray-2: #b7c3d2;
+  --sl-color-gray-3: #8798ad;
+  --sl-color-gray-4: #4f6179;
+  --sl-color-gray-5: #2a3a50;
+  --sl-color-gray-6: #172537;
+  --sl-color-black: #0d1726;
+
+  /* Surfaces for code blocks, callouts and controls. */
+  --docs-surface: #122033;
+  --docs-surface-raised: #16273c;
+  --docs-border: #24364d;
+
+  /* Callouts and status badges: always paired with a text label, never colour alone. */
+  --docs-note: #7fb3ff;
+  --docs-tip: #4fd1a5;
+  --docs-caution: #f5a524;
+  --docs-danger: #ff7a85;
+  --docs-ok-bg: #0f3a2c;
+  --docs-ok-text: #b4f1da;
+  --docs-warning-bg: #45310a;
+  --docs-warning-text: #ffe2a8;
+  --docs-danger-bg: #4b1720;
+  --docs-danger-text: #ffc9cf;
+}
+
+/* ---------------------------------------------------------------- palette (light) */
+:root[data-theme='light'] {
+  --sl-color-accent-low: #fff0d3;
+  --sl-color-accent: #9a5a00;
+  --sl-color-accent-high: #4d2e00;
+
+  --sl-color-white: #0d1726;
+  --sl-color-gray-1: #1b2a3d;
+  --sl-color-gray-2: #34465d;
+  --sl-color-gray-3: #556880;
+  --sl-color-gray-4: #8a9bb0;
+  --sl-color-gray-5: #c9d3df;
+  --sl-color-gray-6: #edf1f6;
+  --sl-color-gray-7: #f6f8fb;
+  --sl-color-black: #ffffff;
+
+  --docs-surface: #f6f8fb;
+  --docs-surface-raised: #ffffff;
+  --docs-border: #dbe2eb;
+
+  --docs-note: #1f62c4;
+  --docs-tip: #0d7a5a;
+  --docs-caution: #9a5a00;
+  --docs-danger: #b3202f;
+  --docs-ok-bg: #dcf5ea;
+  --docs-ok-text: #0b5136;
+  --docs-warning-bg: #fff1d1;
+  --docs-warning-text: #5c3b00;
+  --docs-danger-bg: #ffe1e4;
+  --docs-danger-text: #7a1220;
+}
+
+/* ---------------------------------------------------------------- type and layout scale */
+:root {
+  --sl-font: 'Inter Variable', ui-sans-serif, system-ui, sans-serif;
+  --sl-font-mono: 'JetBrains Mono Variable', ui-monospace, 'Cascadia Code', monospace;
+
+  /* Laravel-like rhythm: 16px body, 1.8 line height, a ~40rem measure. */
+  --sl-text-body: 1rem;
+  --sl-line-height: 1.8;
+  --sl-content-width: 40rem;
+  --sl-nav-height: 4.25rem;
+  --sl-sidebar-width: 17.5rem;
+
+  --sl-text-h1: 2.5rem;
+  --sl-text-h2: 1.75rem;
+  --sl-text-h3: 1.25rem;
+  --sl-text-h4: 1.0625rem;
+  --sl-text-h5: 1rem;
+}
+
+body {
+  font-feature-settings: 'cv11', 'ss01';
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ---------------------------------------------------------------- top bar */
+.header {
+  border-bottom: 1px solid var(--sl-color-hairline);
+  background-color: color-mix(in srgb, var(--sl-color-black) 92%, transparent);
+  backdrop-filter: blur(8px);
+}
+.site-title {
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  color: var(--sl-color-white);
+}
+site-search button[data-open-modal] {
+  border: 1px solid var(--docs-border);
+  border-radius: 0.6rem;
+  background-color: var(--docs-surface);
+}
+
+/* ---------------------------------------------------------------- left menu */
+nav.sidebar .sidebar-content {
+  padding-top: 1.75rem;
+}
+/* Group titles: bold, bright, like Laravel's section names. */
+nav.sidebar .top-level > li > details > summary .group-label > span {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--sl-color-white);
+}
+nav.sidebar .top-level > li + li {
+  margin-top: 0.35rem;
+}
+/* Links: quiet until hovered; the current page gets an amber bar on the left, not a block. */
+nav.sidebar a {
+  font-size: 0.925rem;
+  color: var(--sl-color-gray-3);
+  border-radius: 0;
+  padding-inline-start: 0.9rem;
+  border-inline-start: 2px solid transparent;
+}
+nav.sidebar a:hover {
+  color: var(--sl-color-white);
+}
+nav.sidebar a[aria-current='page'],
+nav.sidebar a[aria-current='page']:hover {
+  background: transparent;
+  color: var(--sl-color-white);
+  font-weight: 500;
+  border-inline-start-color: var(--sl-color-accent);
+}
+
+/* ---------------------------------------------------------------- content column */
+.sl-markdown-content {
+  color: var(--sl-color-gray-2);
+}
+.sl-markdown-content :is(h1, h2, h3, h4, h5) {
+  color: var(--sl-color-white);
+  letter-spacing: -0.015em;
+  scroll-margin-top: calc(var(--sl-nav-height) + 1.5rem);
+}
+h1#_top {
+  font-size: var(--sl-text-h1);
+  font-weight: 500;
+  letter-spacing: -0.025em;
+}
+.sl-markdown-content h2 {
+  font-size: var(--sl-text-h2);
+  font-weight: 500;
+  margin-top: 3.5rem;
+  margin-bottom: 1.25rem;
+}
+.sl-markdown-content h3 {
+  font-size: var(--sl-text-h3);
+  font-weight: 600;
+  margin-top: 2.5rem;
+  margin-bottom: 0.9rem;
+}
+.sl-markdown-content h4 {
+  font-size: var(--sl-text-h4);
+  font-weight: 600;
+  margin-top: 1.75rem;
+}
+.sl-markdown-content :is(p, li) {
+  line-height: var(--sl-line-height);
+}
+.sl-markdown-content strong {
+  color: var(--sl-color-gray-1);
+  font-weight: 600;
+}
+.sl-markdown-content a:not(:where(.not-content *)) {
+  color: var(--sl-color-text-accent);
+  text-decoration-color: color-mix(in srgb, var(--sl-color-text-accent) 40%, transparent);
+  text-underline-offset: 0.2em;
+}
+/* Inline code: a small, quiet pill. */
+.sl-markdown-content :not(pre) > code {
+  padding: 0.1em 0.35em;
+  border: 1px solid var(--docs-border);
+  border-radius: 0.35rem;
+  background: var(--docs-surface);
+  color: var(--sl-color-gray-1);
+  font-size: 0.85em;
+}
+/* Tables: light rules, no zebra stripes. */
+.sl-markdown-content table {
+  font-size: 0.925rem;
+}
+.sl-markdown-content :is(th, td) {
+  border-bottom: 1px solid var(--docs-border);
+  border-inline: 0;
+  background: transparent;
+  padding: 0.6rem 0.75rem;
+}
+.sl-markdown-content th {
+  color: var(--sl-color-white);
+  font-weight: 600;
+}
+
+/* ---------------------------------------------------------------- callouts */
+.starlight-aside {
+  border: 1px solid var(--docs-border);
+  border-inline-start-width: 3px;
+  border-radius: 0.6rem;
+  background: var(--docs-surface);
+  padding: 1rem 1.25rem;
+}
+.starlight-aside--note {
+  border-inline-start-color: var(--docs-note);
+}
+.starlight-aside--tip {
+  border-inline-start-color: var(--docs-tip);
+}
+.starlight-aside--caution {
+  border-inline-start-color: var(--docs-caution);
+}
+.starlight-aside--danger {
+  border-inline-start-color: var(--docs-danger);
+}
+.starlight-aside__title {
+  font-size: 0.95rem;
+}
+.starlight-aside--note .starlight-aside__title {
+  color: var(--docs-note);
+}
+.starlight-aside--tip .starlight-aside__title {
+  color: var(--docs-tip);
+}
+.starlight-aside--caution .starlight-aside__title {
+  color: var(--docs-caution);
+}
+.starlight-aside--danger .starlight-aside__title {
+  color: var(--docs-danger);
+}
+.starlight-aside__content {
+  color: var(--sl-color-gray-2);
+}
+
+/* ---------------------------------------------------------------- right column */
+.right-sidebar {
+  border-inline-start: 0;
+}
+.right-sidebar-panel h2 {
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--sl-color-gray-3);
+}
+.right-sidebar-panel a[aria-current='true'] {
+  color: var(--sl-color-text-accent);
+}
+
+/* ---------------------------------------------------------------- previous / next */
+.pagination-links a {
+  border: 1px solid var(--docs-border);
+  border-radius: 0.75rem;
+  background: var(--docs-surface);
+  box-shadow: none;
+}
+.pagination-links a:hover {
+  border-color: var(--sl-color-gray-4);
+}
+.pagination-links .link-title {
+  color: var(--sl-color-white);
+  font-size: 1.1rem;
+}
+
+/* ---------------------------------------------------------------- tabs */
+starlight-tabs [role='tablist'] {
+  border-bottom: 1px solid var(--docs-border);
+}
+starlight-tabs [role='tab'][aria-selected='true'] {
+  color: var(--sl-color-white);
+  border-color: var(--sl-color-accent);
+}
+
+/* ---------------------------------------------------------------- code blocks */
+/* Expressive Code draws the frames, file-name tabs and copy buttons; we only tune its variables. */
+.expressive-code {
+  --ec-brdRad: 0.6rem;
+  --ec-brdCol: var(--docs-border);
+  --ec-codeFontFml: var(--sl-font-mono);
+  --ec-codeFontSize: 0.875rem;
+  --ec-codeLineHt: 1.7;
+  --ec-uiFontFml: var(--sl-font);
+  margin-block: 1.5rem;
+}
+.expressive-code .frame {
+  box-shadow: none;
+}
+
+/* Show code exactly as typed: no ligatures, so `!=` never turns into a single "≠" glyph. */
+code,
+kbd,
+pre,
+.expressive-code {
+  font-variant-ligatures: none;
+  font-feature-settings: 'liga' 0, 'calt' 0;
+}

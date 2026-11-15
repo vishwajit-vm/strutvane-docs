@@ -1,0 +1,200 @@
+---
+/**
+ * Every first-party package (and every retired or shelved part), rendered from ONE data file,
+ * `src/data/packages.json`, with status badges and two filters.
+ *
+ * Use it on the Package Catalogue page:
+ *
+ * ```mdx
+ * import PackageCatalogue from '@docs-components/PackageCatalogue.astro'
+ *
+ * <PackageCatalogue />
+ * ```
+ *
+ * Each card has the anchor `#pkg-<id>`, so "What's new" and other pages can link to one package.
+ * Without JavaScript every card is shown; the filters only hide cards. Status is always written
+ * in words, never shown by colour alone.
+ */
+import context from 'virtual:strutvane-docs/context'
+import { pagePath } from '../../scripts/lib/paths.ts'
+import { displayName, PACKAGE_STATUS_LABELS, PACKAGE_STATUSES, packageGroups, phaseText } from '../../scripts/lib/packages-data.ts'
+import { packagesData } from '../lib/packages.ts'
+
+const groups = packageGroups(packagesData)
+const total = packagesData.packages.length
+const docsHref = (slug: string): string => pagePath(context.base, context.building, slug)
+const usedStatuses = PACKAGE_STATUSES.filter((status) => packagesData.packages.some((entry) => entry.status === status))
+---
+
+<div class="docs-catalogue" data-catalogue>
+  <div class="docs-catalogue-filters not-content" role="group" aria-label="Filter packages">
+    <label>
+      Status
+      <select data-filter="status">
+        <option value="">Every status</option>
+        {usedStatuses.map((status) => <option value={status}>{PACKAGE_STATUS_LABELS[status]}</option>)}
+      </select>
+    </label>
+    <label>
+      Group
+      <select data-filter="group">
+        <option value="">Every group</option>
+        {groups.map((group) => <option value={group.category.id}>{group.category.label}</option>)}
+      </select>
+    </label>
+    <p class="docs-catalogue-count" aria-live="polite" data-count>Showing {total} of {total}</p>
+  </div>
+
+  {groups.map((group) => (
+    <section class="docs-catalogue-group" data-group={group.category.id}>
+      <h3 id={`group-${group.category.id}`}>{group.category.label}</h3>
+      <ul class="docs-catalogue-cards not-content">
+        {group.packages.map((entry) => (
+          <li class="docs-package" id={`pkg-${entry.id}`} data-package={entry.id} data-status={entry.status} data-group={group.category.id}>
+            <div class="docs-package-head">
+              <code class="docs-package-name">{displayName(entry)}</code>
+              <span class={`docs-pkg-status docs-pkg-status--${entry.status}`}>{PACKAGE_STATUS_LABELS[entry.status]}</span>
+              {entry.phase !== null && <span class="docs-pkg-phase">{phaseText(entry)}</span>}
+            </div>
+            <p>{entry.summary}</p>
+            {entry.replacement !== null && <p class="docs-package-replacement"><strong>Use instead:</strong> {entry.replacement}</p>}
+            {entry.note !== undefined && <p class="docs-package-note">{entry.note}</p>}
+            <p class="docs-package-links">
+              {entry.docs !== null && <a href={docsHref(entry.docs)}>Docs</a>}
+              {entry.repo !== null && <a href={entry.repo}>Repository</a>}
+              {entry.since !== null && <span>Since {entry.since}</span>}
+            </p>
+          </li>
+        ))}
+      </ul>
+    </section>
+  ))}
+</div>
+
+<script>
+  // Hides cards that don't match the two filters. Cards stay in the page (and in search);
+  // only `hidden` changes, so nothing is lost without JavaScript.
+  for (const root of document.querySelectorAll<HTMLElement>('[data-catalogue]')) {
+    const status = root.querySelector<HTMLSelectElement>('select[data-filter="status"]')
+    const group = root.querySelector<HTMLSelectElement>('select[data-filter="group"]')
+    const count = root.querySelector<HTMLElement>('[data-count]')
+    const cards = [...root.querySelectorAll<HTMLElement>('[data-package]')]
+    const sections = [...root.querySelectorAll<HTMLElement>('section[data-group]')]
+    const apply = (): void => {
+      let shown = 0
+      for (const card of cards) {
+        const visible = (status?.value === '' || card.dataset['status'] === status?.value) && (group?.value === '' || card.dataset['group'] === group?.value)
+        card.hidden = !visible
+        if (visible) shown++
+      }
+      for (const section of sections) section.hidden = section.querySelector('[data-package]:not([hidden])') === null
+      if (count !== null) count.textContent = `Showing ${shown} of ${cards.length}`
+    }
+    status?.addEventListener('change', apply)
+    group?.addEventListener('change', apply)
+  }
+</script>
+
+<style>
+  .docs-catalogue-filters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem 1.25rem;
+    align-items: end;
+    margin-block: 1rem;
+    font-size: var(--sl-text-sm);
+  }
+  .docs-catalogue-filters label {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    color: var(--sl-color-gray-2);
+  }
+  .docs-catalogue-filters select {
+    padding: 0.35rem 0.5rem;
+    border: 1px solid var(--sl-color-gray-5);
+    border-radius: 0.4rem;
+    background-color: var(--sl-color-bg);
+    color: var(--sl-color-white);
+    font: inherit;
+  }
+  .docs-catalogue-count {
+    margin: 0;
+    color: var(--sl-color-gray-3);
+  }
+  .docs-catalogue-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 17rem), 1fr));
+    gap: 0.75rem;
+    padding: 0;
+    list-style: none;
+  }
+  .docs-package {
+    margin: 0;
+    padding: 0.75rem 0.9rem;
+    border: 1px solid var(--sl-color-gray-5);
+    border-radius: 0.6rem;
+    font-size: var(--sl-text-sm);
+    line-height: 1.6;
+    scroll-margin-top: 6rem;
+  }
+  .docs-package:target {
+    outline: 2px solid var(--sl-color-accent);
+  }
+  .docs-package p {
+    margin: 0.4rem 0 0;
+  }
+  .docs-package-head {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    align-items: center;
+  }
+  .docs-package-name {
+    font-weight: 600;
+    overflow-wrap: anywhere;
+  }
+  .docs-package-replacement,
+  .docs-package-note {
+    color: var(--sl-color-gray-2);
+  }
+  .docs-package-links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    color: var(--sl-color-gray-3);
+  }
+  .docs-pkg-status,
+  .docs-pkg-phase {
+    display: inline-block;
+    padding: 0.05rem 0.5rem;
+    border-radius: 999px;
+    font-size: var(--sl-text-xs);
+    white-space: nowrap;
+  }
+  .docs-pkg-phase {
+    border: 1px solid var(--sl-color-gray-5);
+    color: var(--sl-color-gray-2);
+  }
+  .docs-pkg-status--available {
+    background-color: var(--docs-ok-bg);
+    color: var(--docs-ok-text);
+  }
+  .docs-pkg-status--preview,
+  .docs-pkg-status--in-development {
+    background-color: var(--docs-warning-bg);
+    color: var(--docs-warning-text);
+  }
+  .docs-pkg-status--planned {
+    background-color: var(--sl-color-gray-6);
+    color: var(--sl-color-gray-1);
+  }
+  .docs-pkg-status--shelved {
+    border: 1px dashed var(--sl-color-gray-4);
+    color: var(--sl-color-gray-2);
+  }
+  .docs-pkg-status--retired {
+    background-color: var(--docs-danger-bg);
+    color: var(--docs-danger-text);
+  }
+</style>

@@ -1,0 +1,25 @@
+---
+/**
+ * The right column: page tools ("Copy as Markdown") above Starlight's "On this page" list,
+ * the same order as Laravel's docs. Shown on wide screens only; phones get the tools under
+ * the title and Starlight's collapsible "On this page" bar.
+ */
+import Default from '@astrojs/starlight/components/PageSidebar.astro'
+import PageTools from './PageTools.astro'
+---
+
+<div class="docs-sidebar-tools sl-hidden lg:sl-block"><PageTools /></div>
+<Default />
+
+<style>
+  .docs-sidebar-tools {
+    padding: 1.5rem var(--sl-sidebar-pad-x) 0;
+  }
+  .docs-sidebar-tools :global(.docs-page-tools) {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+    padding-block-end: 1rem;
+    border-block-end: 1px solid var(--sl-color-hairline);
+  }
+</style>

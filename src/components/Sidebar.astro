@@ -1,0 +1,15 @@
+---
+/**
+ * Starlight's sidebar (collapsible groups in learning order; the group holding the current
+ * page opens by itself, like Laravel's), plus the version switcher on phones only: on wider
+ * screens it lives in the top bar.
+ *
+ * Why wrap instead of rewrite: the default sidebar (collapsing, current-page highlight,
+ * remembered scroll position, mobile drawer) keeps working and keeps getting Starlight's fixes.
+ */
+import DefaultSidebar from '@astrojs/starlight/components/Sidebar.astro'
+import VersionSwitcher from './VersionSwitcher.astro'
+---
+
+<div class="md:sl-hidden"><VersionSwitcher placement="drawer" /></div>
+<DefaultSidebar />

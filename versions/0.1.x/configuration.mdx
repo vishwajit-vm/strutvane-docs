@@ -1,0 +1,108 @@
+---
+title: Environment variables
+description: What .env and .env.example are, why you never commit secrets, and how Strutvane checks your settings before your app starts.
+---
+
+import { Aside, CardGrid, LinkCard } from '@astrojs/starlight/components';
+
+**What you'll learn**
+
+- What environment variables are, in plain words
+- The difference between `.env` and `.env.example`
+- How Strutvane catches a missing or wrong setting before it causes trouble
+
+<Aside type="caution" title="Pre-release (0.1.0-next): APIs may still change">
+Start-up checks (`defineEnv` in `@strutvane/core`), generated `.env` files (`create-strutvane`) and the `key:generate` and `env:check` commands are implemented in `0.1.0-next.0`.
+</Aside>
+
+## What are environment variables?
+
+Your app needs settings that differ between places. On your laptop it talks to a local database; on the production server it talks to a real one, with a real password.
+
+Writing those settings into your code would be a bad idea: everyone with the code would see your passwords. Instead, they live in **environment variables**: named settings outside the code, like `DB_PASSWORD=secret`.
+
+## `.env` vs `.env.example`
+
+| | `.env` | `.env.example` |
+|---|---|---|
+| What's in it | **Your real settings and secrets** | **Every setting's name**, with comments and safe example values |
+| Committed to Git? | **Never** | Yes |
+| Who uses it | Your app, on your machine | Your teammates, as a checklist of what to set |
+
+Think of `.env.example` as the **form** and `.env` as **your filled-in copy**. You share the blank form, never your filled-in one.
+
+```dotenv title=".env.example (committed)"
+# ─── Database ─────────────────────────────
+DB_CONNECTION=postgres        # postgres | mysql | sqlite | azure-postgres | azure-mysql
+DB_HOST=127.0.0.1
+DB_PORT=5432
+DB_DATABASE=acme
+DB_USERNAME=acme
+DB_PASSWORD=                  # set your own in .env
+
+# ─── Application ──────────────────────────
+APP_KEY=                      # generate with: pnpm sv key:generate
+APP_DEBUG=true                # never true in production
+```
+
+```dotenv title=".env (your machine only, never committed)"
+DB_CONNECTION=postgres
+DB_HOST=127.0.0.1
+DB_PORT=5432
+DB_DATABASE=acme
+DB_USERNAME=acme
+DB_PASSWORD=my-local-password
+APP_KEY=base64:3q2+7w8kZ...
+APP_DEBUG=true
+```
+
+When you create a project, Strutvane fills in `.env` for you and generates the secrets. `.gitignore` already excludes `.env`, so you can't commit it by accident.
+
+## Strutvane checks your settings at start-up
+
+Every setting is described once, with a schema, in `env.schema.ts`:
+
+```ts title="env.ts"
+import { z } from 'zod'
+import { defineEnv } from '@strutvane/core'
+
+export const env = defineEnv(z.object({
+  DB_PORT: z.coerce.number().int(),
+  APP_KEY: z.string().min(32),
+}))
+```
+
+If a setting is missing or wrong, your app **refuses to start** and lists **every** problem at once:
+
+```text
+Invalid environment: 2 problem(s)
+  - DB_PORT: Invalid input: expected number, received NaN
+  - APP_KEY: Invalid input: expected string, received undefined
+Fix: set these keys in your .env file (see .env.example for every key and its meaning), then restart.
+```
+
+The message names the keys, but **never prints their values**, so a secret can't leak into a log.
+
+That's much better than the app starting and failing later in a confusing way.
+
+## Handy commands
+
+| Command | What it does |
+|---|---|
+| `pnpm sv key:generate` | Creates a secure `APP_KEY` in `.env` |
+| `pnpm sv env:check` | Compares your `.env` with `.env.example` and lists missing, unknown, empty and invalid settings, plus any secret committed in `.env.example`. It never prints values. |
+
+## When you add a package
+
+Package installers add their settings to **both** files: real local values in `.env`, documented blanks in `.env.example`. Your teammates see the new settings the next time they pull. Secrets get a random value in `.env` and an **empty** value in `.env.example`. (Running them with `pnpm sv add <package>` works today for packages that ship an installer; the auth and UI installers are **Planned**.)
+
+<Aside type="danger" title="Never commit secrets">
+Never put real passwords or API keys in `.env.example`, in code, or in screenshots. If a secret is ever committed by mistake, treat it as leaked: change it straight away.
+</Aside>
+
+## Next steps
+
+<CardGrid>
+  <LinkCard title="Project structure" description="Where everything else lives." href="../structure/" />
+  <LinkCard title="Quick start" description="See .env created for you." href="../installation/" />
+</CardGrid>

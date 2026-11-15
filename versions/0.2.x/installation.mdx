@@ -1,0 +1,739 @@
+---
+title: Installation
+description: Create a Strutvane app with one command. Every question the installer asks and its flag, Recommended or Custom setup, what happens step by step, how to resume with npm run setup, and what each exit code means.
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components'
+
+Creating a Strutvane app is one command. The **installer** (the small program `npm create` downloads and runs) asks what you need, then writes the project, installs everything, starts the database, creates your tables and the first admin user, and makes a first git commit. When it finishes, the app works.
+
+This page explains every question, every flag, every step, and what to do when something gets in the way.
+
+:::tip[Coming from Laravel?]
+`npm create strutvane@latest my-app` is `laravel new my-app` plus a starter kit. Choosing **with Docker** is Laravel Sail; `npm run dev` is `composer run dev`; `node strut` is `php artisan`.
+
+The difference: Strutvane's installer also starts the database and runs the migrations and seeders for you, and if a step fails, `npm run setup` continues from that step.
+:::
+
+:::caution[Coming in 0.2]
+The installer is **proven in a prototype** (spike 13: 308 tests, including real runs with npm, git, SQLite, and MySQL 8.4 and PostgreSQL 18 in Docker). Nothing is published to npm yet, so `npm create strutvane@latest` doesn't work today. The exact wording on screen may still change.
+:::
+
+## Before you start
+
+You need:
+
+1. **Node.js 24.3 or newer.** It comes with npm, the only package manager Strutvane uses. Check your version:
+
+   ```bash
+   node --version
+   ```
+
+   Earlier 24.x releases break command-line arguments in PowerShell, so 24.3 is the minimum. If you see something lower than `v24.3.0`, install the current LTS from [nodejs.org](https://nodejs.org).
+
+2. **Docker Desktop** *(recommended, not required)*. New apps use MySQL by default. **With Docker**, your app, MySQL and a test mail inbox all run in containers, so you never install MySQL yourself. **Without Docker**, the app runs on your computer with SQLite (nothing to install) or with your own database server. See [Docker](../docker/).
+
+3. **Git** *(optional)*. If it's installed, your project starts with a first commit.
+
+## The smallest example
+
+Run this in the folder where you keep your projects:
+
+<Tabs syncKey="os">
+  <TabItem label="macOS / Linux">
+
+```bash
+npm create strutvane@latest my-app
+```
+
+  </TabItem>
+  <TabItem label="Windows (PowerShell)">
+
+```powershell
+npm create strutvane@latest my-app
+```
+
+If PowerShell says that running scripts is disabled, type `npm.cmd` instead of `npm`, or allow scripts for your user once with `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`.
+
+  </TabItem>
+</Tabs>
+
+`my-app` is the folder name. npm may ask "Ok to proceed?" the first time: answer `y`. Then press <kbd>Enter</kbd> on every question to accept the defaults.
+
+**What you'll see** at the end (something like this; the password line appears only in a real terminal):
+
+```text
+── Ready ───────────────────────────────────────────────────────
+   App          http://localhost:3000
+   Database     MySQL in Docker, 127.0.0.1:3306/my_app
+   Design       crisp (@strutvane/design-crisp)
+   Mail inbox   http://localhost:8025
+   Admin        admin@my-app.test
+   Password     q7Vd-3kPz-Xm2c-8RtL   (shown once; change it at first sign-in)
+
+   Every day:   cd my-app; npm run dev
+   Commands:    node strut list
+   Restyle:     resources/ui/theme.css, or switch: node strut design:use vivid
+   Teammates:   npm run setup   (after git clone)
+```
+
+Then start the app:
+
+```bash
+cd my-app
+npm run dev
+```
+
+Open [http://localhost:3000](http://localhost:3000) and sign in with the admin email and the password from the box. The API and the UI run together on **one port** and reload when you change a file.
+
+## Recommended or Custom
+
+Right after the project name, the installer asks **how much you want to decide**:
+
+```text
+? How do you want to set up my-app?
+❯ Recommended   7 quick questions, sensible defaults for the rest
+  Custom        Choose everything (about 35 questions, grouped)
+```
+
+| Mode | What you're asked | Flag |
+|---|---|---|
+| **Recommended** (default) | The 7 questions marked ★ below: what you're building, the design, how people sign in, teams, the database, Docker, and AI coding assistants. Everything else takes its default. | `--mode recommended` |
+| **Custom** | Every question, grouped (App, Sign-in, Teams, Data, Infra, Features, Quality, Workflow, Security, AI, UI, Ops). | `--mode custom` |
+
+Some questions are asked **in both modes** whenever they apply, because they have no safe default: the connection details of your own database server, a password you chose to type, and the extra questions of a package you picked.
+
+Nothing is final. Every optional feature can be added later with `node strut install:<name>`, which runs the same installer steps.
+
+## The review screen
+
+After the last question, you see every answer, the defaults included (something like this, shortened):
+
+```text
+◇  Review ─────────────────────────────────────────────╮
+│  Stack        Full app: API + React UI              │
+│  Design       crisp (@strutvane/design-crisp)       │
+│  Sign-in      Email + password                      │
+│  Security     2FA, email verification               │
+│  Teams        no                                    │
+│  Database     MySQL                                 │
+│  Docker       With Docker                           │
+│  Features     Log viewer                            │
+├─────────────────────────────────────────────────────╯
+? What next?
+❯ Create it
+  Change an answer
+  Cancel
+```
+
+- **Create it** starts the setup.
+- **Change an answer** asks one question again. Answers that no longer apply are dropped (turn teams off, and the "how a request picks its team" answer goes away), and newly applying questions are asked.
+- **Cancel** stops before anything is written. The exit code is `130`.
+
+Your answers (never a secret) are saved in **`strutvane.json`** in the new project. Later, `node strut install:<name>` reads it to know what you picked.
+
+## Every question
+
+Questions marked ★ are asked in Recommended mode. Every question has a flag, so you can answer it on the command line instead. **Bold** is the default.
+
+:::note[Which questions you'll really see]
+The installer only offers a package once it's published and works with your framework version. Several choices below bring packages planned **after** 0.2; they're marked "after 0.2" in the tables. In 0.2, a question that only brings such a package isn't shown at all, and a choice that brings one isn't offered; the question list grows release by release. (The prototype still shows them all, as stubs; a `--preview-catalogue` developer flag keeps the full list for testing.)
+:::
+
+### Project and app
+
+| # | Question | Choices (default **bold**) | Flag | Brings |
+|---|---|---|---|---|
+| 1 | ★ Project name / folder | the folder you typed | `--name my-app` (or the first word: `my-app`) | |
+| 2 | ★ What are you building? | **Full app (API + admin UI)**, API only | `--stack full\|api` | |
+| 3 | ★ Which design should your app use? (full app only) | **Crisp**, Vivid | `--design crisp\|vivid` | `@strutvane/design-crisp` or `@strutvane/design-vivid` |
+| 4 | Which React UI starter? (full app only) | **Admin screens from your models**, blank React app | `--ui admin\|blank` | `@strutvane/ui` |
+
+A **design** is a package that gives the screens their look: colours, fonts, the sidebar and top bar. **Crisp** is clean and business-first; **Vivid** is colourful with roomier cards. You can switch later with one command. See [Designs](../designs/).
+
+### Sign-in
+
+| # | Question | Choices (default **bold**) | Flag | Brings |
+|---|---|---|---|---|
+| 5 | ★ How do people sign in? | **Email and password**, email link only (passwordless), no sign-in | `--auth email\|magic-link\|none` | `@strutvane/auth` |
+| 6 | Extra sign-in security (pick several) | **two-factor**, **email verification**, passkeys, public registration (off) | `--security 2fa,verification,passkeys,registration` | `@strutvane/auth` |
+| 7 | Social login (pick several) | **none**, Google, Microsoft, GitHub, Apple | `--social google,microsoft,github,apple` | `@strutvane/social-login` (after 0.2) |
+| 8 | Enterprise SSO for your customers (SAML/OIDC + SCIM; needs teams) | **no**, yes | `--sso` | `@strutvane/sso` (after 0.2) |
+| 9 | API access for other apps | **personal access tokens**, OAuth 2.1 server, none | `--api tokens\|oauth\|none` | `@strutvane/auth`, or `@strutvane/oauth-server` (after 0.2) |
+| 10 | Starting roles | **admin + member**, admin + manager + member + viewer | `--roles admin-member\|admin-manager-member-viewer` | |
+
+What the three sign-in modes mean:
+
+- **Email and password** follows Laravel Fortify's model. Password reset is always on, and the password tables are ordinary migrations in your app.
+- **Email link only** signs people in with a **magic link**: a link mailed to them that works once, for 15 minutes, and only in the browser that asked for it. Two-factor and passkeys still work on top.
+- **No sign-in** is for internal tools behind a company gateway. The generated API then **requires an API token** for every request, so nothing is open by default. The installer forces question 9 to tokens in this mode, and the Ready box tells you how to create one.
+
+**Public registration is off** by default: only accounts you invite (or create) can sign in until you turn it on. That's a security choice: an app that lets anyone register by accident is a common leak. See [Authentication](../authentication/).
+
+### Teams
+
+| # | Question | Choices (default **bold**) | Flag |
+|---|---|---|---|
+| 11 | ★ Teams / multi-tenancy (each customer company is a team) | **no**, yes | `--teams` |
+| 12 | How a request picks its team | **team switcher in the app**, subdomain (`acme.yourapp.com`) | `--tenant switcher\|subdomain` |
+
+**Teams** (also called **multi-tenancy**) means several customer companies share one app, and each sees only its own data. Saying yes to teams also makes question 8 (SSO) apply, and pre-selects PostgreSQL in question 13. See [Tenancy](../tenancy/).
+
+### Data
+
+| # | Question | Choices (default **bold**) | Flag |
+|---|---|---|---|
+| 13 | ★ Which database? | **MySQL** (MariaDB is detected automatically), PostgreSQL (pre-selected with teams), SQLite | `--db mysql|postgres|sqlite` |
+| 14 | ★ Set up with Docker or without Docker? | **With Docker** when Docker is installed and running, otherwise **without** (your own server). Docker is never required. | `--docker` / `--no-docker` |
+| 15 | ★ Your own server's details (without Docker, MySQL, MariaDB or PostgreSQL) | host **127.0.0.1**, port **3306** (MySQL, MariaDB) or **5432** (PostgreSQL), database name, user **root** or **postgres**, then the password, masked; or one connection URL | `--db-host`, `--db-port`, `--db-name`, `--db-user`; password: `STRUT_DB_PASSWORD` |
+| 16 | First admin account | email **admin@&lt;name&gt;.test**; password **generated and shown once**, or typed (masked) | `--admin-email`, `--admin-password generate|type`; typed password: `STRUT_ADMIN_PASSWORD` |
+| 17 | Sample data, so the screens aren't empty | **yes for the admin starter**, no | `--sample-data` |
+
+Question 15 is asked whenever it applies, in Recommended mode too, because your server's details have no safe default.
+
+About the database:
+
+- **MySQL** is the default. **MariaDB** (MySQL's close cousin, shipped by XAMPP and many Linux systems) works the same way: the installer recognises it from the server's version and writes `DB_CONNECTION=mariadb`. **PostgreSQL** adds **row-level security**: the database itself refuses to return another team's rows, a second lock on top of the ORM's tenant scope. **SQLite** is a single file and needs nothing installed.
+- With teams on MySQL, MariaDB or SQLite, the installer says so right away:
+
+  ```text
+  Teams on MySQL: each team's data is isolated by the ORM tenant scope. PostgreSQL adds row-level security as a second lock.
+  ```
+
+- A separate **test database** is created next to your development one, so `npm test` never touches your local data.
+- With **PostgreSQL**, the app connects as a plain database role, and migrations run as the owner role. That's what makes row-level security really apply.
+
+About Docker (question 14):
+
+- **Docker is never required.** Any database server works, with or without Docker, as in Laravel.
+- **With Docker**, everything runs in containers, like Laravel Sail: the app (Node 24), the database (MySQL 8.4 or PostgreSQL) and **Mailpit**, a fake mail inbox where you can read every email your app sends. Every `node strut` command you type is forwarded into the app container. See [Docker](../docker/).
+- **Without Docker**, the app runs on your computer. SQLite needs nothing; for MySQL, MariaDB or PostgreSQL you use your own server (question 15). The walkthrough is in the next section.
+- The default follows your computer: "with Docker" is pre-selected only when Docker is installed **and running**; otherwise "without Docker" is.
+
+:::caution[Coming in 0.2]
+The installer prototype (spike 13) asks questions 13 to 15 with the host, port, database and user questions and a reachability check, and always pre-selects Docker for MySQL and PostgreSQL. These are designed (blueprint §2.1, decided on 2026-11-15) and not built yet: pre-selecting Docker only when it's running, MariaDB detection, the local-friendly defaults, an empty local password, the connection URL, socket and SSL settings, the login test with plain-language errors, creating the database, and the PostgreSQL roles on your own server.
+:::
+
+### Without Docker: use XAMPP or your own MySQL
+
+This is the path for XAMPP, WAMP, MAMP, Laragon, Postgres.app, a database installed the normal way, or a remote or cloud database. You need the server running before you start.
+
+1. **Start your database server.** In XAMPP, open the Control Panel and press **Start** next to **MySQL**. (Laragon: **Start All**. MAMP: **Start Servers**.)
+2. **Create the app without Docker:**
+
+   ```bash
+   npm create strutvane@latest my-app -- --no-docker
+   ```
+
+3. **Answer question 15.** Press <kbd>Enter</kbd> to keep each default that fits a local server. XAMPP's MySQL user `root` has **no password** out of the box: leave the password empty and the installer accepts it, with a warning.
+
+**What you'll see** (something like this; the exact wording isn't final):
+
+```text
+◇  Which database?
+│  MySQL
+◇  Set up with Docker or without Docker?
+│  Without Docker (the app runs on this computer)
+◇  Database host (your server)
+│  127.0.0.1
+◇  Database port
+│  3306
+◇  Database name
+│  my_app
+◇  Database user
+│  root
+◇  Database password (saved only in .env)
+│
+▲  The password is empty. That's fine for XAMPP on your own computer, never for a shared or remote server.
+◇  Connected: MariaDB 11.4 at 127.0.0.1:3306 (written as DB_CONNECTION=mariadb).
+◇  Database my_app doesn't exist yet: created it (and my_app_test for tests).
+```
+
+If the installer can't connect, it says why in plain words and lets you correct the details:
+
+| What you see | What it means | What to do |
+|---|---|---|
+| MySQL isn't running: start it in the XAMPP control panel | Nothing answers on that host and port | Start the server, then choose **Retry** |
+| Access denied for user root | Wrong user or password | Check the password (XAMPP's `root` has none by default) |
+| Unknown host | The host name doesn't resolve | Use `127.0.0.1` for a server on this computer |
+| Wrong port: MAMP uses 8889 | Something else answers on that port, or nothing does | Use your server's port (MAMP's MySQL: `8889`) |
+
+If your user may not create databases (common on shared hosting and in the cloud), the installer prints the one SQL line to run yourself, for example:
+
+```sql
+CREATE DATABASE my_app CHARACTER SET utf8mb4;
+```
+
+**A remote or cloud database:** give the whole connection as one `DB_URL` instead of the separate details, and turn on TLS with `DB_SSLMODE` (and `DB_SSL_CA` for the provider's certificate). A Unix socket goes in `DB_SOCKET`. These keys go into `.env`; see [Configuration](../configuration/) for every database key.
+
+**PostgreSQL on your own server:** row-level security needs an app role that isn't a superuser and can't bypass row security. If your account may create roles, the installer creates `my_app_owner` and `my_app_app` for you. Otherwise it prints the SQL to run, and warns that connecting as a superuser (such as `postgres`) turns row-level security off. `node strut security:check` keeps repeating that warning until it's fixed.
+
+About the first admin (question 16): the generated password is shown **once**, in a real terminal only, and never written to any file: not `.env`, not `.env.example`, not `strutvane.json`. The admin must change it at first sign-in. Lost it? Set a new one:
+
+```bash
+node strut user:password admin@my-app.test
+```
+
+### Infrastructure
+
+| # | Question | Choices (default **bold**) | Flag | Brings |
+|---|---|---|---|---|
+| 18 | Cache, queue and sessions | **database (no extra service)**, Redis | `--cache-store database\|redis` | `@strutvane/redis` (after 0.2) |
+| 19 | File storage | **local disk**, S3-compatible | `--storage local\|s3` | `@strutvane/files` (after 0.2) |
+| 20 | Production mailer (development always uses the inbox) | **decide later**, SMTP, Resend, Postmark, Amazon SES | `--mailer later\|smtp\|resend\|postmark\|ses` | |
+| 21 | Language, time zone, currency | **en**, **this computer's time zone**, **USD** | `--locale en`, `--timezone Europe/Berlin`, `--currency USD` | |
+
+:::caution[Planned after 0.2]
+Redis (phase 2), S3-compatible storage through `@strutvane/files` (phase 3) and the Resend, Postmark and SES mail drivers (phase 2, "mail drivers") come after 0.2. 0.2 ships a minimal mail core: SMTP plus the development inbox.
+:::
+
+### Extra features (question 22)
+
+| # | Question | Default | Flags |
+|---|---|---|---|
+| 22 | Extra features (pick several; popular first, type to search) | **log viewer** | `--features log-viewer,billing` or `--features none`; `--feature-option <id>.<question>=<value>` |
+
+There will be more than 100 packages, so this question never shows one long list. It shows:
+
+1. a short **popular** list, grouped: Operations (log viewer, queue dashboard, inspector, health), Data (charts and dashboards, search, import/export, API explorer), Back office (activity log, settings, media library, PDF, privacy, backups), Integrations (feature flags, webhooks, GraphQL, realtime, notification channels), Money (billing, invoicing), AI (AI SDK, MCP server);
+2. then "Search the full catalogue for more?", where you **type to search** everything else.
+
+The list comes from the published **catalogue index**, so it only offers packages that are published and work with the framework version you're installing.
+
+Some packages ask their own **follow-up questions**. Billing asks "Stripe or Paddle?", for example. They're written as data, not code, so nothing from a package runs before you've installed it. On the command line, answer them with `--feature-option`:
+
+```bash
+npm create strutvane@latest acme -- --features billing --feature-option billing.provider=paddle --yes
+```
+
+See [Package Catalogue](../packages/catalogue/) for how the catalogue works.
+
+:::caution[Coming in 0.2]
+The catalogue index and question 22 are proven in the prototype against a sample catalogue (spike 13). In 0.2.0, the log viewer is the only extra feature in the release plan; the other packages are planned for later phases and appear once they're published.
+:::
+
+### Quality and workflow
+
+| # | Question | Choices (default **bold**) | Flag | Brings |
+|---|---|---|---|---|
+| 23 | Tests | **Vitest**, Vitest + Playwright browser tests, none | `--testing vitest\|vitest-playwright\|none` | `@strutvane/browser-testing` for Playwright (after 0.2) |
+| 24 | ★ AI coding assistants (`AGENTS.md`, skills, local docs MCP) | **yes**, no | `--agents` / `--no-agents` | `@strutvane/agent-tools` (after 0.2) |
+| 25 | Git: a first commit, plus a GitHub Actions CI workflow | **git yes**, **CI yes** | `--git` / `--no-git`, `--ci` / `--no-ci` | |
+| 36 | Editor setup (VS Code settings, recommended extensions, format on save); optional **dev container** | **yes**; dev container **no** | `--editor`, `--dev-container` | |
+
+Question 24 writes an `AGENTS.md` file: instructions that AI coding assistants read before they change your code. The full `@strutvane/agent-tools` package (skills and a local docs server for assistants) is planned for phase 2.
+
+A **dev container** is a committed `.devcontainer/` folder that GitHub Codespaces and VS Code Dev Containers use to open your project in a ready-made container. See [Docker](../docker/).
+
+### Security, AI, UI and operations
+
+| # | Question | Choices (default **bold**) | Flag | Brings |
+|---|---|---|---|---|
+| 26 | Security profile | **Standard**; Strict (2FA required for admins, breached-password check, 8-hour sessions, strict CSP, HSTS preload) | `--security-profile standard\|strict` | |
+| 27 | Record who changed what (activity history) | **yes for teams apps**, no | `--activity-log` | `@strutvane/activity-log` (after 0.2) |
+| 28 | AI features inside your app | **no**; yes, then a provider: Anthropic, OpenAI, Google, local (Ollama) | `--ai`, `--ai-provider anthropic\|openai\|google\|ollama` | `@strutvane/ai` (after 0.2) |
+| 29 | Let AI agents use your app safely (MCP server) | **no**, yes | `--mcp-server` | `@strutvane/mcp-server` (after 0.2) |
+| 30 | Languages for the UI (pick several) | **English**; add any | `--ui-languages en,de,pt-BR` | |
+| 31 | Default appearance | **follow the system**, light, dark | `--appearance system\|light\|dark` | |
+| 32 | Installable app (PWA: home-screen icon, offline page) | **no**, yes | `--pwa` | `@strutvane/ui` |
+| 33 | Live updates (tables refresh when others change data) | **no**, yes | `--live-updates` | `@strutvane/realtime` (after 0.2) |
+| 34 | Monitoring | **none**; OpenTelemetry export plus a health page | `--monitoring none\|otel` | `@strutvane/observability`, `@strutvane/health` (after 0.2) |
+| 35 | Where will you deploy? | **decide later**; any Node host (VPS, Railway, Render); Docker image (Kubernetes, Fly, Cloud Run, ECS) | `--deploy later\|node\|docker` | |
+| 37 | Start the dev server and open the browser now? (asked after setup) | **yes**, no | `--dev` / `--no-dev` | |
+
+A few notes:
+
+- **AI keys are never asked.** Choosing a provider writes an **empty** key line into `.env` (`ANTHROPIC_API_KEY=`, for example). You paste the key there yourself later, so it never lands in your shell history or a CI log.
+- **Deploy target** writes a deploy recipe (`deploy/README.md`) and the public `/up` health route. "Docker image" also writes a committed, secure `Dockerfile` and `.dockerignore`. See [Docker](../docker/) and [Deployment](../deployment/).
+
+:::caution[Planned after 0.2]
+The activity log, AI features, the MCP server, live updates and OpenTelemetry monitoring are planned for phase 3 and later. The strict security profile, the subdomain team picker and the PWA option are designed, not built yet.
+:::
+
+## Every flag at once
+
+Every question has a flag. Any question you don't answer with a flag is asked; with `--yes`, it takes its default.
+
+| Group | Flags (default) |
+|---|---|
+| Setup | `--mode recommended\|custom` (recommended) · `--yes` |
+| App | `--stack full\|api` (full) · `--design crisp\|vivid` (crisp) · `--ui admin\|blank` (admin) |
+| Sign-in | `--auth email\|magic-link\|none` (email) · `--security 2fa,verification,passkeys,registration` (2fa,verification) · `--social google,microsoft,github,apple` (none) · `--sso` (no) · `--api tokens\|oauth\|none` (tokens) · `--roles admin-member\|admin-manager-member-viewer` (admin-member) |
+| Teams | `--teams` (no) · `--tenant switcher\|subdomain` (switcher) |
+| Data | `--db mysql\|postgres\|sqlite` (mysql; postgres with teams) · `--docker` / `--no-docker` (Docker for MySQL and PostgreSQL) · `--db-host` · `--db-port` · `--db-name` · `--db-user` · `--admin-email` (admin@&lt;name&gt;.test) · `--admin-password generate\|type` (generate) · `--sample-data` (yes for the admin starter) |
+| Infra | `--cache-store database\|redis` (database) · `--storage local\|s3` (local) · `--mailer later\|smtp\|resend\|postmark\|ses` (later) · `--locale` (en) · `--timezone` (this computer's) · `--currency` (USD) |
+| Features | `--features <ids>\|none` (log-viewer) · `--feature-option <id>.<question>=<value>` |
+| Quality and workflow | `--testing vitest\|vitest-playwright\|none` (vitest) · `--agents` (yes) · `--git` (yes) · `--ci` (yes) · `--editor` (yes) · `--dev-container` (no) |
+| Security, AI, UI, Ops | `--security-profile standard\|strict` (standard) · `--activity-log` (yes with teams) · `--ai` (no) · `--ai-provider anthropic\|openai\|google\|ollama` · `--mcp-server` (no) · `--ui-languages en,...` (en) · `--appearance system\|light\|dark` (system) · `--pwa` (no) · `--live-updates` (no) · `--monitoring none\|otel` (none) · `--deploy later\|node\|docker` (later) |
+
+Yes/no flags also have a `--no-` form: `--no-git`, `--no-docker`, `--no-agents`.
+
+**Secrets are never flags.** A flag ends up in your shell history and in CI logs. Two secrets can be given through environment variables instead:
+
+| Variable | Used for |
+|---|---|
+| `STRUT_DB_PASSWORD` | Your own database server's password (question 15), in CI |
+| `STRUT_ADMIN_PASSWORD` | A typed admin password (question 16, at least 12 characters), in CI |
+
+Unknown values are refused with the valid ones listed, and choices that don't fit together are reported all at once (for example `--design` with `--stack api`, or `--sso` without `--teams`).
+
+### No questions at all: `--yes`
+
+`--yes` accepts every default. The installer also takes the defaults by itself when it runs in **CI** (the `CI` environment variable is set) or when there's **no terminal** to ask in.
+
+```bash
+npm create strutvane@latest my-app -- --yes
+```
+
+**What you'll see:** the same app as pressing <kbd>Enter</kbd> everywhere: full app, Crisp, email and password with 2FA and verification, MySQL with Docker, the log viewer. The admin password isn't shown (logs are kept and shared); set one with `node strut user:password`.
+
+### Typical: a few choices, the rest default
+
+```bash
+npm create strutvane@latest my-app -- --db sqlite --yes
+```
+
+**What you'll see:** the default app on SQLite, with no Docker and nothing to install.
+
+### Advanced: everything on the command line
+
+<Tabs syncKey="os">
+  <TabItem label="macOS / Linux">
+
+```bash
+npm create strutvane@latest acme -- --stack full --design vivid --auth magic-link --security passkeys \
+  --teams --tenant subdomain --db postgres --docker --features billing,search \
+  --feature-option billing.provider=paddle --ai --ai-provider anthropic --deploy docker \
+  --dev-container --yes
+```
+
+  </TabItem>
+  <TabItem label="Windows (PowerShell)">
+
+```powershell
+npm create strutvane@latest acme -- --stack full --design vivid --auth magic-link --security passkeys `
+  --teams --tenant subdomain --db postgres --docker --features billing,search `
+  --feature-option billing.provider=paddle --ai --ai-provider anthropic --deploy docker `
+  --dev-container --yes
+```
+
+PowerShell continues a line with a backtick (`` ` ``), not a backslash.
+
+  </TabItem>
+</Tabs>
+
+**What you'll see:** no questions; a PostgreSQL teams app with the Vivid design, passwordless sign-in with passkeys, billing on Paddle, a committed `Dockerfile` and a `.devcontainer/`.
+
+### The same project without questions
+
+The Ready box always ends with the **one command that recreates your project** without questions: one flag per answer, built from your choices. Keep it for CI, or to create the same app again:
+
+```text
+The same project without questions:
+npm create strutvane@latest my-app -- --stack full --design crisp --ui admin --auth email --security 2fa,verification --social none --api tokens --roles admin-member --no-teams --db mysql --docker --features log-viewer --testing vitest --agents --git --ci --yes
+```
+
+(Shortened here; the real line has a flag for every question that applied.)
+
+### Why the `--` matters
+
+With `npm create`, options **before** `--` belong to npm, not to the installer. npm keeps them for itself and never passes them on. The installer notices and stops with the corrected command:
+
+```text
+npm kept these options for itself, so the installer never received them: --db sqlite
+With npm create, options go after "--". Run this instead:
+
+  npm create strutvane@latest my-app -- --db sqlite
+
+Or without the "--" rule:  npx create-strutvane@latest my-app --db sqlite
+```
+
+## What happens after "Create it"
+
+The installer does everything, with one progress line per step. Progress is saved after **every** step in `.strutvane/local/setup.json` (git-ignored), so a failure never means starting over.
+
+1. **Writes your project.** All or nothing: if the folder exists and isn't empty, nothing is written at all.
+2. **Generates secrets** into `.env`: `APP_KEY` (the root secret every other key is derived from) and the database passwords. They never go into `.env.example`, which is the file you commit.
+3. **Checks ports.** If 3000, 3306 or 8025 is taken, it picks the next free one and writes it into `.env`.
+4. **Starts the database.** With Docker: `docker compose up -d --wait`, which waits until the containers are healthy. Without Docker: creates the SQLite file, or checks that your own server answers.
+5. **Installs dependencies** with `npm ci --ignore-scripts` from a lockfile shipped with the starter (with Docker, inside the app container). Install scripts of dependencies don't run unless they're on an allowlist in `package.json`, which blocks a common way malware spreads through npm.
+6. **Migrates and seeds** (`node strut migrate --seed`): creates your tables, your roles and the first admin user.
+7. **Creates a git repository** with a first commit, but only after checking that `.env`, `.strutvane/`, `docker/`, SQLite files and `storage/` are git-ignored and not staged.
+8. **Offers to start the app** (question 37).
+
+**What you'll see** (with Docker, `--yes`; a real terminal also shows spinners):
+
+```text
+Strutvane: new project
+
+✔ Files written (33 files in C:\Users\you\projects\acme-portal)  41ms
+✔ Secrets generated in .env (APP_KEY, DB_PASSWORD, DB_ROOT_PASSWORD)  1ms
+✔ Ports checked (3000 free; 3306 free; 8025 free)  15ms
+✔ Containers running and healthy (app, db, mailpit)  15.3s
+✔ Dependencies installed with npm (added 13 packages)  4.8s
+✔ Migrations run (3 new, 3 total); Admin created: admin@acme-portal.test; Database seeded  850ms
+✔ Git repository created (main, 1 commit)  1.9s
+
+── Ready ───────────────────────────────────────────────────────
+   App          http://localhost:3000
+   Database     MySQL in Docker, 127.0.0.1:3306/acme_portal
+   Design       crisp (@strutvane/design-crisp)
+   Mail inbox   http://localhost:8025
+   Admin        admin@acme-portal.test
+   Password     not shown here. Set one with: node strut user:password admin@acme-portal.test
+
+   Every day:   cd acme-portal; npm run dev
+   Commands:    node strut list
+   Restyle:     resources/ui/theme.css, or switch: node strut design:use vivid
+   Teammates:   npm run setup   (after git clone)
+```
+
+This is from the prototype, so file and package counts are smaller than in a real app. The Ready box changes with your answers: no Mail inbox line without Docker, a "signs in with an emailed link" note for email-link sign-in, and an "every request needs an API token" line with no sign-in.
+
+:::caution[Coming in 0.2]
+`node strut design:use` is designed, not built yet (the prototype only writes the hint). See [Designs](../designs/).
+:::
+
+## What's in your new project
+
+The main files the installer writes (the exact list depends on your answers):
+
+| Path | What it is |
+|---|---|
+| `package.json`, `package-lock.json`, `.npmrc` | Dependencies, the shipped lockfile, and `ignore-scripts=true` |
+| `strut.js` | `node strut <command>`, your project's command line |
+| `strutvane.json` | Your installer answers (never a secret) |
+| `.env`, `.env.example` | Your settings: `.env` holds this machine's values and secrets (git-ignored); `.env.example` lists every key, without secrets (committed). See [Configuration](../configuration/) |
+| `app/`, `bootstrap/`, `config/`, `routes/`, `database/`, `resources/ui/`, `tests/` | The app itself. See [Directory Structure](../structure/) |
+| `config/ui.ts`, `resources/ui/theme.css` | Which design you use, and your own overrides |
+| `.github/workflows/ci.yml` | The CI workflow (question 25) |
+| `.vscode/` | Editor settings (question 36) |
+| `AGENTS.md` | Instructions for AI coding assistants (question 24) |
+| `deploy/README.md` | A deploy recipe (question 35) |
+| `Dockerfile`, `.dockerignore`, `.devcontainer/` | Only if you picked them (questions 35 and 36); committed |
+| `docker/compose.yaml` | The local Docker setup (Docker mode only); **git-ignored** |
+| `.strutvane/local/setup.json` | Setup progress on this computer, for `npm run setup`; git-ignored |
+
+The scripts in `package.json`:
+
+| Script | Runs | What it's for |
+|---|---|---|
+| `npm run dev` | `node strut dev` | Every day: API and UI on one port, with hot reload |
+| `npm run setup` | `node strut setup` | Finish setup, or set up a fresh clone |
+| `npm test` | `node strut test` | Your tests |
+| `npm run build` | `node strut build` | A production build |
+| `npm start` | `node build/server.js` | Run the production build |
+
+## When something goes wrong
+
+The installer recovers instead of leaving half a project. When a step fails, it says what happened and offers choices:
+
+| What failed | What you can choose |
+|---|---|
+| Docker isn't installed or isn't running | **Use my own database server** (XAMPP, a local install or a remote server; asks question 15), Start Docker (then retry), Continue without Docker (SQLite), Retry |
+| Your own server can't be reached or refuses the login | The reason in plain words (see the table in "Without Docker" above); correct the details, then Retry |
+| A port is busy | Nothing to do: the next free port is written to `.env` (and retried once if it's taken at start-up) |
+| `npm ci` hits a network error or a Windows file lock | One automatic retry; then Retry, Skip for now, Stop here |
+| `npm ci` fails another way (for example a registry 401) | The last 20 lines, the log file's path and a hint; then Retry, Skip for now, Stop here |
+| Your own database server doesn't answer | The message names `host:port`; Retry or Skip (migrations wait) |
+| Migrations can't reach the database | "database unreachable" with the fix; Retry or Skip |
+| No git identity, or git isn't installed | The two `git config` commands to run, or an install hint |
+| A secret file isn't git-ignored or was staged | **No commit is made**, and everything is unstaged |
+
+**Use my own database server** asks for your server's details and rewrites the database settings in `.env`. **Continue without Docker (SQLite)** switches `.env` to SQLite and keeps everything else, so the app starts right away. (The prototype offers SQLite, Skip and Stop here; the own-server choice and this order are designed, not built yet.) In CI there's nobody to ask, so the run stops at the first failure.
+
+**Skip for now** or **Stop here** keeps the project. The last screen lists what's left:
+
+```text
+The project is in C:\Users\you\projects\my-app, but these steps are not done: database, migrate.
+Progress is saved in .strutvane\local\setup.json. Fix the cause shown above, then run:
+
+  cd my-app; npm run setup
+
+Setup continues from the first unfinished step.
+```
+
+### Resume with `npm run setup`
+
+```bash
+cd my-app
+npm run setup
+```
+
+**What you'll see:** steps that are already done are skipped, and setup continues from the first unfinished one. It re-checks the secrets in `.env` instead of trusting the saved progress, so a placeholder like `APP_KEY=changeme` is replaced.
+
+A password you typed in question 16 lives only in memory, so a **resumed** setup generates a new admin password instead and shows it once.
+
+:::caution[Coming in 0.2]
+For a teammate's **fresh clone**, `npm run setup` works from the committed `strutvane.json` alone: it creates `.env` with fresh secrets, recreates the git-ignored Docker files, installs, migrates and seeds. The local progress file is optional. The prototype's `npm run setup` still needs the progress file, so it only resumes a project created on the same computer; the fresh-clone path is designed, not built yet.
+:::
+
+### Exit codes (for scripts and CI)
+
+| Code | Meaning |
+|---|---|
+| `0` | Created and fully set up. |
+| `1` | Nothing was created (for example an invalid name, a folder that isn't empty, or choices that don't fit together). |
+| `2` | The project was created, but setup didn't finish. Run `npm run setup`. |
+| `130` | You cancelled. |
+
+```bash
+npm create strutvane@latest my-app -- --yes || echo "installer exit code: $?"
+```
+
+## With Docker or without Docker
+
+Both work, and the commands you type are the same. Docker is never required.
+
+| | With Docker | Without Docker |
+|---|---|---|
+| **What runs where** | The app, the database and Mailpit run in containers, like Laravel Sail. | The app runs on your computer with Node.js. |
+| **What you install** | Node.js (the `node strut` forwarder needs it on your computer; nothing else does) and Docker Desktop. | Node.js, plus your own MySQL, MariaDB or PostgreSQL server (XAMPP, WAMP, MAMP, Laragon, Postgres.app, a normal install, or a remote one), or nothing with SQLite. |
+| **`node strut …` and `npm run dev`** | Forwarded into the app container for you. | Run on your computer. |
+| **Mail** | Every email lands in Mailpit at `http://localhost:8025`. | Emails are written to the log. |
+| **Best for** | Teams who want identical versions everywhere. | Anyone who already runs a database server, quick experiments, or machines where Docker isn't allowed. |
+
+The local Docker files live in `docker/compose.yaml`. They're for local development only, so they're **git-ignored**. A production `Dockerfile` and a dev container are separate, opt-in choices (questions 35 and 36) and are committed. The [Docker](../docker/) page explains it all: services, ports, `node strut services:up`, the `shell`, `npm`, `npx` and `node` pass-throughs, and Windows/WSL notes.
+
+## Platform notes
+
+<Tabs syncKey="os">
+  <TabItem label="macOS / Linux">
+
+- **Node.js:** use the installer from nodejs.org or a version manager. Check with `node --version`.
+- **Linux and Docker:** if Docker says `permission denied` on `docker.sock`, add yourself to the `docker` group, then log out and back in:
+
+  ```bash
+  sudo usermod -aG docker $USER
+  ```
+
+  The installer shows this command and offers Retry or SQLite meanwhile.
+- **File ownership in Docker (Linux):** the app container runs as your user id (`STRUT_UID`/`STRUT_GID` in `.env`), so files it writes belong to you, not to root.
+
+  </TabItem>
+  <TabItem label="Windows (PowerShell)">
+
+- **Use PowerShell or Windows Terminal.** Every command in these docs works there as written, and `node strut` needs no wrapper or execution-policy change.
+- **Scripts disabled?** Type `npm.cmd` instead of `npm`, or run `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` once.
+- **Docker Desktop** must be running before the containers can start. Use the WSL2 backend; it's also faster at noticing file changes.
+- **Antivirus or an open editor** can lock files for a moment during `npm ci`. The installer retries once after 2 seconds; if it still fails, close the editor and run `npm run setup`.
+- **Project names** that Windows refuses as file names (`con`, `nul`, `aux`) are rejected before anything is written.
+
+  </TabItem>
+</Tabs>
+
+## Common mistakes
+
+### My options were ignored
+
+```text
+npm kept these options for itself, so the installer never received them: --db sqlite
+With npm create, options go after "--". Run this instead:
+```
+
+**Why:** without `--`, npm keeps `--db` for itself and never passes it on.
+
+**Fix:** put the installer's options after `--`, or use `npx`, which has no such rule:
+
+```bash
+npm create strutvane@latest my-app -- --db sqlite
+npx create-strutvane@latest my-app --db sqlite
+```
+
+### The folder already exists
+
+```text
+C:\Users\you\projects\my-app already exists and is not empty. Choose another name (nothing is ever overwritten).
+```
+
+**Why:** the installer never overwrites files.
+
+**Fix:** pick another name, or move the old folder away:
+
+```bash
+npm create strutvane@latest my-app-2
+```
+
+### Docker is installed but not running
+
+```text
+Docker is installed but not running.
+Start Docker Desktop, wait until it says "running", then choose Retry.
+```
+
+**Why:** the Docker command exists, but the Docker engine isn't started.
+
+**Fix:** choose **Use my own database server** if XAMPP or another MySQL is running, or start Docker Desktop and choose **Retry**, or choose **Continue without Docker (SQLite)**. If you already stopped, continue later:
+
+```bash
+cd my-app
+npm run setup
+```
+
+### Docker isn't installed
+
+```text
+Docker is not installed (the docker command was not found).
+Install Docker Desktop (https://docs.docker.com/get-docker/; on Windows use the WSL2 backend), or continue without Docker on SQLite.
+```
+
+**Why:** you asked for Docker (`--docker`), but there's no Docker on this computer.
+
+**Fix:** choose **Use my own database server** or **Continue without Docker (SQLite)**, or create the project without Docker from the start:
+
+```bash
+npm create strutvane@latest my-app -- --no-docker --db sqlite
+```
+
+### I can't find the admin password
+
+**Why:** it's shown once, in a real terminal only, and never saved to a file. With `--yes` or in CI it isn't shown at all, because logs are kept and shared.
+
+**Fix:** set a new one:
+
+```bash
+node strut user:password admin@my-app.test
+```
+
+### The installer exited with code 2
+
+**Why:** the project was created, but a setup step (often starting the database) didn't finish.
+
+**Fix:** read the last lines it printed, fix the cause (often: start Docker Desktop), then continue:
+
+```bash
+cd my-app
+npm run setup
+```
+
+### PowerShell says running scripts is disabled
+
+```text
+npm : File C:\Program Files\nodejs\npm.ps1 cannot be loaded because running scripts is disabled on this system.
+```
+
+**Why:** Windows' execution policy blocks npm's PowerShell wrapper.
+
+**Fix:** use `npm.cmd`, or allow signed scripts for your user once:
+
+```powershell
+npm.cmd create strutvane@latest my-app
+Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+```
+
+### Node is too old
+
+**Why:** Strutvane needs Node.js 24.3 or newer; earlier versions break arguments in PowerShell and lack features it relies on.
+
+**Fix:** install the current LTS from nodejs.org, open a new terminal and check:
+
+```bash
+node --version
+```
+
+## Next steps
+
+- [Docker](../docker/): how Docker mode works, day to day.
+- [Your First CRUD](../first-crud/): build a working screen in five minutes.
+- [Configuration](../configuration/): every key in `.env`.
+- [Directory Structure](../structure/): what's in your new project.

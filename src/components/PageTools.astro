@@ -1,0 +1,84 @@
+---
+/**
+ * "Copy as Markdown", "View as Markdown" and `llms.txt` for the current page.
+ *
+ * Why: people paste docs into AI coding agents all the time. Laravel's docs put a
+ * "Copy as markdown" button above "On this page"; we do the same on wide screens and show it
+ * under the title on narrow ones. The Markdown comes from `/docs/<version>/<page>.md`.
+ */
+import context from 'virtual:strutvane-docs/context'
+import { exportLinks, isContentPage } from '../../scripts/lib/site-context.ts'
+
+const slug = Astro.locals.starlightRoute.id
+const links = isContentPage(context, slug) ? exportLinks(context, slug) : undefined
+---
+
+{links && (
+  <div class="docs-page-tools" data-pagefind-ignore>
+    <button type="button" data-copy-markdown={links.markdown}>
+      <svg aria-hidden="true" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="12" height="12" rx="2"></rect><path d="M5 15V5a2 2 0 0 1 2-2h10"></path></svg>
+      <span data-label>Copy as Markdown</span>
+    </button>
+    <a href={links.markdown}>View as Markdown</a>
+    <a href={links.llms}>llms.txt</a>
+    <span class="sr-only" aria-live="polite" data-copy-status></span>
+  </div>
+)}
+
+<script>
+  // Fetches the page's Markdown export and copies it. Every failure (offline, no clipboard
+  // permission) ends with a friendly message instead of a silent no-op.
+  for (const button of document.querySelectorAll<HTMLButtonElement>('[data-copy-markdown]')) {
+    const label = button.querySelector<HTMLElement>('[data-label]')
+    const status = button.parentElement?.querySelector<HTMLElement>('[data-copy-status]')
+    const say = (text: string): void => {
+      if (label) label.textContent = text
+      if (status) status.textContent = text
+      window.setTimeout(() => {
+        if (label) label.textContent = 'Copy as Markdown'
+      }, 2500)
+    }
+    button.addEventListener('click', async () => {
+      const url = button.dataset['copyMarkdown']
+      if (url === undefined) return
+      try {
+        const response = await fetch(url)
+        if (!response.ok) throw new Error(`HTTP ${response.status}`)
+        await navigator.clipboard.writeText(await response.text())
+        say('Copied!')
+      } catch {
+        say('Couldn’t copy: use “View as Markdown”')
+      }
+    })
+  }
+</script>
+
+<style>
+  .docs-page-tools {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem 1rem;
+    font-size: var(--sl-text-sm);
+  }
+  .docs-page-tools button {
+    display: inline-flex;
+    gap: 0.4rem;
+    align-items: center;
+    padding: 0.3rem 0.75rem;
+    border: 1px solid var(--sl-color-hairline-light);
+    border-radius: 0.5rem;
+    background: var(--docs-surface);
+    color: var(--sl-color-gray-2);
+    font: inherit;
+    cursor: pointer;
+  }
+  .docs-page-tools a {
+    color: var(--sl-color-gray-3);
+    text-decoration: none;
+  }
+  .docs-page-tools button:hover,
+  .docs-page-tools a:hover {
+    color: var(--sl-color-white);
+  }
+</style>

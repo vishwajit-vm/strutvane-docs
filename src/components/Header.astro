@@ -1,0 +1,73 @@
+---
+/**
+ * The top bar, laid out like Laravel's docs: the Strutvane wordmark on the left, search in the
+ * middle, then the version switcher, GitHub and the light/dark toggle on the right.
+ *
+ * It reuses Starlight's own pieces (SiteTitle, Search, SocialIcons, ThemeSelect), so keyboard
+ * shortcuts, the search dialog and the theme logic keep working unchanged.
+ */
+import Search from 'virtual:starlight/components/Search'
+import SiteTitle from 'virtual:starlight/components/SiteTitle'
+import SocialIcons from 'virtual:starlight/components/SocialIcons'
+import ThemeSelect from 'virtual:starlight/components/ThemeSelect'
+import VersionSwitcher from './VersionSwitcher.astro'
+---
+
+<div class="docs-header">
+  <div class="docs-header__title"><SiteTitle /></div>
+  <div class="docs-header__search print:hidden"><Search /></div>
+  <div class="docs-header__end print:hidden">
+    <div class="docs-header__wide"><VersionSwitcher placement="header" /></div>
+    <div class="docs-header__wide docs-header__icons">
+      <SocialIcons />
+      <ThemeSelect />
+    </div>
+  </div>
+</div>
+
+<style>
+  .docs-header {
+    display: flex;
+    gap: 1rem;
+    align-items: center;
+    justify-content: space-between;
+    height: 100%;
+  }
+  .docs-header__title {
+    /* Keep a long title from covering the search and menu buttons on narrow screens. */
+    min-width: 0;
+    overflow: clip;
+    padding: 0.25rem;
+    margin: -0.25rem;
+  }
+  .docs-header__search {
+    display: flex;
+    flex: 1;
+    justify-content: center;
+  }
+  .docs-header__end,
+  .docs-header__icons {
+    display: flex;
+    gap: 1rem;
+    align-items: center;
+  }
+  /* On phones the switcher, GitHub and theme toggle live in the menu drawer instead. */
+  .docs-header__wide {
+    display: none;
+  }
+  @media (min-width: 50rem) {
+    .docs-header__wide {
+      display: flex;
+    }
+    .docs-header {
+      display: grid;
+      /* Title column matches the sidebar, so the search lines up with the content column. */
+      grid-template-columns: calc(var(--sl-sidebar-width) - var(--sl-nav-pad-x)) 1fr auto;
+      gap: 2rem;
+    }
+    .docs-header__search :global(button[data-open-modal]) {
+      width: 100%;
+      max-width: 32rem;
+    }
+  }
+</style>

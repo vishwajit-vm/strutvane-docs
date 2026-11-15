@@ -1,0 +1,118 @@
+---
+title: Migrations
+description: What database migrations are, how Strutvane writes them for you from your models, and how it keeps your data safe while doing it.
+---
+
+import { Aside, CardGrid, LinkCard, Steps } from '@astrojs/starlight/components';
+
+**What you'll learn**
+
+- What a migration is, in plain words
+- How Strutvane creates migrations from your models
+- How it protects you from losing data by accident
+
+<Aside type="caution" title="Pre-release (0.1.0-next): APIs may still change">
+`pnpm sv migrate`, `migrate:status` and `db:seed` are implemented in `@strutvane/framework` `0.1.0-next.0`. Commands marked **Planned** aren't built yet.
+</Aside>
+
+## What is a migration?
+
+Your database has a **shape**: which tables exist and which columns they have. When you change your models, the database shape must change too.
+
+A **migration** is a small file that says "change the database like this". For example:
+
+```sql
+CREATE TABLE products (
+  id uuid PRIMARY KEY,
+  name varchar(255) NOT NULL,
+  price numeric(10, 2) NOT NULL
+);
+```
+
+Think of migrations as **renovation instructions for a house**. Each one is a step: "add a window here", "build a new room". Anyone who follows the same instructions in order ends up with the same house. That's how your laptop, your teammate's laptop and the production server all end up with the same database.
+
+## How Strutvane does it
+
+<Steps>
+
+1. **You change a model**, for example by adding a `sku` field to `Product`.
+
+2. **You run the migrate command:**
+
+   ```bash
+   pnpm sv migrate
+   ```
+
+3. **Strutvane compares** your models with the last recorded state, writes a migration file and applies it:
+
+   ```text
+   ◇ Comparing models (postgres)…
+   │  + alter table products add column sku varchar(64)
+   ◇ Wrote database/migrations/20261113143012_auto.sql
+   ✔ Applied 1 migration
+   ```
+
+   Give the file a better name with `--name`: `pnpm sv migrate --name add_sku_to_products`.
+
+4. **The migration file is saved in your project.** You commit it to Git like any other code, so teammates and servers apply exactly the same change.
+
+</Steps>
+
+## Safety features
+
+| Situation | What Strutvane does |
+|---|---|
+| A change could **delete data** (dropping a column, removing an enum value, making a column required) | Stops with a clear error. Run it again with `--allow-destructive` once you're sure. |
+| A field **looks renamed** (`phone` → `phoneNumber`) | Stops and asks you to decide: `--rename customers.phone=phone_number` for a rename, or `--separate phone=phone_number` for a delete-plus-add. It never guesses, because guessing wrong loses data. Your answer is recorded in the migration file. |
+| Someone **edits a migration** that's already been applied | Stops and names the file. Applied migrations must never change. |
+| Several migrations are pending | They all apply together, or none do. A failure halfway leaves the database as it was. |
+| Two servers try to migrate **at the same time** | Only one goes ahead (on PostgreSQL, a database lock). The second sees the first one's work. |
+
+## Preview without changing anything
+
+```bash
+pnpm sv migrate --pretend
+```
+
+This writes the migration file so you can read the SQL, but applies nothing to the database.
+
+## Handy commands
+
+| Command | What it does |
+|---|---|
+| `pnpm sv migrate` | Create and apply migrations from your models |
+| `pnpm sv migrate:status` | List applied, pending and changed migrations |
+| `pnpm sv db:seed` | Fill the database with seed data (`--class InvoiceSeeder` for one seeder) |
+| `pnpm sv migrate:rollback` | **Planned:** undo the last batch of migrations |
+| `pnpm sv migrate:fresh --seed` | **Planned, development only:** wipe the database, rebuild it and fill it with fake data |
+| `pnpm sv db:pull` | **Planned:** read an existing database and write models for it |
+
+## When you need a hand-written migration
+
+Sometimes you need to **move data**, not just change the shape. For example: "copy every old `phone` value into the new `phoneNumber` column". For that, create a hand-written SQL migration:
+
+```bash
+pnpm sv make:migration copy_phone_numbers --sql
+```
+
+```sql title="database/migrations/20261113150000_copy_phone_numbers.sql"
+-- copy_phone_numbers
+-- Hand-written migration. Keep "up" and "down" sections; run with `sv migrate`.
+
+-- up
+UPDATE customers SET phone_number = phone WHERE phone_number IS NULL;
+
+-- down
+```
+
+`pnpm sv migrate` applies it in order with the generated ones.
+
+<Aside type="note" title="Planned">
+Hand-written migrations in TypeScript (`defineMigration` from `@strutvane/framework/database`) can already be generated, but `sv migrate` doesn't run them yet: it stops with a clear message instead of skipping them. Use `--sql` for now.
+</Aside>
+
+## Next steps
+
+<CardGrid>
+  <LinkCard title="Environment variables" description="How Strutvane knows which database to use." href="../configuration/" />
+</CardGrid>

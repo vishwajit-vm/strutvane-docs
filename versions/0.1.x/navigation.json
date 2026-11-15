@@ -1,0 +1,9 @@
+{
+  "home": "introduction",
+  "groups": [
+    { "label": "Prologue", "items": ["releases"] },
+    { "label": "Getting Started", "items": ["introduction", { "slug": "installation", "label": "Quick start" }, "structure", "configuration"] },
+    { "label": "Concepts", "items": ["models-and-fields", "migrations"] },
+    { "label": "Reference", "items": ["cli-reference"] }
+  ]
+}

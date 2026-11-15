@@ -1,7 +1,13 @@
 # Dependencies & build output
 node_modules/
+# One Astro build per version (.build/), then the merged site (dist/).
+.build/
 dist/
+# Docs sources fetched from git branches (scripts/lib/content-source.ts).
+.cache/
 .astro/
+# The package pages are content: keep them even though their folder is called packages/.
+!versions/*/packages/
 
 # Environment & secrets: never commit
 .env

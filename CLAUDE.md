@@ -10,48 +10,30 @@ The file below is synced from strutvane-tooling and is identical in every repo. 
 
 ## What this repo is
 
-The public, friendly documentation site for **Strutvane**, built with Astro Starlight. It's published to GitHub Pages at `https://vishwajit-vm.github.io/strutvane-docs/`. The repo is `vishwajit-vm/strutvane-docs` (live). Locally it lives at `packages/docs/` inside the umbrella folder.
+The versioned documentation site for **Strutvane** (Starlight, one Astro build per version, merged into one site), published to GitHub Pages at `https://vishwajit-vm.github.io/strutvane-docs/` (`/docs/0.2.x/…` current, `/docs/0.1.x/…` end of life). The repo is `vishwajit-vm/strutvane-docs`. Locally it lives at `packages/docs/` inside the hub folder.
 
-## Status
+**This repo is a deploy mirror.** The site is written in the hub at `spikes/15-versioned-docs-site/` and imported with `npm run sync` (`scripts/sync-from-hub.mjs`, committed snapshot only). Never edit pages, site code or dependencies here: the next sync overwrites them. Repo-owned files: `README.md`, `LICENSE`, `CLAUDE.md`, `.gitignore`, `.gitattributes`, `.editorconfig`, `.claude/`, `.github/`, `scripts/sync-from-hub.mjs`, `scripts/v1-redirects.mjs`.
 
-- Phase 1 is in progress: every package is implemented and tested at `0.1.0-next.0`, but nothing is on npm yet.
-- Pages describing a built feature carry a caution aside titled "Pre-release (0.1.0-next): APIs may still change". Features that aren't built yet (queue/cache/mail, MySQL, Azure passwordless, SSO/SCIM/MFA, eject, auth CLI, detail pages, themes…) stay marked "Planned".
-- Package pages use the real APIs from each package's README; never document an API the code doesn't have.
+## Branches
 
-## Source of truth
+- `main`: the versioned site; both versions build from `versions/<branch>/` (why: README "Branches"). Push = deploy.
+- `0.1.x`: the original v1 site, frozen with its history. Not deployed. Old v1 URLs redirect to `/docs/0.1.x/` (`scripts/v1-redirects.mjs`).
 
-- `../../docs/00-executive-summary.md` (decisions D1–D24) and the rest of `../../docs/`.
-- The docs explain the blueprint in plain words and must **never contradict it**. If the blueprint changes, update the matching pages.
+## Commands (npm)
 
-## Style rules (non-negotiable)
-
-Full guide: `src/content/docs/community/docs-style-guide.mdx`.
-
-1. Friendly, second person ("you"), short sentences, plain words.
-2. **An example on every page**, using real code, tables or scenarios.
-3. "**What you'll learn**" at the top; "**Next steps**" (LinkCards) at the bottom.
-4. Explain jargon on first use, or link to `reference/glossary`.
-5. Analogies are welcome: keycard (permissions), apartment building (tenancy), car (levels of control), LEGO (contracts).
-6. **Relative links only** between pages (e.g. `../migrations/`), so the site works under any base path.
-
-## Commands
-
-pnpm runs via corepack. Never install anything globally.
-
-- `corepack pnpm dev`: local site at http://localhost:4321/strutvane-docs/
-- `corepack pnpm build`: build plus the link checker (must pass)
-- `corepack pnpm check`: type-check (must show 0 errors)
+- `npm run sync`: import the hub's committed docs snapshot (`--ref`, `--hub`, `--allow-dirty`)
+- `npm ci`, then `npm run verify`: build every version + link check + type check + tests. Must pass; it is the deploy gate.
+- `npm run dev`, `npm run preview`
 
 ## Gotchas
 
-- `starlight-links-validator` does **not** check relative links. `scripts/check-links.mjs` checks the built HTML instead, and that check is the real gate.
+- The built-site tests pin the base `/strutvane-docs/` and the Pages origin; a custom domain needs a hub change first.
 - In Git Bash, `DOCS_BASE=/` gets rewritten into a Windows path. Use PowerShell, or set `MSYS_NO_PATHCONV=1`.
-- Starlight 0.43 doesn't accept a `tagline` config key; the tagline lives in the home page hero.
+- Sync adjustments are anchored on exact text in the hub's files; if the hub changes them, sync stops and names the adjustment to update.
 
 ## Where things are
 
-- `src/content/docs/`: pages (folder path = URL)
-- `astro.config.mjs`: site, base, sidebar, plugins
-- `src/styles/custom.css`: brand colours
-- `.claude/skills/write-doc-page/`: playbook for new pages
-- `.claude/agents/docs-friendliness-reviewer.md`: review pages before merging
+- `DESIGN.md`: how the site works (the hub's design notes); `docs/WRITING-GUIDE.md`: how pages are written
+- `versions.json`: support table; `docs.sources.ts`: where each version's pages come from
+- `versions/<branch>/`: pages + `navigation.json`; `src/data/packages.json`: package catalogue
+- `.github/workflows/deploy.yml`: verify + deploy to Pages; `ci.yml`: the same gate on PRs
