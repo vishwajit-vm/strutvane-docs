@@ -51,10 +51,16 @@ export const PACKAGES_DATA_FILE = fileURLToPath(new URL('../../src/data/packages
 /**
  * The Packages part of the menu, generated from the package data, so a new package needs only a
  * data entry (and its page, written by `npm run packages:pages`).
+ *
+ * Why one flat list: the project lead found status sub-groups ("Coming in 0.3", "Later: phase 4"…)
+ * confusing in the sidebar (2026-11-15). Every package is listed directly under Packages, in the
+ * order of {@link packageMenuGroups} (catalogue, core, designs, then by planned release, retired
+ * last). Each package's status stays visible on its own page (the banner) and in the catalogue.
  */
 function generatedPackageGroups(label: string): NavigationGroup[] {
   const data = parsePackagesData(JSON.parse(readFileSync(PACKAGES_DATA_FILE, 'utf8')), 'src/data/packages.json')
-  return packageMenuGroups(data).map((group) => ({ label: group.label, items: group.items.map((item) => ({ slug: item.slug, label: item.label })), parent: label }))
+  const items = packageMenuGroups(data).flatMap((group) => group.items.map((item) => ({ slug: item.slug, label: item.label })))
+  return [{ label, items }]
 }
 
 /** A whole version's menu, plus the page `/docs/<version>/` opens on. */

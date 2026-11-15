@@ -42,22 +42,19 @@ describe('package pages', () => {
     assert.deepEqual(orphans, [])
   })
 
-  it('every entry is in the Packages menu exactly once, in the decided group order', () => {
-    const packageGroups = nav.groups.filter((group) => group.parent === 'Packages')
-    assert.deepEqual(packageGroups.map((group) => group.label), packageMenuGroups(data).map((group) => group.label))
-    assert.deepEqual(packageGroups.slice(0, 5).map((group) => group.label), ['Overview', 'Core (in development for 0.2)', 'Designs', 'Coming in 0.3 (proposed)', 'Planned for 1.0 (proposed)'])
-    assert.equal(packageGroups.at(-1)?.label, 'Retired')
-    const listed = packageGroups.flatMap((group) => group.items.map((item) => item.slug))
+  it('every entry is listed once, flat, directly under Packages (no status sub-groups)', () => {
+    // The project lead asked for a plain list (2026-11-15); status lives on each page's banner.
+    assert.equal(nav.groups.filter((group) => group.parent === 'Packages').length, 0)
+    const packages = nav.groups.find((group) => group.label === 'Packages' && group.parent === undefined)
+    assert.ok(packages, 'a top-level Packages group')
+    const listed = packages.items.map((item) => item.slug)
+    assert.deepEqual(listed, packageMenuGroups(data).flatMap((group) => group.items.map((item) => item.slug)))
+    assert.equal(listed[0], 'packages/catalogue')
+    assert.equal(new Set(listed).size, listed.length)
     assert.deepEqual([...listed].sort(), ['packages/catalogue', ...data.packages.map(packageSlug)].sort())
-    for (const entry of data.packages) {
-      const group = packageGroups.find((candidate) => candidate.items.some((item) => item.slug === packageSlug(entry)))
-      if (entry.status === 'retired') assert.equal(group?.label, 'Retired', entry.id)
-      else if (entry.kind === 'design') assert.equal(group?.label, 'Designs', entry.id)
-      else if (entry.phase === 1) assert.equal(group?.label, 'Core (in development for 0.2)', entry.id)
-      else if (entry.phase === 2) assert.equal(group?.label, 'Coming in 0.3 (proposed)', entry.id)
-      else if (entry.phase === 3) assert.equal(group?.label, 'Planned for 1.0 (proposed)', entry.id)
-      else assert.equal(group?.label, `Later (proposed): phase ${entry.phase}`, entry.id)
-    }
+    // Retired packages come last, so the list reads "what you can use" first.
+    const firstRetired = listed.findIndex((slug) => data.packages.some((entry) => entry.status === 'retired' && packageSlug(entry) === slug))
+    assert.ok(listed.slice(firstRetired).every((slug) => data.packages.some((entry) => entry.status === 'retired' && packageSlug(entry) === slug)))
   })
 
   it('the sidebar nests the generated groups under one Packages group, keeping the approved group order', () => {
