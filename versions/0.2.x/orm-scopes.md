@@ -17,7 +17,7 @@ Local scopes are Laravel's `scopePublished()` / `#[Scope]` methods; global scope
 ## Your first local scope
 
 ```ts title="app/models/post.ts"
-import { Model, type Scopes } from '@strutvane/framework'
+import { Model, type Scopes } from '@strutvane/framework/database'
 
 export class Post extends Model('posts', { fillable: ['title', 'body', 'status'] }) {
   static readonly scopes = {
@@ -117,7 +117,7 @@ const adasPublished = await ada.posts().published().get()
 A global scope is added to **every** query of the model: lists, `find()`, counts, relationships, `whereHas()` and pagination. Use it for rules that should never be forgotten.
 
 ```ts title="app/models/published-post.ts"
-import { Model, type Scopes } from '@strutvane/framework'
+import { Model, type Scopes } from '@strutvane/framework/database'
 
 /** The posts table, seen through a filter: only published posts. */
 export class PublishedPost extends Model('posts', { fillable: ['title'] }) {
@@ -161,6 +161,8 @@ Two conditions behave like global scopes without you writing them:
 | Hide soft-deleted rows (`deleted_at IS NULL`) | the table has `t.softDeletes()` | `withTrashed()`, `onlyTrashed()` (see [Soft Deletes](../orm-soft-deletes/)) |
 | Only the active tenant's rows | the table has the tenant column | can't be removed silently; see [Tenancy](../orm-tenancy/) |
 
+To add a policy's row rule yourself today, use `wherePolicy(filter, { actor })` (see [Querying](../orm-querying/#policy-filters-wherepolicy)).
+
 :::caution[Coming in 0.2]
 Authorization scopes are designed but not built yet: `Post.query().authorizedFor(user, 'view')` will add your policy's row rule (see [Authorization](../authorization/)) as one more group of conditions, so lists only ever contain records the user may see.
 :::
@@ -176,6 +178,12 @@ OrmUsageError: Post has a scope named "latest", which clashes with the query met
 **Why:** scopes become methods on the query builder, so they can't reuse a built-in name like `where`, `latest` or `count`.
 
 **Fix:** pick a descriptive name, such as `newestFirst` or `recentlyPublished`.
+
+`then`, `catch` and `finally` are refused too, because a builder with a `then` method would be mistaken for a promise:
+
+```text
+OrmUsageError: Post has a scope named "then", which clashes with promises: `await query` would call it instead of running the query. Rename the scope.
+```
 
 ### Removing a global scope that doesn't exist
 

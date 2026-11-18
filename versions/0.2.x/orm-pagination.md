@@ -32,7 +32,7 @@ console.log(page.data.map((post) => post.title))
 ## Numbered pages: `paginate()`
 
 ```ts
-await Post.query().paginate()          // page 1, with the model's default page size (25)
+await Post.query().paginate()          // page 1, with the model's default page size (15)
 await Post.query().paginate(25)        // page 1, 25 per page
 await Post.query().paginate(25, 3)     // page 3
 ```
@@ -93,7 +93,7 @@ A page number below 1, or something that isn't a whole number, is refused (see C
 
 ## Page size: the default and the limit
 
-- Each model's default page size is **25**, the same as the API and the screens. Change it per model with the `perPage` option (the ORM prototype still defaults to 15; 0.2 uses 25):
+- Each model's default page size is **15** (Laravel's default). Change it per model with the `perPage` option, for example to match a screen that shows 25 or 50 rows:
 
   ```ts title="app/models/post.ts"
   export class Post extends Model('posts', { fillable: ['title'], perPage: 50 }) {}
@@ -102,7 +102,7 @@ A page number below 1, or something that isn't a whole number, is refused (see C
 - The largest page anyone can ask for is **100**, to protect the database. Raise it once for the whole app if you must:
 
   ```ts title="app/providers/app.provider.ts (excerpt)"
-  import { configureOrm } from '@strutvane/framework'
+  import { configureOrm } from '@strutvane/framework/database'
 
   configureOrm({ maxPerPage: 500 })
   ```
@@ -135,7 +135,7 @@ const page = await Post.query().orderBy('status', 'desc').cursorPaginate(3)
 
 ### Cursors are tied to their query
 
-A cursor remembers the table and the sort order it was made for. Using it with a different order, or changing a single character, is refused instead of returning wrong rows. A cursor is not a secret, though: it holds the sort values of the last row (base64 text), so don't sort cursor pages by a column the user mustn't see.
+A cursor remembers the table and the sort order it was made for. Using it with a different order, or changing a single character, is refused instead of returning wrong rows. A cursor is not a secret, though: it holds the sort values of the last row (base64 text). That's why sorting cursor pages by a hidden column (such as `password`) is refused, and why every sort column must be `NOT NULL` (see Common mistakes).
 
 ### Cursor pages in an API
 
@@ -157,10 +157,10 @@ The client calls `GET /posts?cursor=<nextCursor>` for more, and stops when `next
 
 ## How the generated API pages lists
 
-The generated CRUD API uses the same two modes, with its own URL parameters (`?page=2&perPage=25`), a maximum of 100 per page, and a `meta` object with `page`, `perPage`, `total`, `lastPage`, `from` and `to`. The admin screens show numbered pages with 10, 25, 50 or 100 rows. See [Pagination](../pagination/) for the API and the screens.
+The generated CRUD API has its own URL parameters, limits and `meta` block; see [Pagination](../pagination/) for the API and the screens.
 
 :::caution[Coming in 0.2]
-`simplePaginate()` (next and previous only, without counting the total) and capping the total count at 10,000 rows on very large tables are designed but not built yet.
+`simplePaginate()` (next and previous only, without counting the total) and capping the total count at 10,000 rows on very large tables are designed but not built yet. Today `paginate()` always counts every matching row, and any page number is accepted, so cap the page number yourself when it comes from a request on a very large table.
 :::
 
 ## Which one should I use?
@@ -208,6 +208,16 @@ OrmUsageError: cursorPaginate() can't sort by "body" because it can be NULL. Sor
 **Why:** "continue after this row" doesn't work when the sort value can be missing.
 
 **Fix:** sort by a required column (`created_at`, `title`, `id`), or use `paginate()`.
+
+### Sorting cursor pages by a hidden column
+
+```text
+OrmUsageError: cursorPaginate() can't sort by "api_token": it is hidden, and the page cursor would reveal its values. Sort by a visible column, or use paginate().
+```
+
+**Why:** every `nextCursor` carries the last row's sort values to the client.
+
+**Fix:** sort by a visible column.
 
 ## Next steps
 

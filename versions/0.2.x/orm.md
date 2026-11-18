@@ -16,7 +16,7 @@ This is Eloquent. `class Post extends Model` becomes `class Post extends Model('
 Say a migration created a `posts` table with `title`, `slug`, `body`, `status`, `published_on`, `meta`, `author_id`, timestamps and soft deletes (see [Your First CRUD](../first-crud/)). This is a complete model for it:
 
 ```ts title="app/models/post.ts"
-import { Model } from '@strutvane/framework'
+import { Model } from '@strutvane/framework/database'
 
 export class Post extends Model('posts', {
   fillable: ['title', 'body', 'status'],
@@ -54,6 +54,30 @@ The row is in the database, the slug was generated, the author was linked and bo
 TypeScript can only give `post.title` the type `string` if the class is created by a function that knows the table. That's also why options that change types (`fillable`, `hidden`, `casts`, `allowSensitive`, `perPage`) go in the call, and behaviour (relations, scopes, getters, your own methods) goes in the class body. No decorators are needed.
 :::
 
+:::note[Import paths]
+Everything on the ORM pages (`Model`, `Scopes`, `cast`, `json`, `sql`, `transaction`, `runWithTenant`, `loadMany`, `configureOrm`, `defineFactory`, `defineSeeder`, the error classes and the types) comes from `@strutvane/framework/database`. Migrations use `@strutvane/framework/schema`. `node strut make:migration create_posts_table` writes the model with the right import for you.
+:::
+
+### Where the ORM gets its connection
+
+The ORM needs two things before a model can run a query: the **schema snapshot** (`.strutvane/schema.json`, written by `node strut migrate` and `node strut sync`), so it knows every table and column, and a **connection** built from your `DB_*` settings (see [Database](../database/)).
+
+`node strut db:seed`, `node strut migrate --seed` and the other database commands set both up for you, so seeders and factories work out of the box.
+
+:::caution[Coming in 0.2]
+Setting the ORM up when the app server boots (`node strut start` and `node strut dev`) isn't built yet in `@strutvane/framework` 0.2.0-next.0: the app doesn't open an ORM connection by itself. Until it does, a service provider can do it with the same public functions the commands use *(unverified in a served app)*:
+
+```ts title="app/providers/database.provider.ts (excerpt)"
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { databaseSettings, openDatabase, registerSchema, useConnection } from '@strutvane/framework/database'
+
+const root = process.cwd()
+registerSchema(JSON.parse(readFileSync(join(root, '.strutvane', 'schema.json'), 'utf8')))
+useConnection(await openDatabase(databaseSettings(process.env, root)))
+```
+:::
+
 ## How a model finds its data
 
 You never configure these; they follow from your migrations.
@@ -79,8 +103,10 @@ A UUIDv7 is a random-looking id that still sorts by creation time, so new rows l
 
 A table without an `id` column can't have a model (pivot tables like `post_tag` don't need one). And the key of a saved row never changes; see Common mistakes.
 
+Your own code may choose a UUID key itself: `forceCreate({ id: '…' })` and `forceFill()` accept `id` on a UUID table (never on a `t.id()` table). Requests can't set it, because `id` can't be in `fillable`.
+
 :::caution[Coming in 0.2]
-UUIDv7 keys are built in the ORM. `t.uuid('id').primary()` is decided (2026-11-15) and lands in the migration recorder with 0.2 (today it makes only `t.id()` a primary key). `t.ulid('id')` keys and composite primary keys are designed but not built yet.
+`t.ulid('id')` keys and composite primary keys are designed but not built yet.
 :::
 
 ### When columns change
@@ -236,32 +262,34 @@ A `prunable()` method on the model (the query of rows to delete) plus a schedule
 
 ## Turning models into JSON
 
-`toJSON()` gives you a plain object, ready to send; `JSON.stringify(post)` and `ctx.json(post)` call it for you. Dates become ISO strings, decimals stay exact strings, loaded relations and counts are nested in, and columns listed in `hidden` never appear (their keys are missing from the TypeScript type too):
+`toJSON()` gives you a plain object, ready to send; `JSON.stringify(post)` and `ctx.json(post)` call it for you. Dates become ISO strings, decimals stay exact strings, loaded relations and counts are nested in, and hidden columns never appear (their keys are missing from the TypeScript type too).
+
+A column is hidden when the model lists it in `hidden`, when its migration marks it `.hidden()` or `.secret()`, or when its name looks like a secret (`password`, `remember_token`, `api_key`, anything ending in `_token`, `_secret` or `_password`, …). So a `password` column is hidden even though this model doesn't list it:
 
 ```ts title="app/models/user.ts"
-import { Model } from '@strutvane/framework'
+import { Model } from '@strutvane/framework/database'
 
 export class User extends Model('users', {
   fillable: ['name', 'email'],
-  hidden: ['password'],
 }) {}
 ```
 
 ```ts
-const json = (await User.findOrFail(1)).toJSON()
-console.log(json)
+const user = await User.findOrFail(1)
+console.log(user.toJSON())
 // → { id: 1, name: 'Ada', email: 'ada@example.com', created_at: '2026-11-14T09:30:00.000Z', updated_at: '2026-11-14T09:30:00.000Z' }
-json.password // compile error: Property 'password' does not exist
+console.log(user)              // the same fields: console.log and util.inspect never print a hidden column
+user.toJSON().password         // compile error: Property 'password' does not exist
 ```
 
-Everything about the output (each value type, relations, the `JsonOf` and generated `PostJson` types, and the coming `visible` and `appends`) is on [Serialization](../orm-serialization/).
+Your own server code can still read `user.password` (to check a hash, say); hidden only affects what leaves the server. Everything about the output (each value type, relations, the `JsonOf` and generated `PostJson` types, and the coming `visible` and `appends`) is on [Serialization](../orm-serialization/).
 
 ## Adding behaviour to a model
 
 The class body is yours. Add methods, getters (computed values), [relations](../orm-relationships/) and [scopes](../orm-scopes/):
 
 ```ts title="app/models/post.ts"
-import { Model, type Scopes } from '@strutvane/framework'
+import { Model, type Scopes } from '@strutvane/framework/database'
 import { User } from './user.ts'
 
 export class Post extends Model('posts', {
@@ -294,15 +322,15 @@ A method or getter must not have the same name as a column (see Common mistakes)
 A **model event** is a hook that runs when a model is created, updated, deleted or restored, like "send a welcome mail after a user is created". An **observer** is a class that groups those hooks for one model. They follow Laravel's names (`creating`, `created`, `updating`, `updated`, `saving`, `saved`, `deleting`, `deleted`, `restoring`, `restored`), and "after" events inside a transaction wait for the commit.
 
 :::caution[Coming in 0.2]
-Events and observers are designed but not built yet. The full guide (hooks on the model, `make:observer`, the order events fire in, transactions, `saveQuietly()`) is on [Events & Observers](../orm-events/).
+The ORM doesn't fire model events yet. `node strut make:observer` already writes an observer class, but there's no way to attach it to a model until events ship. The full guide (hooks on the model, the order events fire in, transactions, `saveQuietly()`) is on [Events & Observers](../orm-events/).
 :::
 
 ## Settings: `configureOrm()`
 
-A few switches apply to the whole app. The framework sets them at boot; change them in a service provider:
+A few switches apply to the whole app. Change them once, at start-up (in a service provider):
 
 ```ts title="app/providers/app.provider.ts (excerpt)"
-import { configureOrm } from '@strutvane/framework'
+import { configureOrm } from '@strutvane/framework/database'
 
 configureOrm({
   maxPerPage: 200,
@@ -314,13 +342,14 @@ configureOrm({
 |---|---|---|
 | `preventLazyLoading` | `true`, except when `NODE_ENV=production` | refuses loading a relation one row at a time inside a list (the N+1 problem) |
 | `maxPerPage` | `100` | the largest page `paginate()` and `cursorPaginate()` accept |
-| `tenancy` | from `config/tenancy.ts`: `{ column: 'tenant_id' }` with teams, `false` without | the one tenant column of the app, or `false` for a single-tenant app; set it in `config/tenancy.ts`, not here |
+| `maxInValues` | `1000` | the longest list `whereIn()`, `whereNotIn()` and `filter(…, 'in', …)` accept |
+| `tenancy` | `false`; the database commands read `config/tenancy.ts` | the one tenant column of the app (`{ column: 'tenant_id' }`), or `false` for a single-tenant app |
 | `onUnsafeTenancy` | does nothing | called for every audited tenancy bypass; wire it to your audit log |
 
 Settings you don't pass keep their values.
 
 :::note[Tenancy follows `config/tenancy.ts`]
-Tenancy is on only in apps created with teams (`enabled: true` in `config/tenancy.ts`). With tenancy on, every table must either have the tenant column (it's **scoped** to one tenant) or be marked as **global** (shared by all tenants) in its migration; any other table is refused. The examples on the ORM pages treat `users`, `posts` and `tags` as global tables and `projects` and `tasks` as tenant tables. A single-tenant app has `enabled: false`, and then none of this applies. See [Tenancy](../orm-tenancy/).
+Tenancy is on only in apps created with teams (`enabled: true` in `config/tenancy.ts`; `node strut migrate`, `db:seed` and the other database commands pass it to the ORM). With tenancy on, every table must either have the tenant column (it's **scoped** to one tenant) or be marked as **global** (shared by all tenants) in its migration; any other table is refused. The examples on the ORM pages treat `users`, `posts` and `tags` as global tables and `projects` and `tasks` as tenant tables. A single-tenant app has `enabled: false`, and then none of this applies. See [Tenancy](../orm-tenancy/).
 :::
 
 ### Strict mode
@@ -329,7 +358,8 @@ Tenancy is on only in apps created with teams (`enabled: true` in `config/tenanc
 
 - **Unknown and non-fillable fields throw** (Laravel's `preventSilentlyDiscardingAttributes`), in every environment. See [Mass Assignment](../orm-mass-assignment/).
 - **Lazy loading inside a list throws** `LazyLoadingError` outside production (`preventLazyLoading`). See [Relationships](../orm-relationships/).
-- **Unknown column names throw** with a "did you mean", in `where()`, `sort()`, `filter()` and `search()`.
+- **Unknown column names throw** with a "did you mean", in `where()`, `sort()`, `filter()` and `search()`. A hidden column answers exactly like a missing one in `sort()`, `filter()` and `search()`, and is never suggested.
+- **Odd model options throw** the first time the model is used: a `hidden`, `fillable` or `casts` entry for a column that doesn't exist, a secret or sensitive-looking column in `fillable` (see [Mass Assignment](../orm-mass-assignment/)), or a scope named like a query method.
 
 :::caution[Coming in 0.2]
 `Model.strict()`, one switch that also refuses reading an attribute that wasn't selected (Laravel's `preventAccessingMissingAttributes`), and a development warning when the same query runs more than 5 times in one request, are designed but not built yet.
@@ -340,7 +370,7 @@ Tenancy is on only in apps created with teams (`enabled: true` in `config/tenanc
 To log or count the SQL your code sends (useful in tests and while debugging), listen on the connection:
 
 ```ts title="tests/feature/post-list.test.ts (excerpt)"
-import { defaultConnection } from '@strutvane/framework'
+import { defaultConnection } from '@strutvane/framework/database'
 
 let queries = 0
 const stop = defaultConnection().onQuery((event) => {
@@ -356,19 +386,20 @@ console.log(queries) // → 2
 `onQuery()` returns a function that stops listening. Parameters are included for debugging; never write them to a log without redaction, because they can contain personal data.
 
 :::caution[Coming in 0.2]
-Several named connections (`Post.on('reporting')`, read and write hosts) are designed but not built yet; the ORM uses one connection, set up by the framework from your `DB_*` settings (see [Database](../database/)).
+Several named connections (`Post.on('reporting')`, read and write hosts) are designed but not built yet; the ORM uses one connection, built from your `DB_*` settings (see [Database](../database/)).
 :::
 
 ## Which database?
 
-The ORM behaves the same on **MySQL 8.4+** (the default), **PostgreSQL** and **SQLite**: the spike behind it runs every test on all three. Where the engines differ, the ORM smooths it over:
+The ORM behaves the same on **MySQL 8.4+** (the default), **MariaDB**, **PostgreSQL** (a server, or PGlite in process) and **SQLite** (Node's built-in `node:sqlite`): the framework's ORM tests run on every one of them. Where the engines differ, the ORM smooths it over:
 
 - **Booleans:** MySQL and SQLite store `0`/`1`; you always get `true`/`false`.
 - **Decimals:** SQLite stores them as floats; you always get an exact string like `'10.50'`.
 - **Text length:** SQLite ignores `VARCHAR(200)`; the ORM enforces the length everywhere.
 - **Dates:** stored and read in UTC on every engine.
-- **Inserts:** MySQL has no `RETURNING`, so the row is read back by key (one extra query).
-- **Case and accents:** MySQL's default collation treats `'résumé'` and `'resume'` as equal. Identifier-like columns (email, slug, uuid, enum, tokens) are designed to use a byte-for-byte collation on MySQL *(coming in 0.2: the ORM was tested with it, the migration recorder doesn't write it yet)*; normalise emails with a cast meanwhile (see [Casts](../orm-casts/)).
+- **Inserts:** MySQL and MariaDB have no `RETURNING`, so the row is read back by key (one extra query).
+- **Mixed types:** MySQL compares across types by converting (`'1abc' = 1` is true there). The ORM checks every value against its column's type before any SQL is sent, so that can't happen.
+- **Case and accents:** MySQL's default collation treats `'résumé'` and `'resume'` as equal. On MySQL and MariaDB, the migration gives identifier-like columns (slugs, UUIDs, and text columns named `email`, `username`, `token` or ending in `_email`/`_token`) a byte-for-byte collation, so they're compared exactly. Other text columns keep the server's default; normalise values you look up with a cast (see [Casts](../orm-casts/)).
 
 ## Common mistakes
 
@@ -407,15 +438,25 @@ OrmUsageError: The table "post" is not in the schema snapshot. Did you create it
 
 **Why:** the name in `Model('post')` doesn't match a table (tables are plural), or the migration hasn't run yet.
 
-**Fix:** use the table name from the migration (`Model('posts')`) and run `node strut migrate`.
+**Fix:** use the table name from the migration (`Model('posts')`) and run `node strut migrate`. If the message ends with "No schema is registered yet: call registerSchema(snapshot) at boot.", the ORM hasn't been set up in this process at all (see [Where the ORM gets its connection](#where-the-orm-gets-its-connection)).
+
+### "No database connection is set yet"
+
+```text
+OrmUsageError: No database connection is set yet. Call useConnection(connection) at boot (the framework does this for you).
+```
+
+**Why:** a model ran a query in a process where nobody called `useConnection()`. The database commands do it for you; the app server doesn't yet in 0.2.0-next.0.
+
+**Fix:** see [Where the ORM gets its connection](#where-the-orm-gets-its-connection).
 
 ### A model for a table without `id`
 
 ```text
-OrmUsageError: "post_tag" has no "id" column. Models need t.id() (or t.uuid('id').primary()) in the migration; pivot tables don't need a model.
+OrmUsageError: "post_tag" has no "id" column. Models need t.id() (or t.uuid('id')) in the migration; pivot tables don't need a model.
 ```
 
-**Fix:** add `t.id()` in the migration, or don't write a model for a pivot table: use `belongsToMany()` instead.
+**Fix:** add `t.id()` (or `t.uuid('id').primary()`) in the migration, or don't write a model for a pivot table: use `belongsToMany()` instead.
 
 ### A column with the same name as a model method
 
@@ -449,7 +490,9 @@ OrmUsageError: The primary key of a saved "posts" row can't change. Create a new
 
 ### A database error about `author_id` when creating a post
 
-**Why:** `author_id` is required but isn't in `fillable` (on purpose: users must not pick the author), so `Post.create({ title })` leaves it empty and the database refuses the row.
+**What you'll see:** a NOT NULL error from the database driver (the wording depends on MySQL, MariaDB, PostgreSQL or SQLite). If your own code sets `author_id` to `null`, the ORM stops it first with `CastError: Can't store that value in "posts.author_id": it is required (the column is NOT NULL).`
+
+**Why:** `author_id` is required but isn't in `fillable` (on purpose: users must not pick the author), so `Post.create({ title })` leaves it out of the INSERT and the database refuses the row.
 
 **Fix:** create the post through the relationship, `user.posts().create({...})`, or set `post.author_id = user.id` in your own code before `save()`.
 

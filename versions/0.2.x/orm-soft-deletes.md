@@ -122,7 +122,7 @@ The admin list hides deleted rows by default and offers a "Trashed" filter (with
 **Pruning** means removing, on a schedule, rows that were soft-deleted long ago. Until the built-in version arrives, write it as a job that runs every night:
 
 ```ts title="app/jobs/prune-posts.ts"
-import { transaction } from '@strutvane/framework'
+import { transaction } from '@strutvane/framework/database'
 import { Post } from '../models/post.ts'
 
 /** Removes posts that have been in the bin for more than 30 days. */

@@ -14,7 +14,7 @@ This is `$fillable`, with stricter defaults. There is no `$guarded` and no "ungu
 ## The smallest example
 
 ```ts title="app/models/post.ts"
-import { Model } from '@strutvane/framework'
+import { Model } from '@strutvane/framework/database'
 
 export class Post extends Model('posts', {
   fillable: ['title', 'body', 'status'],
@@ -89,18 +89,31 @@ Even `forceCreate()` and `forceFill()` refuse columns Strutvane manages itself, 
 
 ## Columns Strutvane manages
 
-These can never be mass-assigned, not even with `forceCreate()`:
+These can never be in `fillable`, and `forceCreate()`/`forceFill()` refuse them too:
 
-- the key (`id`);
+- the key (`id`), with one exception: on a table with a UUID key (`t.uuid('id').primary()`), trusted code may choose the id with `forceCreate({ id })` or `forceFill({ id })`;
 - `created_at`, `updated_at` and `deleted_at`;
 - the tenant column (`tenant_id` or `team_id`, see [Tenancy](../orm-tenancy/)).
+
+## Secret columns can't be filled from a request
+
+A **secret column** is one the migration marks `.secret()`, or whose name looks like a secret: `password`, `remember_token`, `api_key`, `private_key`, `recovery_codes`, or anything ending in `_password`, `_token`, `_secret`, `_api_key`, `_access_key` and similar. Secrets are always hidden from JSON, and listing one in `fillable` is refused, because a request should never set a password hash or a token directly:
+
+```ts title="app/services/register-user.ts (excerpt)"
+const user = User.make()
+user.fill({ name: input.name, email: input.email })   // from the request
+user.forceFill({ password: await hash(input.password) }) // your own code, after hashing
+await user.save()
+```
+
+`hash()` here stands for your password-hashing function (see [Hashing](../hashing/)). If users really may send a secret column as is, list it in both `fillable` and `allowSensitive`.
 
 ## Sensitive-looking columns need `allowSensitive`
 
 Some names usually mean "privileges" or "workflow": `is_*`, `*_at`, `*_by`, `role`, `roles`, `plan`, `permissions`, `user_id`, `owner_id`. If you list one in `fillable`, Strutvane asks you to confirm it by listing it in `allowSensitive` too. Say your `tasks` table has an `is_urgent` flag that users may really tick:
 
 ```ts title="app/models/task.ts"
-import { Model } from '@strutvane/framework'
+import { Model } from '@strutvane/framework/database'
 
 export class Task extends Model('tasks', {
   fillable: ['title', 'done', 'is_urgent'],
@@ -176,6 +189,14 @@ OrmUsageError: Task lists "is_urgent" as fillable, and it looks privilege- or wo
 ```
 
 **Fix:** add `allowSensitive: ['is_urgent']`, or remove it from `fillable` and set it in your own code.
+
+### "it is a secret"
+
+```text
+OrmUsageError: User lists "password" as fillable, and it is a secret (.secret() or a name like password, *_token, api_key). A request must not set it directly: set it in your own code (forceFill/forceCreate) after hashing or generating it, or, if users really may send it, also list it in allowSensitive: ['password'].
+```
+
+**Fix:** remove it from `fillable` and set it with `forceFill()` after hashing it, as shown in [Secret columns](#secret-columns-cant-be-filled-from-a-request).
 
 ### `create()` doesn't compile at all
 

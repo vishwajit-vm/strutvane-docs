@@ -84,12 +84,9 @@ A third post titled "Launch" gets `launch-3`, and so on: Strutvane takes the nex
 Behind the scenes:
 
 - **Characters like `%` and `_` in titles are plain characters**: looking for taken slugs never treats them as wildcards, so `a_b` and `axb` don't block each other.
-- **Two requests at the same moment** may pick the same slug. The database's unique index refuses the second one, and Strutvane retries it with the next number. Inside a [transaction](../orm-transactions/), the retry uses a savepoint, so your surrounding transaction survives.
+- **Two requests at the same moment** may pick the same slug. The database's unique index refuses the second one, and Strutvane retries it with the next free number (up to 5 attempts). Each attempt runs in its own savepoint, so inside a [transaction](../orm-transactions/) your surrounding transaction survives.
 - **Soft-deleted rows keep their slug**, so restoring them never clashes (a new "Launch" next to a deleted one gets `launch-2`).
-
-:::caution[Coming in 0.2]
-Sequential suffixes are decided (2026-11-15) and proven in the schema prototype. The ORM prototype still adds a random four-character suffix (`launch-k3f9`); 0.2 switches it to `-2`, `-3`.
-:::
+- **The slug fits its column**: the base is cut to the column length minus 8 characters, so there's room for a suffix like `-123`.
 
 ## Unique per team
 
@@ -102,11 +99,7 @@ console.log(a.slug, b.slug)
 // → launch launch   (each team gets its own "launch")
 ```
 
-When tenancy is on, `t.slug()` creates the unique index on `(tenant_id, slug)` instead of `(slug)`, so the database agrees that two teams may both have `launch`. The ORM looks for taken slugs, and counts suffixes, only inside the active tenant: another team's `launch` never makes yours `launch-2`.
-
-:::caution[Coming in 0.2]
-The `(tenant_id, slug)` index is decided (2026-11-15). Today the migration recorder always adds a unique index on the slug alone, so on a tenant table two teams can't share a slug yet.
-:::
+In a table with `t.tenant()`, every unique index starts with the tenant column, so `t.slug('slug')` gets a unique index on `(tenant_id, slug)` (named `projects_tenant_id_slug_unique`) instead of `(slug)`, and the database agrees that two teams may both have `launch`. The ORM looks for taken slugs, and counts suffixes, only inside the active tenant: another team's `launch` never makes yours `launch-2`, and a collision can't reveal that another team uses the same title.
 
 ## Choosing a slug yourself
 
@@ -170,11 +163,9 @@ t.string('title').from('name') // compile error: only slugs have .from()
 
 ### A user-chosen slug collides
 
-```text
-409 Conflict
-```
+**What you'll see:** a unique-constraint error from the database driver when you `save()` (the exact wording depends on MySQL, MariaDB, PostgreSQL or SQLite).
 
-**Why:** a slug you set yourself is kept as is, so if it's already taken the unique index refuses it, and the generated API answers 409.
+**Why:** a slug you set yourself is kept as is, and only empty slugs are generated and retried, so if yours is already taken the unique index refuses the row.
 
 **Fix:** check first with `Post.query().where('slug', value).exists()`, or let Strutvane generate the slug.
 

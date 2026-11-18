@@ -8,24 +8,25 @@ When your API returns a post, it sends JSON. An **API resource** is a small laye
 You want one as soon as the JSON is seen by someone outside your team (a mobile app, a partner, the public), because the database and the API then change at different speeds. Without a resource, a column you add next month appears in the API automatically, whether you meant it to or not.
 
 :::tip[Coming from Laravel?]
-Laravel's `JsonResource` (`PostResource::make($post)`, `PostResource::collection($posts)`, `whenLoaded`, `whenCounted`) is designed for Strutvane as `defineResource()` and `node strut make:resource`, and arrives in 0.2. Today you have the same building blocks Laravel's `$hidden` gives you: `hidden` columns are left out of `toJSON()` and of its TypeScript type. A plain typed function does the rest until resources ship.
+Laravel's `JsonResource` (`PostResource::make($post)`, `PostResource::collection($posts)`, `whenLoaded`, `whenCounted`) is designed for Strutvane and arrives in 0.2. Today you have the same building blocks Laravel's `$hidden` gives you, and more: hidden columns are left out of `toJSON()` and of its TypeScript type. A plain typed function does the rest until resources ship.
 :::
 
-## What you get today: `toJSON()` and `hidden`
+## What you get today: `toJSON()` and hidden columns
 
 Every model turns itself into JSON with `toJSON()`, and `JSON.stringify(post)` or `ctx.json(post)` call it for you:
 
-- every column, except those listed in `hidden`;
+- every column, except hidden ones;
 - dates as ISO strings (`'2026-11-14T09:30:00.000Z'`);
-- loaded relationships nested, each with its **own** `hidden` columns removed;
+- loaded relationships nested, each with its **own** hidden columns removed;
 - `withCount()` counts as `<relation>_count`.
 
+A column is hidden when the model lists it in `hidden`, when the migration marks it `.hidden()` or `.secret()`, or when its name looks like a secret (`password`, `remember_token`, `api_key`, anything ending in `_token`, `_secret` or `_password`, and similar). So this model needs no `hidden` list at all:
+
 ```ts title="app/models/user.ts"
-import { Model } from '@strutvane/framework'
+import { Model } from '@strutvane/framework/database'
 
 export class User extends Model('users', {
-  fillable: ['name', 'email', 'password'],
-  hidden: ['password'],
+  fillable: ['name', 'email'],
 }) {}
 ```
 
@@ -42,14 +43,14 @@ console.log(JSON.stringify(user))
 
 No `password`. The TypeScript type of `user.toJSON()` (`JsonOf<User>`) has no `password` key either, so code that tries to read it doesn't compile.
 
-The generated CRUD API adds one more safety net: columns whose names look like secrets (`password`, `remember_token`, `two_factor_secret`, anything ending in `_token` or `_secret`) are never returned, searched or sorted, whatever the model says. Marking any other column as secret or hidden right in the migration (`.secret()`, `.hidden()`) is designed for 0.2 but not built yet.
+Hidden columns are also never accepted by the request-driven `search()`, `filter()` and `sort()`, never used as cursor sort keys, and never named in "did you mean" hints, so they can't leak one character at a time either. `console.log(user)` prints the same fields as `toJSON()`.
 
 ## A typed transformer, today
 
 When you want control over the output (a renamed field, a computed value, only some columns), write a plain function. It's fully typed, and new columns only appear when you add them:
 
 ```ts title="app/http/resources/post.resource.ts"
-import type { WithRelations } from '@strutvane/framework'
+import type { WithRelations } from '@strutvane/framework/database'
 import type { Post } from '../../models/post.ts'
 
 /** A post as the public API shows it. */
@@ -139,7 +140,7 @@ export function userResource(user: User, viewerIsAdmin: boolean) {
 ## API resources (coming in 0.2)
 
 :::caution[Coming in 0.2]
-Designed but not built yet; names may still change. `node strut make:resource PostResource` will write a resource file, and resources will be typed transformers used both by your controllers and by the generated CRUD API:
+Designed but not built yet; names may still change. Resources will be typed transformers used both by your controllers and by the generated CRUD API. Note that two things already carry similar names and are **not** API resources: `defineResource()` from `@strutvane/framework` today configures a model's CRUD routes (hooks and options), and `node strut make:resource <Model>` writes that CRUD resource file (custom actions and hooks). The planned API:
 
 ```ts title="app/http/resources/post.resource.ts"
 export const PostResource = defineResource(Post, (post, { whenLoaded, whenCounted }) => ({
@@ -162,7 +163,7 @@ return PostResource.page(await Post.query().with('author').paginate(25))
 
 **Why:** `toJSON()` includes every column that isn't hidden, so a column added by a later migration is sent too.
 
-**Fix:** return a transformer's output (above) for public endpoints, or add the column to `hidden` if it must never leave the server.
+**Fix:** return a transformer's output (above) for public endpoints, or hide the column if it must never leave the server: add it to the model's `hidden`, or mark it `.hidden()` (or `.secret()`) in its migration, which hides it for every model of that table.
 
 ### A getter is missing from the JSON
 

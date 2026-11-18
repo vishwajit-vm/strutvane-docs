@@ -1,6 +1,6 @@
 ---
 title: "Factories"
-description: "Make realistic fake records for tests and seeders: what the generated factory file gives you today, and the full factory API (counts, states, sequences, relations, recycle) arriving in 0.2."
+description: "Make realistic fake records for tests and seeders with defineFactory: counts, states, sequences, parents, children, recycled parents and reproducible fake data."
 ---
 
 A **factory** is a recipe for one fake record. Instead of typing out a post with a title, a body and an author every time a test or a seeder needs one, you describe a typical post once, and then ask for "ten of those" or "three published ones by this user".
@@ -8,10 +8,10 @@ A **factory** is a recipe for one fake record. Instead of typing out a post with
 Use factories in two places: **tests**, where every test needs its own small set of data, and **seeders**, where you fill a development database with enough realistic rows that the screens look real (see [Seeding](../seeding/)).
 
 :::tip[Coming from Laravel?]
-The API is Laravel's, in TypeScript (decided 2026-11-15): `Post::factory()->count(10)->for($user, 'author')->create()` becomes `Post.factory().count(10).for(user, 'author').create()`, `state([...])` becomes `state({ ... })`, `has()` and `recycle()` keep their names, and the definition is a function instead of a class. Factories write through `forceCreate()` (trusted code), and on tenant tables they run inside the active tenant. In 0.2, `--seeder` and `--factory` write a `defineFactory` file; today the prototype writes a plain starter function, shown first below.
+The API is Laravel's, in TypeScript. A factory is a value, not a class, and you import it instead of calling `Post::factory()`: `Post::factory()->count(10)->for($user, 'author')->create()` becomes `PostFactory.count(10).for(user, 'author_id').create()`. `state()`, `has()`, `recycle()` and `sequence` keep their meaning. Two differences: `for()` and `has()` take the **foreign-key column** (`author_id`), not the relationship name, and factories write through `forceCreate()` (trusted code), so `fillable` doesn't apply.
 :::
 
-## What you get today
+## The smallest example
 
 Ask for a factory when you create a table:
 
@@ -19,219 +19,256 @@ Ask for a factory when you create a table:
 node strut make:migration create_posts_table --factory
 ```
 
-**What you'll see:**
+**What you'll see** (something like this):
 
 ```text
   Created database/migrations/2026_11_14_093000_create_posts_table.ts
   Created app/models/post.ts
   Created database/factories/post.factory.ts
-
-  Next: add your columns to the migration, then run `node strut migrate`.
 ```
 
-`--factory` on its own creates only the factory. `--seeder` creates the seeder **and** its factory, because a seeder usually uses the factory (see [Seeding](../seeding/)).
+`--factory` adds only the factory. `--seeder` adds the seeder **and** its factory, and registers the seeder in `database/seeders/database.seeder.ts` (see [Seeding](../seeding/)). Existing files are never overwritten, so running the command again never loses your work.
 
-:::caution[Coming in 0.2]
-In the prototype, `--seeder` writes only the seeder; you add `--factory` to get both. The decided behaviour above ships with 0.2.
-:::
-
-The new file is a small, plain function. This is its exact content:
+The new factory looks like this:
 
 ```ts title="database/factories/post.factory.ts"
-/**
- * Fake `posts` rows for tests and seeders. `sequence` makes each row unique.
- */
-export function postDefinition(sequence: number): Record<string, unknown> {
-  // Return one row's columns, for example: return { title: `Post ${sequence}` }
-  void sequence
-  return {}
-}
-```
-
-The function name follows the model: `post.factory.ts` exports `postDefinition`, and a `blog_posts` table gets `blog-post.factory.ts`. The file is only written when it doesn't exist yet, so running the command again never overwrites your work.
-
-### Using it, step by step
-
-1. Fill in the definition. `sequence` is a counter you pass in (1, 2, 3…), so every row can be different:
-
-   ```ts title="database/factories/post.factory.ts"
-   /** One fake post's columns (the author is added by the caller). */
-   export interface PostDefinition {
-     title: string
-     body: string
-     status: 'draft' | 'published'
-   }
-
-   /** Fake `posts` rows for tests and seeders. `sequence` makes each row unique. */
-   export function postDefinition(sequence: number): PostDefinition {
-     return {
-       title: `Post ${sequence}`,
-       body: `The body of post ${sequence}.`,
-       status: sequence % 2 === 0 ? 'published' : 'draft',
-     }
-   }
-   ```
-
-   Replacing the generated `Record<string, unknown>` return type with a precise one lets TypeScript check the values against the `posts` columns when you save them in step 2.
-
-2. Call it in a loop, adding the columns that link to other rows, and save with `forceCreate()`:
-
-   ```ts title="database/seeders/post.seeder.ts"
-   import { defineSeeder } from '@strutvane/framework'
-   import { Post } from '../../app/models/post.ts'
-   import { User } from '../../app/models/user.ts'
-   import { postDefinition } from '../factories/post.factory.ts'
-
-   export default defineSeeder({
-     after: ['users'],
-     async run() {
-       const author = await User.query().orderBy('id').firstOrFail()
-       for (let sequence = 1; sequence <= 10; sequence += 1) {
-         await Post.forceCreate({ ...postDefinition(sequence), author_id: author.id })
-       }
-     },
-   })
-   ```
-
-3. Run it with `node strut db:seed` (or let `node strut migrate` run new seeders in development; see [Seeding](../seeding/)).
-
-**What you'll see** afterwards, if you query the table:
-
-```ts
-console.log(await Post.query().count())                        // → 10
-console.log((await Post.query().orderBy('id').first())?.title) // → Post 1
-```
-
-`forceCreate()` is right here because a factory is your own trusted code: it may set `author_id`, which users may not. Never feed request data into it (see [Mass Assignment](../orm-mass-assignment/)).
-
-## The factory API (coming in 0.2)
-
-:::caution[Coming in 0.2]
-Everything from here on is **decided but not built yet**: `defineFactory(Post, ({ faker, sequence }) => ({ … }))` with `.state()`, `.for()`, `.has()` and `.recycle()` is the shape for 0.2 (decided 2026-11-15), and 0.2's `make:migration --seeder`/`--factory` writes this file instead of the starter function. Until then, use the plain definition function above.
-:::
-
-### Defining a factory
-
-```ts title="database/factories/post.factory.ts"
-import { defineFactory } from '@strutvane/framework'
+import { defineFactory } from '@strutvane/framework/database'
 import { Post } from '../../app/models/post.ts'
-import { User } from '../../app/models/user.ts'
 
+/** Fake `posts` rows for seeders and tests. Fill in the columns your migration adds. */
 export default defineFactory(Post, ({ faker, sequence }) => ({
-  title: faker.lorem.sentence(),
-  body: faker.lorem.paragraph(),
-  status: 'draft',
-  author_id: () => User.factory(),   // a new user per post, unless you say otherwise
+  // title: `${faker.sentence()} #${sequence}`,
 }))
 ```
 
-- `faker` makes realistic fake values (names, sentences, emails).
-- `sequence` is a counter that grows with each record, for values that must be unique.
-- The keys are typed by the model's columns, so a typo or a wrong value type doesn't compile.
-- Columns you leave out get a sensible fake value from their type (text, numbers, dates, enum values), with a fixed random seed, so the same seeder makes the same data on every machine.
+Fill in the columns:
 
-### Making records
+```ts title="database/factories/post.factory.ts"
+import { defineFactory } from '@strutvane/framework/database'
+import { Post } from '../../app/models/post.ts'
+import UserFactory from './user.factory.ts'
 
-| You want | Write |
+export default defineFactory(Post, ({ faker, sequence }) => ({
+  title: `${faker.sentence()} #${sequence}`,
+  body: faker.paragraph(),
+  status: faker.pick(['draft', 'published']),
+  author_id: UserFactory, // a new user per post, unless you recycle some (below)
+}))
+```
+
+Then use it in a seeder (or a test):
+
+```ts title="database/seeders/post.seeder.ts"
+import { defineSeeder } from '@strutvane/framework/database'
+import PostFactory from '../factories/post.factory.ts'
+
+export default defineSeeder({
+  async run() {
+    await PostFactory.count(10).create()
+  },
+})
+```
+
+**What you'll see** after `node strut db:seed`:
+
+```ts
+console.log(await Post.query().count()) // → 10
+```
+
+## Writing the definition
+
+The function you pass to `defineFactory()` returns one row's columns. It receives:
+
+| Name | What it is |
 |---|---|
-| One saved post | `await Post.factory().create()` |
-| Ten saved posts | `await Post.factory().count(10).create()` |
-| Built but not saved | `await Post.factory().make()` (or `.count(3).make()`) |
-| Some values fixed | `await Post.factory().state({ status: 'published' }).create()` |
-| Values that change per record | `.state(({ sequence }) => ({ title: \`Post ${sequence}\` }))` |
+| `faker` | a fake-data generator (below) |
+| `sequence` | `1` for the first row this factory builds in one `create()` call, then `2`, `3`… Use it for values that must be unique |
 
-A **state** is a set of values that overrides the definition, like "published" or "featured". Chain several; later ones win.
+- The keys are typed by the table's columns (from your migrations), so a typo or a wrong value type doesn't compile.
+- A foreign-key column may hold **another factory** (`author_id: UserFactory`): a parent is created for each row, unless `recycle()` hands it existing ones.
+- Columns you leave out are left out of the INSERT, so the database default applies (or the row is refused when the column is required).
+- Values go through the same [casts](../orm-casts/), [slug generation](../orm-slugs/), timestamps and [tenant scope](../orm-tenancy/) as any other write.
 
-### Records that belong to another one: `for()`
+### The fake-data generator
+
+`faker` is small and dependency-free. Every value comes from one seeded random generator:
+
+| Method | Example result |
+|---|---|
+| `faker.number({ min, max })` | `417` (defaults 0 and 1000) |
+| `faker.decimal({ min, max, scale })` | `'129.40'` (a string, like decimal columns) |
+| `faker.boolean()` | `true` |
+| `faker.pick(['draft', 'published'])` | `'draft'` |
+| `faker.word()`, `faker.words(3)` | `'amber'`, `'anchor beacon cedar'` (3 words by default) |
+| `faker.sentence()` | a capitalised sentence of 4–10 words, with a full stop |
+| `faker.paragraph()` | 2–5 sentences |
+| `faker.firstName()`, `faker.lastName()`, `faker.name()` | `'Ada'`, `'Baker'`, `'Ada Baker'` |
+| `faker.email()` | `'ada.baker1.417@example.com'`: on the reserved `example.com` domain, never a real mailbox |
+| `faker.uuid()` | a UUIDv7 |
+| `faker.date({ days })` | `'2026-08-02'`, within the last `days` days (default 365) |
+| `faker.pastDate({ days })` | a `Date` within the last `days` days |
+
+The exact words are random (the examples show the kind of value). To get the same data every time, see [Reproducible data](#reproducible-data).
+
+## Making records
+
+| You want | Write | You get |
+|---|---|---|
+| One saved post | `await PostFactory.create()` | `Post` |
+| One, with some values fixed | `await PostFactory.create({ status: 'published' })` | `Post` |
+| Ten saved posts | `await PostFactory.count(10).create()` | `Post[]` |
+| The values, without saving | `PostFactory.raw()` | an array of attribute objects |
+
+`count(n)` takes a whole number from 1 to 100,000. Without it, `create()` returns one model; with it, an array. `raw()` builds the attributes the next rows would get, without touching the database (foreign keys that are factories come back as `undefined`).
+
+Factories never change: every method returns a **new** factory, so a shared base is safe to reuse.
+
+### States
+
+A **state** overrides some values of the definition, like "published" or "featured". Chain several; later ones win:
 
 ```ts
-const ada = await User.factory().create()
-await Post.factory().count(5).for(ada, 'author').create()   // five posts by Ada
+await PostFactory.state({ status: 'published' }).count(3).create()
+
+// a state can also be a function of the row being built
+await PostFactory.state((attributes, { sequence }) => ({ title: `${String(attributes['title'])} (${sequence})` })).create()
 ```
 
-`for(model, relation)` fills in the foreign key of a `belongsTo` relation (`author_id` here) instead of creating a new parent.
+## Records that belong to another one: `for()`
 
-### Records with children: `has()`
+`for(parent, foreignKey)` sets the foreign key of every row to an existing parent, instead of creating a new one:
 
 ```ts
-const post = await Post.factory()
-  .has(Tag.factory().count(2), 'tags')
-  .create()
-// one post, two new tags, linked through post_tag
+const ada = await UserFactory.create({ name: 'Ada' })
+const posts = await PostFactory.count(5).for(ada, 'author_id').create()
+console.log(posts.every((post) => post.author_id === ada.id)) // → true
 ```
 
-### Sharing parents: `recycle()`
+Without the second argument, the column is guessed from the parent's table: `users` → `user_id`. Pass the real column whenever it's named differently (here `author_id`).
 
-Without care, `Post.factory().count(50).create()` creates **50 different authors**, one per post, which makes demo data look odd. `recycle()` hands the factory a set of existing records to reuse whenever it needs a parent:
+## Records with children: `has()`
+
+`has(childFactory, foreignKey)` creates children after each record:
 
 ```ts
-const authors = await User.factory().count(3).create()
-await Post.factory().count(50).recycle(authors).create()
+const user = await UserFactory.has(PostFactory.count(3), 'author_id').create()
+console.log(await user.posts().count()) // → 3
+```
+
+Each user gets `count` children (one when the child factory has no `count()`). Without the second argument, the children's column is guessed from this table: `users` → `user_id`.
+
+`has()` fills a foreign key on the children. Linking many-to-many rows through a pivot table isn't part of it: create the records, then use `attach()` (see [Relationships](../orm-relationships/)).
+
+## Sharing parents: `recycle()`
+
+With `author_id: UserFactory` in the definition, `PostFactory.count(50).create()` creates **50 different authors**, one per post, which makes demo data look odd. `recycle()` hands the factory existing records to reuse whenever it needs a parent of their type:
+
+```ts
+const authors = await UserFactory.count(3).create()
+await PostFactory.count(50).recycle(authors).create()
 // 50 posts, spread over the same 3 authors
 ```
 
-### Tenant tables
+`recycle()` takes one model or a list, and picks one of them at random for each row.
 
-On a tenant table, a factory runs inside the active tenant, like every other write:
+## Reproducible data
+
+`seed(n)` makes the fake values the same on every run and every machine:
 
 ```ts
-await runWithTenant(teamId, () => Project.factory().count(5).create())
+const a = PostFactory.seed(42).raw()
+const b = PostFactory.seed(42).raw()
+console.log(JSON.stringify(a) === JSON.stringify(b)) // → true
 ```
 
-### In tests
+Without `seed()`, every run starts from a random seed. Three things stay different between runs even with a seed: `faker.uuid()` (a UUIDv7 holds the current time), `faker.date()` and `faker.pastDate()` (counted back from now), and which recycled parent a row gets.
+
+## Tenant tables
+
+On a tenant table, a factory writes inside the active tenant, like every other write, and stamps the tenant column for you:
+
+```ts
+await runWithTenant(teamId, () => ProjectFactory.count(5).create())
+```
+
+`node strut db:seed --tenant <id>` runs every seeder inside that tenant.
+
+## In tests
 
 ```ts title="tests/feature/published-posts.test.ts (excerpt)"
-const ada = await User.factory().create()
-await Post.factory().count(3).for(ada, 'author').state({ status: 'published' }).create()
-await Post.factory().count(2).for(ada, 'author').create()   // drafts
+import PostFactory from '../../database/factories/post.factory.ts'
+import UserFactory from '../../database/factories/user.factory.ts'
 
-expect(await ada.posts().published().count()).toBe(3)
+const ada = await UserFactory.create()
+await PostFactory.count(3).for(ada, 'author_id').state({ status: 'published' }).create()
+await PostFactory.count(2).for(ada, 'author_id').state({ status: 'draft' }).create()
+
+expect(await ada.posts().where('status', 'published').count()).toBe(3)
 ```
 
 See [Database Testing](../database-testing/) for a fresh database per test.
 
-### Creating factory files
+:::note[Two factory APIs]
+`@strutvane/framework/testing` also exports a `defineFactory`: that one belongs to 0.1-style apps (`defineModel` models, `fake` and `related()`). For migration-first apps, import `defineFactory` from `@strutvane/framework/database`, as on this page. Likewise, `node strut make:factory` reads 0.1-style model files; use `node strut make:migration … --factory` instead.
+:::
 
-`node strut make:factory PostFactory` will write a factory on its own, and `node strut make:model Post -f` alongside a model.
+:::caution[Coming in 0.2]
+Designed but not built yet: building models without saving them (Laravel's `make()`), filling left-out columns with a fake value from their type, and `has()` for many-to-many relationships.
+:::
 
 ## Common mistakes
 
 ### A database error about a missing `author_id`
 
-**Why:** the definition doesn't set a required column that links to another table, so the insert is refused.
+**Why:** the definition doesn't set a required column that links to another table, so the database refuses the row.
 
-**Fix (today):** add the column when you call the definition: `{ ...postDefinition(1), author_id: author.id }`. With the 0.2 API, use `for(user, 'author')` or give the definition a default (`author_id: () => User.factory()`).
+**Fix:** give the definition a parent factory (`author_id: UserFactory`), or set it when you call the factory: `PostFactory.for(user, 'author_id').create()`.
 
-### mass_assignment when saving factory data with `create()`
+### `for()` guessed the wrong column
 
 ```text
-MassAssignmentError: "author_id" can't be mass-assigned on "posts". If users may set it, add it to `fillable` in Model('posts', { fillable: [...] }). If your own code sets it, assign it directly (model.author_id = value) or use forceCreate().
+MassAssignmentError: "posts" has no column "user_id". Did you mean "author_id"? Columns come from your migrations: add one with a new migration, then run `node strut migrate`.
 ```
 
-**Why:** `create()` only accepts `fillable` columns. Factory data is trusted, and often sets owner columns.
+**Why:** `for(user)` guesses `user_id` from the parent's table.
 
-**Fix:** save factory data with `forceCreate()`.
+**Fix:** pass the column: `for(user, 'author_id')`. The same applies to `has()`.
+
+### A count out of range
+
+```text
+OrmUsageError: count() needs a whole number from 1 to 100000; got 0.
+```
+
+**Fix:** pass a whole number from 1 to 100,000. To create nothing, don't call the factory.
+
+### No active tenant
+
+```text
+TenantRequiredError: "projects" is tenant-scoped, but no tenant is active. Wrap the work in runWithTenant(tenantId, () => …) (the HTTP layer does this for you per request). Deliberate cross-tenant jobs use .unsafeWithoutTenancy(reason), which is audited.
+```
+
+**Fix:** wrap the call in `runWithTenant(teamId, …)`, or seed with `node strut db:seed --tenant <id>`.
 
 ### Unique values clash
 
-**What you'll see:** a duplicate-key error from the database (the exact wording depends on MySQL, PostgreSQL or SQLite), or a `CastError` saying a value "is longer than" its column allows.
+**What you'll see:** a duplicate-key error from the database (the exact wording depends on MySQL, MariaDB, PostgreSQL or SQLite), or a `CastError` saying a value "is longer than" its column allows.
 
 **Why:** a fixed value in the definition (or a fake value from a small set) repeats across rows, or a fake value is longer than its column.
 
 **Fix:** build unique values from `sequence`, and keep fake text within the column's length:
 
 ```ts
-return { name: `tag-${sequence}` }
+export default defineFactory(Tag, ({ sequence }) => ({ name: `tag-${sequence}` }))
 ```
 
-### "Can't tell which table … is about, so no seeder or factory was written"
+### "Can't tell which table … is about"
 
 ```text
-  ✖ Can't tell which table "backfill_slugs" is about, so no seeder or factory was written.
-  → Name it create_<table>_table or add_<column>_to_<table>_table, or run make:migration again without --seeder/--factory.
+Can't tell which table "backfill_slugs" is about, so no seeder or factory was written. Name it create_<table>_table or add_<column>_to_<table>_table.
 ```
 
-**Fix:** use a `create_…_table` or `add_…_to_…_table` name, or drop `--factory`.
+**Fix:** use a `create_…_table` or `add_…_to_…_table` name, or run `make:migration` again without `--seeder`/`--factory`.
 
 ## Next steps
 

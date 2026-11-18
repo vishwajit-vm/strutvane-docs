@@ -97,6 +97,8 @@ await Post.query().whereIn('title', []).get()                         // → [] 
 await Post.query().whereNotIn('status', ['draft']).get()              // → Alpha, Gamma
 ```
 
+A list may hold at most 1,000 values (`configureOrm({ maxInValues })` changes that), so one huge list from a request can't overload the database.
+
 ### Empty values (NULL)
 
 `NULL` is the database's "no value". These find rows with or without a value:
@@ -179,9 +181,15 @@ await Post.query().filter('body', 'null', true).count()      // → 3: posts wit
 await Post.query().filter('body', 'null', false).count()     // → 1: posts with a body
 ```
 
-- **`search(term, columns)`**: rows where **any** of the columns contains the term. Case-insensitive; `%` and `_` are ordinary characters; a blank term adds nothing; at most 200 characters. In 0.2 the rule becomes: every **word** must appear (each in any column), at most 10 columns, and an id or UUID also matches exactly (decided 2026-11-15; the prototype matches the whole term).
-- **`filter(column, operator, value)`**: operators are `eq`, `ne`, `gt`, `gte`, `lt`, `lte`, `in` (a list), `contains`, `startsWith` and `null` (`true` for "is empty", `false` for "has a value").
-- **`sort('-created_at,title')`**: comma-separated columns; a minus sign means descending.
+- **`search(term, columns)`**: rows where **any** of the columns contains the whole term (spaces included; the term is trimmed). Case-insensitive; `%` and `_` are ordinary characters; a blank term adds nothing; at most 200 characters.
+- **`filter(column, operator, value)`**: operators are `eq`, `ne`, `gt`, `gte`, `lt`, `lte`, `in` (a list), `contains`, `startsWith` and `null` (`true` for "is empty", `false` for "has a value"). Text for `contains` and `startsWith` is limited to 200 characters too.
+- **`sort('-created_at,title')`**: comma-separated columns, at most 8; a minus sign means descending.
+
+**Hidden columns can't be used.** A column the model hides (its `hidden` list, `.hidden()` or `.secret()` in the migration, or a secret-looking name such as `password`) answers exactly like a column that doesn't exist, in all three methods. Otherwise `filter[password][startsWith]=a`, one letter at a time, would reveal a hash it never returns.
+
+:::caution[Coming in 0.2]
+A smarter `search()` is decided (2026-11-15) but not built: every **word** must appear (each in any column), at most 10 columns, and an id or UUID also matches exactly.
+:::
 
 A typical controller reads them from the URL:
 
@@ -221,7 +229,7 @@ Post.query().sort('title; DROP TABLE posts')              // throws OrmUsageErro
 When you need SQL the builder can't express, use `whereRaw` with the `sql` tag. Values inside `${…}` are always bound, and `sql.id()` quotes a column name for the current database:
 
 ```ts
-import { sql } from '@strutvane/framework'
+import { sql } from '@strutvane/framework/database'
 
 const minimum = 5
 const rows = await Post.query()
@@ -274,7 +282,7 @@ const page = await Post.query()
 **Advanced:** a reusable base query, a grouped OR, a relationship filter and a raw condition.
 
 ```ts
-import { sql } from '@strutvane/framework'
+import { sql } from '@strutvane/framework/database'
 
 const recent = Post.query().where('published_on', '>=', '2026-01-01')
 
@@ -286,6 +294,20 @@ const needsReview = await recent
   .orderBy('published_on', 'desc')
   .get()
 ```
+
+## Policy filters: `wherePolicy()`
+
+A **policy filter** is a rule like "only rows the signed-in user owns", written as data (a `QueryFilter`) instead of code, so the same rule can run in SQL and in memory. `wherePolicy()` adds one to a query, on every engine:
+
+```ts
+const own = { field: 'author_id', op: 'eq', value: { $actor: 'attrs.userId' } } as const
+const actor = { id: 'u1', type: 'user', roles: [], attrs: { userId: ada.id } } as const
+
+await Post.query().wherePolicy(own, { actor }).count()                       // → Ada's posts only
+await Post.query().wherePolicy({ op: 'not', filter: own }, { actor }).count() // → everyone else's
+```
+
+`{ $actor: 'attrs.userId' }` is read from the actor you pass. Comparisons are **NULL-safe and two-valued** (ADR-0008): a `null` actor value matches nothing, never everything, and an actor attribute that's missing throws before any SQL runs. See [Authorization](../authorization/) for where these filters come from.
 
 :::caution[Coming in 0.2]
 These are designed but not built yet: `join`/`leftJoin`, `select`, `groupBy`/`having`, `distinct`, `when(condition, fn)`, `lockForUpdate`, `increment`/`decrement`, bulk `update`/`delete`, aggregates (`sum`, `avg`, `min`, `max`), `pluck`/`value`, and streaming large tables with `cursor()`/`chunkById()`. The [Query Builder](../queries/) page covers queries without models.
@@ -325,7 +347,15 @@ OrmUsageError: "posts" has no column "titel". Did you mean "title"? Columns come
 
 **Why:** `sort()`, `filter()` and `search()` check names at runtime. (In your own code, a typo in `where()` is already a compile error.)
 
-**Fix:** use the real column name; list them with `node strut model:show Post`.
+**Fix:** use the real column name. Every table's columns are in the generated `.strutvane/types/models.d.ts`. The same message appears for a hidden column (such as `password`), which request-driven methods never accept.
+
+### An "in" list that's too long
+
+```text
+OrmUsageError: An "in" list on "id" may hold at most 1000 values; got 5000. Split the work into smaller lists, or raise the limit with configureOrm({ maxInValues }).
+```
+
+**Fix:** split the list into batches of up to 1,000, or raise `maxInValues` if you really need longer lists.
 
 ### Sort direction from user input
 

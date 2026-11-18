@@ -68,7 +68,7 @@ This matters most on MySQL, which compares across types by converting: on a raw 
 ## Typing a JSON column with `json<T>()`
 
 ```ts title="app/models/post.ts"
-import { json, Model } from '@strutvane/framework'
+import { json, Model } from '@strutvane/framework/database'
 
 export interface PostMeta {
   readonly tags: readonly string[]
@@ -94,7 +94,7 @@ fresh.meta?.tags   // → [ 'orm' ]   typed readonly string[]
 Without a validator, `json<PostMeta>()` is a promise you make to TypeScript. Pass a function that checks the value (a Zod `parse`, for example) to make it a guarantee:
 
 ```ts title="app/models/post.ts"
-import { json, Model } from '@strutvane/framework'
+import { json, Model } from '@strutvane/framework/database'
 import { z } from 'zod'
 
 const PostMetaSchema = z.object({ tags: z.array(z.string()), pinned: z.boolean().optional() })
@@ -105,14 +105,14 @@ export class Post extends Model('posts', {
 }) {}
 ```
 
-A value that doesn't match is refused with a `CastError` instead of being stored.
+A value that doesn't match is refused with a `CastError` when it's saved, instead of being stored. When a row is **read**, the validator runs too, and whatever it throws (a `ZodError`, for example) is passed on to you as is: that means the stored data no longer matches the shape you declared.
 
 ## Your own cast with `cast({ get, set })`
 
-`set` runs when a value goes **into** the model (on `create`, `fill`, assignment, and even in `where()`); `get` runs when it comes **out** of the database.
+`set` runs when a value goes **to the database**: when the model is saved (`save()`, `create()`, `forceCreate()`), and on values you compare against in `where()`. `get` runs when a value comes **out** of the database. Plain assignment (`user.email = '…'`) and `fill()` store the value as you gave it; after `save()`, the model holds what the database returned, so you see the converted value.
 
 ```ts title="app/models/user.ts"
-import { cast, Model } from '@strutvane/framework'
+import { cast, Model } from '@strutvane/framework/database'
 
 /** Emails are stored trimmed and lower-cased. */
 const email = cast<string>({
@@ -121,8 +121,7 @@ const email = cast<string>({
 })
 
 export class User extends Model('users', {
-  fillable: ['name', 'email', 'password'],
-  hidden: ['password'],
+  fillable: ['name', 'email'],
   casts: { email },
 }) {}
 ```
@@ -160,7 +159,7 @@ post.toJSON().isPublished // undefined: accessors aren't part of the JSON
 
 ### The order casts run in
 
-When you **write** a value (create, fill, assignment, or a `where()` value):
+When a value is **written** (saving the model, or a `where()` value):
 
 1. your model cast's `set` runs, if the column has one;
 2. the built-in cast for the column type checks and converts it;
@@ -195,10 +194,16 @@ CastError: Can't store that value in "posts.title": it is longer than 200 charac
 ### Wrong format for a date column
 
 ```text
-CastError: Can't store that value in "posts.published_on": expected a date like 2026-11-14, got "14/11/2026".
+CastError: Can't store that value in "posts.published_on": expected a real date like 2026-11-14 (years 1000–9999), got "14/11/2026".
 ```
 
-**Fix:** send dates as `'YYYY-MM-DD'`. For date-times (timestamps), pass a `Date` or an ISO string like `'2026-11-14T09:30:00Z'`.
+**Fix:** send dates as `'YYYY-MM-DD'`. For date-times (timestamps), pass a `Date` or an ISO string **with a time zone**, like `'2026-11-14T09:30:00Z'`; a string without one (`'2026-11-14T09:30:00'`) is refused, because its meaning would depend on the server's time zone:
+
+```text
+CastError: Can't store that value in "posts.created_at": expected a Date or an ISO-8601 string with a time zone (2026-11-14T09:30:00Z), years 1000–9999, got "2026-11-14T09:30:00".
+```
+
+Years outside 1000–9999 are refused for both, because MySQL can't store them and the engines would disagree.
 
 ### A cast for a column that doesn't exist
 

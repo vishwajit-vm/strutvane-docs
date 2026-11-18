@@ -16,7 +16,7 @@ Strutvane loads relationships **eagerly**: you say up front which ones you need 
 Relationships are plain methods in the model class that return `this.belongsTo(...)`, `this.hasMany(...)` or `this.belongsToMany(...)`:
 
 ```ts title="app/models/post.ts"
-import { Model } from '@strutvane/framework'
+import { Model } from '@strutvane/framework/database'
 import { Tag } from './tag.ts'
 import { User } from './user.ts'
 
@@ -34,10 +34,11 @@ export class Post extends Model('posts', { fillable: ['title', 'body', 'status']
 ```
 
 ```ts title="app/models/user.ts"
-import { Model } from '@strutvane/framework'
+import { Model } from '@strutvane/framework/database'
 import { Post } from './post.ts'
 
-export class User extends Model('users', { fillable: ['name', 'email', 'password'], hidden: ['password'] }) {
+// `password` is hidden automatically (its name looks like a secret), and must not be fillable.
+export class User extends Model('users', { fillable: ['name', 'email'] }) {
   /** Posts this user wrote: users.id ← posts.author_id */
   posts() {
     return this.hasMany(Post, 'author_id')
@@ -46,7 +47,7 @@ export class User extends Model('users', { fillable: ['name', 'email', 'password
 ```
 
 ```ts title="app/models/tag.ts"
-import { Model } from '@strutvane/framework'
+import { Model } from '@strutvane/framework/database'
 import { Post } from './post.ts'
 
 export class Tag extends Model('tags', { fillable: ['name'] }) {
@@ -188,12 +189,25 @@ const author = await first.author().first() // → the User row for Ada
 
 ### Creating related rows
 
-`create()` on a `hasMany` sets the foreign key for you, so the owner never comes from user input:
+`create()` on a `hasMany` sets the foreign key for you, so the owner never comes from user input. The other values follow the related model's `fillable`, like `Post.create()`:
 
 ```ts
 const post = await ada.posts().create({ title: 'Ada three' })
 console.log(post.author_id === ada.id) // → true
 ```
+
+A `belongsTo` relation has no `create()` (and no `associate()` yet): to point a post at another author, set the column, `post.author_id = grace.id`, then `save()`.
+
+### Conditions through a relationship stay inside it
+
+A relationship query keeps its link condition outside your own conditions, so an `orWhere()` can't widen it:
+
+```ts
+await ada.posts().where('status', 'draft').orWhere('status', 'published').count()
+// SQL: … WHERE posts.author_id = ? AND (status = ? OR status = ?)  → only Ada's posts
+```
+
+The same holds for eager loads, `withCount()`, `whereHas()` and cursors.
 
 ## Loading for a model you already have
 
@@ -210,7 +224,7 @@ Use the value `load()` returns: it's the same post, typed with `author` loaded (
 For a **list**, use `loadMany()`: one query for the whole list. It fills the models in place but can't change their TypeScript type, so prefer `with()` in the query when you can:
 
 ```ts
-import { loadMany } from '@strutvane/framework'
+import { loadMany } from '@strutvane/framework/database'
 
 const posts = await Post.query().get()
 await loadMany(posts, 'author')
@@ -230,7 +244,7 @@ const result = await post.tags().sync([tech.id, ideas.id]) // make the links exa
 console.log(result)                              // → { attached: 1, detached: 1 }
 ```
 
-`attach()` is safe to retry: linking twice doesn't create a duplicate.
+`attach()` is safe to retry: linking twice doesn't create a duplicate. `attach()` and `sync()` first check, in the same transaction, that every id names a row you can see (not soft-deleted, not filtered out by a scope, same tenant); an id you can't see fails as "not found", exactly like a missing one. The pivot table holds only the two keys (and the tenant column on tenant tables): extra pivot columns aren't supported yet.
 
 ## In JSON
 
@@ -282,7 +296,7 @@ await loadMany(posts, 'author')
 OrmUsageError: Post.summary() is not a relation: it must return this.belongsTo(…), this.hasMany(…) or this.belongsToMany(…).
 ```
 
-**Why:** `with('summary')` names a method, but that method returns something else. Relationship methods must return one of the three relationship calls, and must not be `async`.
+**Why:** `with('summary')` names a method, but that method returns something else. Relationship methods must return one of the three relationship calls, and must not be `async` (an `async` one fails with `Post.summary() is async or a generator. Relation methods must be plain methods that return this.belongsTo(…), this.hasMany(…) or this.belongsToMany(…).`).
 
 **Fix:** only pass relationship names to `with()`, `withCount()`, `whereHas()` and `load()`.
 
@@ -312,7 +326,17 @@ OrmUsageError: Post has no relation "autor". Did you mean "author"? Relations ar
 OrmUsageError: Save the User first: it has no id yet, so the new row has nothing to point at.
 ```
 
-**Fix:** `await user.save()` (or create the user with `User.create(...)`) before `user.posts().create(...)`.
+**Fix:** `await user.save()` (or create the user with `User.create(...)`) before `user.posts().create(...)`. Linking pivot rows on an unsaved model fails the same way: `Save the Post before linking rows to it.`
+
+### A key name that isn't a column
+
+```text
+OrmUsageError: "posts" has no column "writer_id" for this relation. Pass the right key name to the relation method.
+```
+
+**Why:** `belongsTo` and `hasMany` check their keys against the migrations when the relation is built. Left out, `belongsTo(User)` guesses `user_id`.
+
+**Fix:** pass the real column: `this.belongsTo(User, 'author_id')`.
 
 ### The pivot table uses different column names
 

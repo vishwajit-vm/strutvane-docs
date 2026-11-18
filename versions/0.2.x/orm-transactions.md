@@ -14,7 +14,7 @@ This is `DB::transaction(function () { … })`. Nested calls become savepoints, 
 ## The smallest example
 
 ```ts title="app/http/controllers/tag.controller.ts (excerpt)"
-import { transaction } from '@strutvane/framework'
+import { transaction } from '@strutvane/framework/database'
 import { Tag } from '../../models/tag.ts'
 
 await transaction(async () => {
@@ -101,7 +101,7 @@ console.log(await Tag.query().count()) // → 0
 `inTransaction()` on the connection tells you, which helps in code that must only run inside one:
 
 ```ts
-import { defaultConnection, transaction } from '@strutvane/framework'
+import { defaultConnection, transaction } from '@strutvane/framework/database'
 
 console.log(defaultConnection().inTransaction())                      // → false
 await transaction(async () => console.log(defaultConnection().inTransaction())) // → true
@@ -116,7 +116,7 @@ Relationship helpers that change several rows already use a transaction for you:
 **Typical:** create a post and its tags together, and return the post.
 
 ```ts title="app/services/create-post.ts"
-import { transaction } from '@strutvane/framework'
+import { transaction } from '@strutvane/framework/database'
 import type { User } from '../models/user.ts'
 import { Tag } from '../models/tag.ts'
 
@@ -136,7 +136,7 @@ If any tag fails its checks (say, a name longer than its column allows), the pos
 **Advanced:** an optional step that may fail without spoiling the rest, using a nested transaction as a savepoint.
 
 ```ts title="app/services/publish-post.ts"
-import { transaction } from '@strutvane/framework'
+import { transaction } from '@strutvane/framework/database'
 import { Post } from '../models/post.ts'
 import { Tag } from '../models/tag.ts'
 

@@ -12,7 +12,7 @@ Same event names and the same order: `creating`, `created`, `updating`, `updated
 :::
 
 :::caution[Coming in 0.2]
-Model events and observers are **decided for 0.2** (ORM design §6.7 and the 2026-11-15 consistency decisions) but not built yet; the ORM prototype has none. Until then, call your code next to the write (see [What works today](#what-works-today)).
+Model events and observers are **decided for 0.2** (ORM design §6.7 and the 2026-11-15 consistency decisions) but not built yet: `@strutvane/framework` 0.2.0-next.0 fires no model events, and `static events`, `ModelEvents`, `observe()`, `saveQuietly()` and `withoutEvents()` don't exist yet (their names may still change). The one piece that ships today is `node strut make:observer`, which writes an observer class you can't attach yet. Until events ship, call your code next to the write (see [What works today](#what-works-today)).
 :::
 
 ## The smallest example
@@ -117,7 +117,7 @@ export class User extends Model('users', { fillable: ['name', 'email'], hidden: 
 
 When a model has several hooks, or they need other services (a mailer, a cache), move them into an observer class.
 
-1. **Create it:**
+1. **Create it** (this command works today):
 
    ```bash
    node strut make:observer PostObserver --model=Post
@@ -128,6 +128,8 @@ When a model has several hooks, or they need other services (a mailer, a cache),
    ```text
      Created app/observers/post.observer.ts
    ```
+
+   The file imports the `Post` type (when `app/models/post.ts` exists) and has one empty method per "after" event: `created`, `updated`, `deleted`, `restored` and `forceDeleted`. Without `--model`, the model is guessed from the observer's name.
 
 2. **Fill in the methods you need** (delete the others):
 
@@ -152,7 +154,7 @@ When a model has several hooks, or they need other services (a mailer, a cache),
    }
    ```
 
-3. **Register it** in a service provider, so it's active everywhere:
+3. **Register it** in a service provider, so it's active everywhere (`observe()` is part of the planned API and doesn't exist yet):
 
    ```ts title="app/providers/app.provider.ts (excerpt)"
    import { observe, ServiceProvider, type Application } from '@strutvane/framework'
@@ -173,7 +175,7 @@ When a model has several hooks, or they need other services (a mailer, a cache),
 "After" events (`created`, `updated`, `saved`, `deleted`, `restored`) that happen **inside a transaction** are held back until the transaction **commits**. If it rolls back, they never run:
 
 ```ts
-import { transaction } from '@strutvane/framework'
+import { transaction } from '@strutvane/framework/database'
 
 await transaction(async () => {
   const user = await User.create({ name: 'Ada', email: 'ada@example.com' })
@@ -209,7 +211,7 @@ On tenant tables, hooks run inside the same team as the write, so a hook that qu
 Until model events ship, call the side effect right after the write, in one place your controllers share:
 
 ```ts title="app/services/publish-post.ts"
-import { transaction } from '@strutvane/framework'
+import { transaction } from '@strutvane/framework/database'
 import type { Post } from '../models/post.ts'
 import { notifyFollowers } from '../support/notify-followers.ts'
 
