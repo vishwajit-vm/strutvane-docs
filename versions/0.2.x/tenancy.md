@@ -22,7 +22,7 @@ Jetstream's "teams" feature (switching between teams you belong to) is the insta
 With teams on, a model looks exactly like any other:
 
 ```ts title="app/models/project.ts"
-import { Model } from '@strutvane/framework'
+import { Model } from '@strutvane/framework/database'
 
 export class Project extends Model('projects', { fillable: ['name'] }) {}
 ```
@@ -173,7 +173,7 @@ export default {
 A request gets its team from the user. A queued job, a `node strut` command or a seeder has no user, so it has no team until you give it one with `runWithTenant`:
 
 ```ts title="app/jobs/send-weekly-summary.ts (excerpt)"
-import { runWithTenant } from '@strutvane/framework'
+import { runWithTenant } from '@strutvane/framework/database'
 import { Project } from '../models/project.ts'
 import { Team } from '../models/team.ts'
 

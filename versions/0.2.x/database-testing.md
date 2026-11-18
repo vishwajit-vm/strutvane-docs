@@ -17,7 +17,7 @@ What's different: the test database is the **same engine as production** (MySQL 
 :::caution[What exists, and when]
 - **On framework `main` (0.2.0-next.0, not on npm yet):** the ORM on MySQL 8.4+, MariaDB, PostgreSQL (node-postgres or PGlite) and SQLite; factories (`defineFactory` from `@strutvane/framework/database`, with states, `for`, `has`, `recycle` and `seed`); `runWithTenant()`; and the migration commands, which you can point at a test database.
 - **Coming in 0.2:** test helpers for migration-first apps: `refreshDatabase(app)` and `seed(app)`, a transaction per test that's rolled back, a test database per Vitest worker on your app's engine, `assertDatabaseHas`-style assertions, and `asTenant()`. (`refreshDatabase` and `createTestApp` in `@strutvane/framework/testing` today belong to 0.1-style `defineModel` apps.)
-- **Known gap:** the ORM isn't connected when the app boots yet (see [ORM: Getting Started](../orm/#where-the-orm-gets-its-connection)), so tests connect it themselves, as below.
+- **Tests that don't boot the app** connect the ORM themselves, as below (see [Who opens the connection](../database/#who-opens-the-connection)).
 
 Names marked "planned" may change.
 :::

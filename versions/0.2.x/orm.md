@@ -62,21 +62,9 @@ Everything on the ORM pages (`Model`, `Scopes`, `cast`, `json`, `sql`, `transact
 
 The ORM needs two things before a model can run a query: the **schema snapshot** (`.strutvane/schema.json`, written by `node strut migrate` and `node strut sync`), so it knows every table and column, and a **connection** built from your `DB_*` settings (see [Database](../database/)).
 
-`node strut db:seed`, `node strut migrate --seed` and the other database commands set both up for you, so seeders and factories work out of the box.
+Your app sets both up when it boots (`node strut dev`, `node strut start`), and `node strut db:seed`, `node strut migrate --seed` and the other database commands do the same, so models work in controllers, seeders and factories without any code of yours.
 
-:::caution[Coming in 0.2]
-Setting the ORM up when the app server boots (`node strut start` and `node strut dev`) isn't built yet in `@strutvane/framework` 0.2.0-next.0: the app doesn't open an ORM connection by itself. Until it does, a service provider can do it with the same public functions the commands use *(unverified in a served app)*:
-
-```ts title="app/providers/database.provider.ts (excerpt)"
-import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
-import { databaseSettings, openDatabase, registerSchema, useConnection } from '@strutvane/framework/database'
-
-const root = process.cwd()
-registerSchema(JSON.parse(readFileSync(join(root, '.strutvane', 'schema.json'), 'utf8')))
-useConnection(await openDatabase(databaseSettings(process.env, root)))
-```
-:::
+A stand-alone script or a test runner that doesn't boot the app connects the models itself, with the same public functions; see [Who opens the connection](../database/#who-opens-the-connection).
 
 ## How a model finds its data
 
@@ -446,9 +434,9 @@ OrmUsageError: The table "post" is not in the schema snapshot. Did you create it
 OrmUsageError: No database connection is set yet. Call useConnection(connection) at boot (the framework does this for you).
 ```
 
-**Why:** a model ran a query in a process where nobody called `useConnection()`. The database commands do it for you; the app server doesn't yet in 0.2.0-next.0.
+**Why:** a model ran a query in a process where nobody called `useConnection()`: a stand-alone script or a test runner that doesn't boot the app. The app and the database commands do it for you.
 
-**Fix:** see [Where the ORM gets its connection](#where-the-orm-gets-its-connection).
+**Fix:** connect the models first, as in [Who opens the connection](../database/#who-opens-the-connection).
 
 ### A model for a table without `id`
 

@@ -96,7 +96,7 @@ Line by line:
 Now open `app/models/post.ts` and list the columns people may fill in through forms and the API. Anything not on this list (like `id`, `created_at`, or a column you add later and forget) is refused, so nobody can set a field you didn't mean to expose:
 
 ```ts title="app/models/post.ts"
-import { Model } from '@strutvane/framework'
+import { Model } from '@strutvane/framework/database'
 
 export class Post extends Model('posts', { fillable: ['title', 'body', 'price', 'status', 'author_id'] }) {}
 ```
@@ -110,12 +110,12 @@ You never list columns on the command line or repeat them in the model. The migr
 A **factory** describes one fake post. Open it and return the columns of one row (`faker` makes realistic text, `sequence` counts up so every row is different):
 
 ```ts title="database/factories/post.factory.ts"
-import { defineFactory } from '@strutvane/framework'
+import { defineFactory } from '@strutvane/framework/database'
 import { Post } from '../../app/models/post.ts'
 
 export default defineFactory(Post, ({ faker, sequence }) => ({
-  title: `${faker.lorem.words(3)} ${sequence}`,
-  body: faker.lorem.paragraph(),
+  title: `${faker.sentence()} #${sequence}`,
+  body: faker.paragraph(),
   price: '9.99',
   status: sequence % 2 === 0 ? 'published' : 'draft',
 }))
@@ -124,25 +124,23 @@ export default defineFactory(Post, ({ faker, sequence }) => ({
 A **seeder** puts rows in the table. This one says it runs **after** the users seeder (a post needs an author), and uses the factory to make ten posts by the first user:
 
 ```ts title="database/seeders/post.seeder.ts"
-import { defineSeeder } from '@strutvane/framework'
-import { Post } from '../../app/models/post.ts'
+import { defineSeeder } from '@strutvane/framework/database'
 import { User } from '../../app/models/user.ts'
+import PostFactory from '../factories/post.factory.ts'
 
 /** Seeds the `posts` table. */
 export default defineSeeder({
   after: ['users'],
   async run() {
     const author = await User.query().orderBy('id').firstOrFail()
-    await Post.factory().count(10).for(author, 'author').create()
+    await PostFactory.count(10).for(author, 'author_id').create()
   },
 })
 ```
 
-Factories write through `forceCreate()`, which is for trusted code: it may set columns that aren't in `fillable` (such as `author_id`). You don't edit `database/seeders/database.seeder.ts`: every seeder is registered there automatically, in the order their `after` lists require. See [Seeding](../seeding/) and [ORM: Factories](../orm-factories/).
+`after` documents the order; `database/seeders/database.seeder.ts` is what really runs the seeders, in the order it lists them (see [Seeding](../seeding/)).
 
-:::caution[Coming in 0.2]
-`defineSeeder` and `defineFactory` are the decided shapes. The prototype still writes a `PostSeeder` class and a plain `postDefinition(sequence)` function, and asks you to call the seeder from `database.seeder.ts` yourself.
-:::
+Factories write through `forceCreate()`, which is for trusted code: it may set columns that aren't in `fillable` (such as `author_id`). `make:migration … --seeder` already added `PostSeeder` to `database/seeders/database.seeder.ts`, between the `strut:seeders` markers, so `node strut db:seed` runs it. See [Seeding](../seeding/) and [ORM: Factories](../orm-factories/).
 
 ## Step 3: Migrate
 

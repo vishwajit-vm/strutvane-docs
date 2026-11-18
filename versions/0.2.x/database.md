@@ -374,11 +374,7 @@ On PostgreSQL the pool keeps up to 10 sessions, and each statement may run for a
 
 ### Who opens the connection
 
-`node strut db:seed`, and `migrate`, `migrate:refresh` and `migrate:fresh` with `--seed`, open the connection from `.env` and connect your models to it, so seeders and factories just work.
-
-:::caution[Coming in 0.2]
-Opening the connection when the HTTP app boots (`node strut dev`, `node strut start`), so models work in routes and controllers without any code of yours, arrives with 0.2. On framework `main` today, code outside the database commands connects the models itself, as below.
-:::
+Your app opens the connection from `.env` when it boots (`node strut dev`, `node strut start`), and so do `node strut db:seed` and `migrate`, `migrate:refresh` and `migrate:fresh` with `--seed`. They connect your models to it, so routes, controllers, seeders and factories just work.
 
 A stand-alone script (a one-off import, a report) connects the models like this. It's what `db:seed` does for you:
 
@@ -586,7 +582,7 @@ hint: Fix: set these keys in your .env file (see .env.example for every key and 
 OrmUsageError: No database connection is set yet. Call useConnection(connection) at boot (the framework does this for you).
 ```
 
-**Why:** a model was used before anything connected the ORM: from a stand-alone script, or (on framework `main`, until 0.2) from a route or controller of the HTTP app.
+**Why:** a model was used before anything connected the ORM, for example from a stand-alone script that doesn't boot the app.
 **Fix:** put database work in a seeder (`node strut db:seed` connects for you), or connect the models yourself as in [Who opens the connection](#who-opens-the-connection).
 
 ### "sql must be used as a tagged template"

@@ -180,9 +180,7 @@ export default {
 
 With tenancy **off**, a table whose migration has `t.tenant()` is refused instead of being read unscoped (see Common mistakes).
 
-:::caution[Coming in 0.2]
-Applying `config/tenancy.ts` when the app server boots comes with the ORM's boot set-up (see [Where the ORM gets its connection](../orm/#where-the-orm-gets-its-connection)). Until then, call `configureOrm({ tenancy: { column: 'tenant_id' } })` yourself where you set up the connection.
-:::
+A stand-alone script that connects the models itself (see [Who opens the connection](../database/#who-opens-the-connection)) calls `configureOrm({ tenancy: { column: 'tenant_id' } })` the same way.
 
 ## The deliberate exception: `unsafeWithoutTenancy`
 
