@@ -1,14 +1,14 @@
 ---
 title: Helpers
-description: The plain, fully typed helper functions you can import anywhere (config, route, now, app, redirect, abort, signed URLs, encrypt and decrypt), how they find the current app, what to do outside a request, and the support helpers coming next (Str, Num, retry, once, Pipeline, Benchmark, Sleep, Timebox, Lottery).
+description: The plain, fully typed helper functions you can import anywhere (config, route, now, app, redirect, defer, report, signed URLs, encrypt and decrypt), how they find the current app, what to do outside a request, and the support helpers coming next (abort, Str, Num, retry, once, Pipeline, Benchmark, Sleep, Timebox, Lottery).
 ---
 
 **Helpers** are small functions you import and call from anywhere in your app's code: `config('app.name')`, `route('posts.show', { post })`, `now()`. They save you from passing the application object around, and every one of them is **fully typed**: a wrong config key or route name is a compile error, not a runtime surprise.
 
 :::tip[Coming from Laravel?]
-`config()`, `route()`, `now()`, `app()`, `redirect()`, `abort()`, `encrypt()` and `decrypt()` work as you expect, and `URL::signedRoute()` is `url.signedRoute()`.
+`config()`, `route()`, `now()`, `app()`, `redirect()`, `report()`, `encrypt()` and `decrypt()` work as you expect, and `URL::signedRoute()` is `url.signedRoute()`. `abort()` is planned.
 
-The difference: Laravel's helpers reach a global container. Strutvane's read **the current app** from the request or command that's running, so two apps (two tests) in one process never see each other. Laravel's static facades (`Cache::get()`) are planned as typed accessors resolved the same way: see [Facades](../facades/).
+The difference: Laravel's helpers reach a global container. Strutvane's read **the current app** from the request or command that's running, so two apps (two tests) in one process never see each other. Laravel's static facades (`Cache::get()`) are typed accessors resolved the same way: see [Facades](../facades/).
 :::
 
 ## The smallest example
@@ -39,17 +39,21 @@ What you'll see at `GET /api/home`:
 
 ## Every helper at a glance
 
+Every helper in the table marked **0.2.0-next.0** is exported from `@strutvane/framework` on `main` (not published to npm yet).
+
 | Helper | Returns | Laravel equivalent | Status |
 |---|---|---|---|
-| `config(key)` | A config value, typed by your `config/*.ts` files | `config('app.name')` | proven (spike 12) |
-| `route(name, params?, options?)` | The URL of a named route | `route('posts.show', $post)` | proven |
-| `now()` | The current `Date`, from the app's clock | `now()` | proven |
-| `app()` | The current application: `container`, `config`, `url` | `app()` | proven |
-| `redirect()` | A redirector: `.to()`, `.intended()`, `.away()` | `redirect()` | proven |
-| `abort(status, detail?)` | Never returns: stops the request with 401, 403 or 404 | `abort(404)` | proven |
-| `url.signedRoute(name, params?, { expiresIn?, oneTime? })` | A tamper-proof URL of a named route | `URL::signedRoute()` | proven (as `signedRoute()`) |
-| `url.temporarySignedRoute(name, expiresAt, params?)` | A signed URL that expires | `URL::temporarySignedRoute()` | proven (as `temporarySignedRoute()`) |
-| `encrypt(value, options?)` / `decrypt(payload, options?)` | An encrypted string / the original value | `encrypt()` / `decrypt()` | proven |
+| `config(key)` | A config value, typed by your `config/*.ts` files | `config('app.name')` | 0.2.0-next.0 |
+| `route(name, params?, options?)` | The URL of a named route | `route('posts.show', $post)` | 0.2.0-next.0 |
+| `now()` | The current `Date`, from the app's clock | `now()` | 0.2.0-next.0 |
+| `app()` | The current application scope: `container` and `basePath` | `app()` | 0.2.0-next.0 |
+| `redirect()` | A redirector: `.to()`, `.intended()`, `.away()` | `redirect()` | 0.2.0-next.0 |
+| `defer(task)` | Runs `task` after the response has been sent | `defer()` | 0.2.0-next.0 |
+| `report(error)` | Logs an error like the exception handler, without stopping | `report()` | 0.2.0-next.0 |
+| `url.signedRoute(name, params?, { expiresIn?, oneTime? })` | A tamper-proof URL of a named route | `URL::signedRoute()` | 0.2.0-next.0 |
+| `url.temporarySignedRoute(name, expiresAt, params?)` | A signed URL that expires | `URL::temporarySignedRoute()` | 0.2.0-next.0 |
+| `encrypt(value, options?)` / `decrypt(payload, options?)` | An encrypted string / the original value | `encrypt()` / `decrypt()` | 0.2.0-next.0 |
+| `abort(status, detail?)` | Never returns: stops the request with 401, 403 or 404 | `abort(404)` | planned |
 | `Str`, `Num`, `retry`, `rescue`, `once`, `Pipeline`, `Benchmark`, `Sleep`, `Timebox`, `Lottery` | Everyday utilities | the same names (`Number` is `Num`) | coming in 0.2 |
 | `Concurrency`, `Process` | Run work in parallel; run other programs | the same names | coming in 0.3 |
 
@@ -62,7 +66,7 @@ config('app.env')    // 'local' | 'testing' | 'staging' | 'production'
 config('app.nmae')   // compile error: there is no such key
 ```
 
-The key is a **dot path**: the first part is the file name in `config/`, the rest is the path inside it. The return type comes from that file, so `config('app.debug')` is a `boolean`, never "anything". Config is **frozen** after boot: you read it, you don't change it. See [Configuration](../configuration/).
+The types need one block in `bootstrap/app.ts` that tells TypeScript about your config files (see [Configuration](../configuration/#a-typical-config-file)); without it `config()` takes any key and returns `unknown`. The key is a **dot path**: the first part is the file name in `config/`, the rest is the path inside it. The return type comes from that file, so `config('app.debug')` is a `boolean`, never "anything". Config is **frozen** after boot: you read it, you don't change it. See [Configuration](../configuration/).
 
 ## `route()`: URLs from names
 
@@ -73,34 +77,45 @@ route('posts.show', { post: 'hello-world' })           // a plain string or numb
 route('posts.index', {}, { query: { page: 2 } })       // '/api/posts?page=2'
 route('posts.index', { page: 2 })                      // '/api/posts?page=2' (extra params become the query)
 route('posts.show', { post }, { absolute: true })      // 'http://localhost:3000/api/posts/hello-world'
-route('posts.shwo', { post })                          // compile error: no such route
-route('posts.show')                                    // compile error: {post} is missing
+route('posts.shwo', { post })                          // throws: No route is named "posts.shwo".
 ```
 
-Pass a model and Strutvane uses the field the route binds by (`{post:slug}` uses the slug). `absolute: true` prefixes `APP_URL`. Full details in [Routing](../routing/).
+Pass a model and Strutvane uses the field the route binds by (`{post:slug}` uses the slug). `absolute: true` prefixes `APP_URL`. A wrong name throws when the call runs, with a "Did you mean" hint. Full details in [Routing](../routing/).
+
+:::caution[Known gap in 0.2.0-next.0]
+Compile-time checks of route names and parameters need the app to fill `RouteRegistry` with the `RoutesOf` helper type, which isn't exported yet. Until it is, mistakes in route names are caught when the code runs.
+:::
 
 ## `now()`: a clock you can freeze
 
 ```ts
 const publishedAt = now()            // a Date from the app's clock
-await post.update({ status: 'published' })
+post.fill({ status: 'published' })
+await post.save()
 ```
 
-`now()` reads the clock bound to `ClockToken` in the container. In tests, bind a fixed clock and every timestamp is predictable:
+`now()` reads the clock bound to `ClockToken` in the container. In tests, bind a test clock before the app boots and every timestamp is predictable:
 
-```ts
-app.container.instance(ClockToken, () => new Date('2026-11-14T10:00:00Z'))
+```ts title="tests/unit/clock.test.ts"
+import { ClockToken, createTestClock } from '@strutvane/framework/core'
+import app from '../../bootstrap/app.ts'
+
+const clock = createTestClock(Date.parse('2026-11-14T10:00:00Z'))
+app.container.value(ClockToken, clock)
+await app.boot()
+
+clock.advance(60_000)   // one minute later, for everything that reads now()
 ```
 
 Use `now()` instead of `new Date()` in app code, so tests can control time. The rate limiter and signed URLs read the same clock.
 
 ## `app()`: the current application
 
-```ts
-import { app, ConnectionToken } from '@strutvane/framework'
+```ts title="app/services/storage-report.ts"
+import { app, StorageManagerToken } from '@strutvane/framework'
 
-const db = app().container.make(ConnectionToken)
-const url = app().url.route('posts.index')
+const storage = app().container.make(StorageManagerToken)
+const root = app().basePath   // the project folder
 ```
 
 Prefer constructor injection (`static inject`) in your own classes; `app()` is the escape hatch for places where injection isn't available. See [Service Container](../container/).
@@ -128,15 +143,17 @@ export class SessionController extends Controller {
 
 **Why so strict?** An **open redirect** (your site sending people anywhere a link says) is a classic phishing tool. `to()` and `intended()` accept only same-site paths, and catch tricks like `//evil.com`, `/\evil.com` and `/%2F%2Fevil.com`. Leaving your site is always the explicit `away()`.
 
-## `abort()`: stop right here
+## `abort()`: stop right here (planned)
+
+:::caution[Planned]
+`abort()` isn't in 0.2.0-next.0. Until it is, throw the error yourself: `throw new StrutvaneError('not_found', { status: 404 })` (from `@strutvane/framework/core`), and the exception handler turns it into a problem+json response. See [Error Handling](../errors/).
+:::
 
 ```ts
-import { abort } from '@strutvane/framework'
+import { abort } from '@strutvane/framework'   // planned API
 
 if (post.status !== 'published') abort(404, 'No such post.')
 ```
-
-`abort()` throws, so code after it never runs. The exception handler turns it into a problem+json response:
 
 | Call | Status | `code` |
 |---|---|---|
@@ -144,7 +161,29 @@ if (post.status !== 'published') abort(404, 'No such post.')
 | `abort(403, 'Only editors may do this.')` | 403 | `forbidden` |
 | `abort(404, 'No such post.')` | 404 | `not_found` |
 
-For other statuses, throw an `HttpError` (see [Responses](../responses/)).
+## `defer()` and `report()`
+
+`defer(task)` runs `task` **after** the response has gone to the client, so a slow follow-up (a cache warm-up, a notification) doesn't make the user wait. `node strut start` waits for deferred work before it stops.
+
+```ts title="app/http/controllers/post.controller.ts"
+import { Controller, defer, report, type HttpContext } from '@strutvane/framework'
+import { warmPostCache } from '../../services/post-cache.ts'
+
+export class PostController extends Controller {
+  async publish(ctx: HttpContext): Promise<Response> {
+    defer(async () => {
+      try {
+        await warmPostCache()
+      } catch (error) {
+        report(error)   // logged like an unhandled error, without failing anything
+      }
+    })
+    return ctx.json({ data: { published: true } })
+  }
+}
+```
+
+**What you'll see:** the response arrives at once; the cache warms a moment later.
 
 ## `url.signedRoute()` and `url.temporarySignedRoute()`: links nobody can change
 
@@ -168,14 +207,14 @@ Protect the target route with the `signed` middleware:
 Route.get('/newsletter/unsubscribe/{user}', [NewsletterController, 'unsubscribe']).name('newsletter.unsubscribe').middleware('signed'),
 ```
 
-**What you'll see:** the link works until it expires. A changed link answers `403 invalid_signature` ("This link is not valid. It may have been changed or copied incompletely."), an expired one `403 signature_expired` ("This link has expired. Ask for a new one."). See [Routing](../routing/).
+**What you'll see:** the link works until it expires. A changed link answers `403 invalid_signature` ("This link is not valid. It may have been changed or copied incompletely. Ask for a new one."), an expired one `403 signature_expired` ("This link has expired or has already been used. Ask for a new one."). See [Routing](../routing/).
 
-**One signer for every link.** Signed routes, the sign-in package's email verification and password reset links, and storage's temporary file URLs all use the same framework signer: an HMAC over the path, the sorted query string, the expiry and a **purpose** (what the link is for), so a link made for one job can't be reused for another. Every bad or expired link, of any kind, answers the same two codes.
+**One signer for every link.** Signed routes use the framework's one signer: an HMAC over the path, the sorted query string, the expiry and a **purpose** (what the link is for), so a link made for one job can't be reused for another. Every bad or expired link answers the same two codes.
 
 **One keyring for every key.** Nothing uses `APP_KEY` directly. Each feature asks the keyring for its own key, derived from `APP_KEY` and the feature's purpose (HKDF-SHA256), and old keys in `APP_PREVIOUS_KEYS` are still accepted after `node strut key:rotate`, so rotating the key doesn't break links already sent.
 
 :::caution[Coming in 0.2]
-The shared signer (with `purpose`) and the derive-by-purpose keyring are the decided design. In the prototype, signed routes and the sign-in package still sign separately.
+The signer and the keyring ship in 0.2.0-next.0. The sign-in package's verification and reset links moving onto the same signer is decided but not released yet.
 :::
 
 ## `encrypt()` and `decrypt()`
@@ -209,8 +248,8 @@ request arrives ──► app.handle(request) ──► [ current app = this app
 Code that runs at the top level of a file (when it's imported), in a standalone script, or in a test runs **outside** any request. There's no current app there, so the helpers stop with a clear message. Wrap the code in `app.run()`:
 
 ```ts title="scripts/print-routes.ts"
-import app from '../bootstrap/app.ts'
 import { route } from '@strutvane/framework'
+import app from '../bootstrap/app.ts'
 
 await app.boot()
 const url = app.run(() => route('posts.index'))
@@ -227,7 +266,7 @@ node scripts/print-routes.ts
 /api/posts
 ```
 
-In a test, `await app.run(async () => …)` works the same way and supports `await` inside. With Docker, run scripts inside the container: `node strut node scripts/print-routes.ts`.
+In a test, `await app.run(async () => …)` works the same way and supports `await` inside. With Docker, run scripts inside the app container.
 
 ## Coming next: the support helpers
 
@@ -263,7 +302,7 @@ Num.currency(19.9, 'EUR')    // → '€19.90' (depends on the locale)
 
 ```ts title="app/services/exchange-rates.ts"
 import { retry } from '@strutvane/framework/support'
-import { safeFetch } from '@strutvane/framework/security'
+import { safeFetch } from '@strutvane/framework'
 
 export async function euroRate(): Promise<number> {
   const response = await retry(3, () => safeFetch('https://rates.example.com/eur'), { sleepMs: 500 })
@@ -298,9 +337,10 @@ Laravel's `Collection` class isn't copied. Query results are ordinary arrays, so
 ### "… was called outside a request or console command"
 
 ```text
-✖ route() was called outside a request or console command, so there is no current app.
-→ Call it from a controller, middleware or command, or wrap the code in app.run(() => …) (tests: await app.run(async () => …)).
+BootError: route() was called outside a request or console command, so there is no current app.
 ```
+
+The hint that comes with it: `Call it from a controller, middleware or command, or wrap the code in app.run(() => …) (tests: await app.run(async () => …)).`
 
 **Why:** the helper ran when no request or command was active, for example in a constant at the top of a file:
 
@@ -319,9 +359,10 @@ function postsUrl(): string {
 ### "There is no config value at …"
 
 ```text
-✖ There is no config value at "app.nmae".
-→ Check the key against the files in config/; the first segment is the file name (for example "app.name" reads config/app.ts).
+BootError: There is no config value at "app.nmae".
 ```
+
+Its hint: `Check the key against the files in config/; the first segment is the file name (for example "app.name" reads config/app.ts).`
 
 **Why:** a key built at runtime (from a variable) skipped the compile-time check, and it doesn't exist.
 
@@ -330,18 +371,20 @@ function postsUrl(): string {
 ### "No route is named …"
 
 ```text
-✖ No route is named "post.show".
-→ Did you mean "posts.show"?
+BootError: No route is named "post.show".
 ```
+
+Its hint: `Did you mean "posts.show"?`
 
 **Fix:** use the suggested name, or run `node strut route:list` to see every name.
 
 ### "redirect().to() was given …, which is not a same-origin path"
 
 ```text
-✖ redirect().to() was given "https://partner.example/page", which is not a same-origin path.
-→ Use redirect().away(url) for a deliberate external redirect.
+BootError: redirect().to() was given "https://partner.example/page", which is not a same-origin path.
 ```
+
+Its hint: `Use redirect().away(url) for a deliberate external redirect.`
 
 **Why:** `to()` only goes to your own paths.
 **Fix:** `redirect().away('https://partner.example/page')` when leaving your site is intended.
@@ -353,7 +396,7 @@ function postsUrl(): string {
 
 ## Next steps
 
-- [Facades](../facades/): typed static accessors, coming next.
+- [Facades](../facades/): typed static accessors such as `Log` and `Cache`.
 - [Configuration](../configuration/): the files `config()` reads.
 - [Routing](../routing/): naming routes for `route()`, and signed routes.
 - [Service Container](../container/): what `app().container` holds.

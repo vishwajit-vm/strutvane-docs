@@ -16,7 +16,7 @@ The difference: Strutvane's installer also starts the database and runs the migr
 :::
 
 :::caution[Coming in 0.2]
-The installer is **proven in a prototype** (spike 13: 308 tests, including real runs with npm, git, SQLite, and MySQL 8.4 and PostgreSQL 18 in Docker). Nothing is published to npm yet, so `npm create strutvane@latest` doesn't work today. The exact wording on screen may still change.
+Nothing is published to npm yet, so `npm create strutvane@latest` doesn't work today. The 0.2 installer (`create-strutvane`) is being built on its `v2/installer` branch, and the framework it installs, `@strutvane/framework` 0.2.0-next.0, is on the framework's `main` branch. The questions and screens on this page are the installer's design; the exact wording may still change. What the framework itself needs is in [The framework on its own](#the-framework-on-its-own).
 :::
 
 ## Before you start
@@ -107,7 +107,7 @@ Both lists grow release by release: a question that brings a package appears onc
 
 Some questions are asked **in both modes** whenever they apply, because they have no safe default: the connection details of your own database server, a password you chose to type, and the extra questions of a package you picked.
 
-Nothing is final. Every optional feature can be added later with `node strut install:<name>`, which runs the same installer steps.
+Nothing is final. Every optional feature can be added later with `node strut install:<name>`, which runs the same installer steps. *(Designed. In `@strutvane/framework` 0.2.0-next.0 the command is `node strut add <package>`, which installs a package and runs its installer.)*
 
 ## The review screen
 
@@ -546,9 +546,39 @@ The scripts in `package.json`:
 |---|---|---|
 | `npm run dev` | `node strut dev` | Every day: API and UI on one port, with hot reload |
 | `npm run setup` | `node strut setup` | Finish setup, or set up a fresh clone |
-| `npm test` | `node strut test` | Your tests |
-| `npm run build` | `node strut build` | A production build |
+| `npm test` | `vitest run` | Your tests (when you chose a test runner) |
+| `npm run build` | `node strut build` | Checks that the app boots, then builds the UI with Vite |
 | `npm start` | `node build/server.js` | Run the production build |
+| `npm run strut -- <command>` | `node strut <command>` | The project command line, through npm |
+
+:::caution[Known gap in 0.2.0-next.0]
+`node strut build` in `@strutvane/framework` 0.2.0-next.0 checks that the app boots and builds the UI into `dist/web`, but doesn't write `build/server.js`. Until the two agree, run the app with `node strut start`, which boots `bootstrap/app.ts` and serves the API and the built UI on one port.
+:::
+
+## The framework on its own
+
+Every app depends on **`@strutvane/framework`**: the container, configuration, routing, the ORM, migrations, security and the `node strut` command line. The installer adds it for you; this is what it needs:
+
+| Requirement | Why |
+|---|---|
+| Node.js **24.3** or newer (the framework's `engines`), npm **11.19** or newer | Node loads your `.ts` files (such as `bootstrap/app.ts`) directly and ships `node:sqlite`; older npm silently ignores the `.npmrc` safety settings the installer writes |
+| One database driver, for the engine in `DB_CONNECTION` | The drivers are **optional peer dependencies**, so you install only the one you use |
+
+| `DB_CONNECTION` | Install | Notes |
+|---|---|---|
+| `mysql` (default), `mariadb` | `npm install mysql2` | MySQL 8.4 or newer, or MariaDB |
+| `pgsql` | `npm install pg` | PostgreSQL; tenant tables get row-level security |
+| `pgsql` in tests | `npm install --save-dev @electric-sql/pglite` | PostgreSQL in the same process, no server |
+| `sqlite` | nothing | Node's built-in `node:sqlite` |
+
+Once it's published, adding it to a project by hand is:
+
+```bash
+npm install @strutvane/framework@0.2.0-next.0
+npm install mysql2   # or pg, for PostgreSQL; nothing for SQLite
+```
+
+**What you'll see:** `npx strutvane list` (or `node strut list` in a project with `strut.js`) prints every command, and `npx strutvane about` shows the installed version. See [Configuration](../configuration/) for the `.env` keys and [Directory Structure](../structure/) for `bootstrap/app.ts`.
 
 ## When something goes wrong
 

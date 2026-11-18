@@ -12,15 +12,40 @@ Three differences: every process (queue worker, scheduler) writes **its own file
 :::
 
 :::caution[Coming in 0.2]
-Laravel-style channels are **decided** (ADR-0022, 2026-11-15) but **designed, not built yet**. What exists today is the 0.1 logging pipeline (redaction, a bounded queue, one file per process, rotation and clean shutdown; ADR-0015, measured in spike 09), which is being moved into `@strutvane/framework` and given channels. Names on this page follow ADR-0022 and may still change in small ways.
+Laravel-style channels are **decided** (ADR-0022, 2026-11-15) and **being built** on the framework's `v2/logging` branch; they are **not** in `@strutvane/framework` 0.2.0-next.0. Everything on this page from "Levels" on describes that design, and names may still change in small ways. What 0.2.0-next.0 already ships is described in [What works today](#what-works-today) just below.
 :::
+
+## What works today
+
+`@strutvane/framework` 0.2.0-next.0 has a small built-in logger, so the framework and your code can always log:
+
+- `Log` from `@strutvane/framework/facades` with six methods: `trace`, `debug`, `info`, `warn`, `error` and `fatal`, plus `child(fields)` and `flush()`;
+- one **JSON line** per message, written to standard output (the terminal, or your platform's log collector), at level `info` and above;
+- the request id, trace id, tenant id and actor id added inside a request;
+- **redaction always on**: values under keys that look secret (`password`, `token`, `secret`, `authorization`, `apiKey`, `cookie` and the like) become `[REDACTED]`, at any depth;
+- one message is always one line: line breaks inside values are escaped;
+- `report(error)` from `@strutvane/framework` logs an error the way the exception handler would, without stopping your code.
+
+```ts title="app/http/controllers/post.controller.ts"
+import { Log } from '@strutvane/framework/facades'
+
+Log.info('Post published', { postId: 42, password: 'hunter2hunter2' })
+```
+
+**What you'll see** in the terminal (something like this):
+
+```text
+{"time":"2026-11-15T10:22:01.123Z","level":"info","msg":"Post published","requestId":"01JD7Q6Y9X3V2K8M4N5P6R7S8T","fields":{"postId":42,"password":"[REDACTED]"}}
+```
+
+There are no channels, no `LOG_*` keys, no files in `storage/logs/` and no `log:*` commands yet. Everything below is what 0.2 adds on top.
 
 ## The smallest example
 
 Log a message from anywhere in your app:
 
 ```ts title="app/http/controllers/post.controller.ts"
-import { Log } from '@strutvane/framework'
+import { Log } from '@strutvane/framework/facades'
 
 Log.info('Post published', { postId: 42 })
 ```
@@ -50,14 +75,14 @@ Every message has a **level**: how serious it is. These are the eight levels fro
 
 `LOG_LEVEL` sets the **least serious level that's still written**. With `LOG_LEVEL=warning`, `warning` and everything above it is kept, and `notice`, `info` and `debug` are dropped. The default is `debug` in local development and `info` everywhere else.
 
-The 0.1 names still work as aliases: `warn` means `warning`, `fatal` means `critical`, `trace` means `debug`.
+The names the logger already has in 0.2.0-next.0 keep working as aliases: `warn` means `warning`, `fatal` means `critical`, `trace` means `debug`.
 
 ## Writing log messages
 
 ### One level method per level
 
 ```ts title="app/http/controllers/post.controller.ts"
-import { Log } from '@strutvane/framework'
+import { Log } from '@strutvane/framework/facades'
 
 Log.debug('Loading posts', { page: 2 })
 Log.info('Post published', { postId: 42 })
@@ -80,7 +105,7 @@ Inside a request, every message automatically gets:
 ### Adding your own context
 
 ```ts title="app/http/controllers/invoice.controller.ts"
-import { Log } from '@strutvane/framework'
+import { Log } from '@strutvane/framework/facades'
 
 // For the rest of THIS request: every message below also carries orderId.
 Log.withContext({ orderId: 'ord_123' })
@@ -98,7 +123,7 @@ Log.withoutContext()
 ### Logging an error, and the `logger()` helper
 
 ```ts title="app/jobs/send-invoice.ts"
-import { logger, report } from '@strutvane/framework'
+import { logger, report } from '@strutvane/framework' // logger() is part of the 0.2 design
 
 try {
   await sendInvoice(invoice)
@@ -109,7 +134,7 @@ try {
 logger().info('Invoice job finished')   // the same as Log.info(...)
 ```
 
-`report(error)` is Laravel's `report()`: it writes the error to the log the same way the error page would, without stopping your code.
+`report(error)` is Laravel's `report()`: it writes the error to the log the same way the error page would, without stopping your code. It already exists in 0.2.0-next.0; `logger()` is part of the 0.2 design.
 
 ## Channels: where messages go
 
@@ -187,7 +212,7 @@ export default defineConfig((env) => ({
 Use it by name:
 
 ```ts title="app/services/payments.ts"
-import { Log } from '@strutvane/framework'
+import { Log } from '@strutvane/framework/facades'
 
 Log.channel('payments').warning('Card declined', { invoiceId: 42, reason: 'insufficient_funds' })
 ```
@@ -197,7 +222,7 @@ Log.channel('payments').warning('Card declined', { invoiceId: 42, reason: 'insuf
 ### Several channels for one message, or a channel made on the spot
 
 ```ts title="app/services/payments.ts"
-import { Log } from '@strutvane/framework'
+import { Log } from '@strutvane/framework/facades'
 
 // This one message goes to the daily file AND to Slack.
 Log.stack(['daily', 'slack']).critical('Payment provider is down', { provider: 'stripe' })
@@ -301,7 +326,7 @@ You can't switch these off, on any channel:
 - **Slack is rate-limited** and goes through the framework's HTTP client, which refuses private and internal network addresses, so a crafted webhook URL can't reach your internal services.
 
 ```ts title="app/http/controllers/session.controller.ts"
-import { Log } from '@strutvane/framework'
+import { Log } from '@strutvane/framework/facades'
 
 Log.info('Login attempt', { email: 'asha@example.com', password: 'hunter2hunter2' })
 ```
@@ -319,13 +344,13 @@ Log.info('Login attempt', { email: 'asha@example.com', password: 'hunter2hunter2
 The optional [`@strutvane/log-viewer`](../packages/log-viewer/) package adds a screen at `/_strutvane/logs` to tail, search and filter your logs. It reads both formats and merges the per-process files. It's **pre-selected** in the installer's "Extra features" question, so most new apps have it. To add it later:
 
 ```bash
-node strut install:log-viewer
+node strut add log-viewer
 ```
 
 The screen is a developer tool behind sign-in and a permission; logging itself works without it.
 
 :::caution[Coming in 0.2]
-`@strutvane/log-viewer` is planned for 0.2 (phase 1): it becomes the screen and read API of the 0.1 logs package. `node strut install:<name>` is designed, not built yet.
+`@strutvane/log-viewer` is planned for 0.2 (phase 1): it becomes the screen and read API of the 0.1 logs package, and isn't published yet. `node strut add <package>` exists in 0.2.0-next.0; the `node strut install:<name>` form is designed, not built.
 :::
 
 ## Common mistakes
@@ -348,8 +373,8 @@ LOG_LEVEL=debug
 **Why:** `console.log` writes to the terminal only. It skips channels, levels, context and redaction, so it can also leak a secret.
 **Fix:** use the logger:
 
-```ts
-import { Log } from '@strutvane/framework'
+```ts title="app/services/import-posts.ts"
+import { Log } from '@strutvane/framework/facades'
 
 Log.info('Imported posts', { count: 120 })
 ```
@@ -383,8 +408,8 @@ LOG_STACK=daily,slack
 LOG_SLACK_WEBHOOK_URL=https://hooks.slack.com/services/your/webhook/url
 ```
 
-```ts
-import { Log } from '@strutvane/framework'
+```ts title="app/services/slack-check.ts"
+import { Log } from '@strutvane/framework/facades'
 
 Log.critical('Testing the Slack channel')
 ```

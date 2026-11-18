@@ -18,8 +18,8 @@ It's `php artisan down` and `php artisan up`, with the same options: `--secret`,
 One naming difference: Docker's own start and stop commands are `node strut services:up` and `services:down`, so `up` and `down` keep their Laravel meaning.
 :::
 
-:::caution[Coming in 0.2]
-Maintenance mode is **proven in a prototype** (spike 12): the `down` and `up` commands, the 503 answer, the bypass secret and cookie, `--redirect`, `--render`, and the health route staying up, with tests. It's not released yet.
+:::caution[What exists, and when]
+Maintenance mode ships in `@strutvane/framework` 0.2.0-next.0 (not published to npm yet): the `down` and `up` commands, the 503 answer, the bypass secret and cookie, `--retry`, `--refresh`, `--redirect`, `--render`, and the health route staying up. The `services:up` and `services:down` Docker commands mentioned on this page come with the Docker setup the installer writes.
 :::
 
 ## The smallest example
@@ -33,10 +33,10 @@ node strut down
 **What you'll see:**
 
 ```text
-  ✔ The application is now in maintenance mode.
+✔ The application is now in maintenance mode.
 ```
 
-Now every request answers `503`:
+Now every request answers `503` (something like this):
 
 ```bash
 curl -i http://localhost:3000/api/posts
@@ -46,20 +46,20 @@ curl -i http://localhost:3000/api/posts
 HTTP/1.1 503 Service Unavailable
 content-type: application/problem+json
 
-{"type":"https://strutvane.dev/problems/maintenance","title":"Service unavailable","status":503,"code":"maintenance","detail":"The application is down for maintenance. Please try again soon."}
+{"type":"https://strutvane.dev/errors/maintenance-mode","title":"Down for maintenance","status":503,"code":"maintenance_mode","detail":"The application is down for maintenance. Please try again in a few minutes.","traceId":"…","instance":"/api/posts"}
 ```
 
-A browser gets the same answer as a small HTML page. Bring the app back:
+A browser gets the same problem answer, unless you give it a page with `--render`. Bring the app back:
 
 ```bash
 node strut up
 ```
 
 ```text
-  ✔ The application is now live.
+✔ The application is now live.
 ```
 
-(Run `up` when the app isn't down and it says `· The application was not in maintenance mode.`)
+(Run `up` when the app isn't down and it says `The application was not in maintenance mode.`)
 
 ## How it works
 
@@ -67,8 +67,8 @@ node strut up
 
 | Request | Answer |
 |---|---|
-| A page in the browser | `503`, a small HTML page (or your own, see `--render`) |
-| An API call (`/api/…`, or `Accept: application/json`) | `503` problem+json with code `maintenance` |
+| A page in the browser (`Accept: text/html`) | `503`: your own page with `--render`, otherwise the problem+json answer |
+| An API call, or any other client | `503` problem+json with code `maintenance_mode` |
 | The health route `/up` | Still `200 {"status":"ok"}`, so your load balancer doesn't think the server crashed |
 | Someone with the bypass cookie (see `--secret`) | The real app, as usual |
 | A host name you don't serve | Still refused first by the trusted-host check (`400`) |
@@ -99,8 +99,8 @@ node strut down --with-secret
 **What you'll see:**
 
 ```text
-  ✔ The application is now in maintenance mode.
-  · Bypass it by visiting http://localhost:3000/3sJ0q8yVx2kWm7Pz9aBcDeFgHiJkLmNo (shown once; the secret is not stored).
+✔ The application is now in maintenance mode.
+  Bypass it by visiting http://localhost:3000/3sJ0q8yVx2kWm7Pz9aBcDeFgHiJkLmNo (shown once; the secret is not stored).
 ```
 
 Open that link once. It sets a **bypass cookie** (`strutvane_maintenance`, valid for 12 hours, `HttpOnly`, `SameSite=Lax`, and `Secure` over HTTPS) and sends you to the home page. From then on, your browser sees the real app while everyone else sees the 503.
@@ -223,7 +223,7 @@ node strut services:down
 ### "--secret must be 8 to 128 letters, digits, "-" or "_""
 
 ```text
-  ✖ --secret must be 8 to 128 letters, digits, "-" or "_".
+error --secret must be 8 to 128 letters, digits, "-" or "_".
   → Or use --with-secret to generate a strong one.
 ```
 
@@ -232,7 +232,7 @@ node strut services:down
 ### "--redirect must be a path on this site"
 
 ```text
-  ✖ --redirect must be a path on this site, such as /status (got "https://status.example.com").
+error --redirect must be a path on this site, such as /status (got "https://status.example.com").
   → Absolute URLs, "//host" and encoded variants are refused, so maintenance mode can never send visitors elsewhere.
 ```
 
@@ -241,8 +241,8 @@ node strut services:down
 ### "--render must name an .html file inside resources/views"
 
 ```text
-  ✖ --render must name an .html file inside resources/views (got "../maintenance.html").
-  → Example: --render=maintenance.html for resources/views/maintenance.html.
+error --render must name an .html file inside resources/views (got "../maintenance.html").
+  → Example: --render=maintenance.html for resources/views/maintenance.html: a small, self-contained page.
 ```
 
 **Fix:** put the file in `resources/views/` and pass only its name.
