@@ -11,8 +11,8 @@ Your React UI uses a session automatically when people sign in. API clients (scr
 Same ideas: drivers (`database`, `file`, `cookie`, `redis`), `session()->get()` / `put()`, flash data, `regenerate()` and session blocking. The differences: the cookie is called `strutvane_session`, stored ids are **hashed** (a database leak doesn't hand out live sessions), a request that sends a `Bearer` token is **never** also a cookie session, and session handling lives in `@strutvane/auth`, which every app with sign-in has.
 :::
 
-:::caution[Coming in 0.2]
-**Proven in prototypes:** the sign-in sessions themselves in the auth prototype (spike 20: hashed ids, idle and absolute timeouts, rotation at sign-in, "sign out other sessions"), the session cookie seam and `node strut session:flush` in spike 12. **Decided and not built:** reading and writing your own session values, flash data and old input, `regenerate()`, the `cookie` and `redis` drivers, and the final cookie name `strutvane_session` (spike 20 still calls it `sv_session`). Session blocking comes in 0.3.
+:::caution[What exists, and when]
+**In `@strutvane/framework` 0.2.0-next.0:** the session cookie (`strutvane_session`, `__Host-strutvane_session` over HTTPS), the `XSRF-TOKEN` cookie kept in step with it, `ctx.sessionId()`, the `SessionStore` seam with a file store in `storage/framework/sessions`, and `node strut session:flush`. **Coming with `@strutvane/auth` 0.2:** the sign-in sessions themselves (hashed ids, idle and absolute timeouts, rotation at sign-in, "sign out other sessions", proven in the auth prototype) and the `database` store. **Decided and not built:** reading and writing your own session values, flash data and old input, `regenerate()`, and the `cookie` and `redis` drivers. Session blocking comes in 0.3.
 :::
 
 ## The smallest example
@@ -30,12 +30,14 @@ You don't write anything to get a session: sign in to the app in your browser, t
 
 ## Where sessions are stored: drivers
 
-| Driver | Stores sessions in | Use it when |
-|---|---|---|
-| `database` (default) | a `sessions` table | Almost always: no extra service, works with several servers |
-| `file` | `storage/framework/sessions/` | One server, no database for sessions |
-| `redis` | Redis | You already run Redis (installer question 18) |
-| `cookie` | an encrypted cookie in the browser | Tiny apps that store very little |
+| Driver | Stores sessions in | Use it when | Status |
+|---|---|---|---|
+| `database` (default) | a `sessions` table | Almost always: no extra service, works with several servers | coming with `@strutvane/auth` 0.2 |
+| `file` | `storage/framework/sessions/` | One server, no database for sessions | the framework's fallback store in 0.2.0-next.0 |
+| `redis` | Redis | You already run Redis (installer question 18) | planned |
+| `cookie` | an encrypted cookie in the browser | Tiny apps that store very little | planned |
+
+The store sits behind `SessionStoreToken`; the auth package binds its own, and without one the framework uses the file store.
 
 The installer picks `database` unless you chose Redis for "cache, queue and sessions". The `sessions` table is an ordinary migration in your app, and it's an **internal table**: it never gets a generated API or screen.
 
@@ -113,14 +115,14 @@ After a security incident, one command ends every session:
 node strut session:flush
 ```
 
-**What you'll see:**
+**What you'll see** (something like this):
 
 ```text
   ✔ 42 sessions deleted. Everyone signed in with a session must sign in again.
-  · API tokens are not affected; revoke them with the auth package (token:revoke --all).
+  · API tokens are not affected; revoke them with the auth package.
 ```
 
-Combine it with `node strut token:revoke --all` to cut off API tokens too. People can also end their own other sessions from their account settings ("Sign out other sessions").
+`session:flush` is **destructive**: outside `APP_ENV` `local`, `test`, `testing` or `development` it needs `--force --i-understand`, and it must be typed in full. It empties the app's session store (the auth package's, or `storage/framework/sessions`). To cut off API tokens too, revoke them with the auth package. People can also end their own other sessions from their account settings ("Sign out other sessions", coming with `@strutvane/auth`).
 
 ## Session blocking (coming in 0.3)
 
@@ -138,13 +140,13 @@ For API calls today, use the `idempotent` middleware: a retry with the same `Ide
 
 ## Sessions and API tokens
 
-A request that carries `Authorization: Bearer …` is treated as a **token** request, even if a session cookie came along too. Why: otherwise a forged cross-site request could add a junk `Bearer` header to skip the CSRF check while still riding on the victim's cookie. Cookie requests must pass the CSRF check; token requests don't need it. See [CSRF Protection](../csrf/) and [API Tokens](../api-tokens/).
+A request that carries `Authorization: Bearer …` is treated as a **token** request, even if a session cookie came along too: `ctx.sessionId()` is `undefined` for it, so a junk `Bearer` header can't ride on a stolen cookie. The CSRF check is stricter still: **every** unsafe request that carries the session cookie is checked, with or without a `Bearer` header, so adding one can never skip it. Token requests without a cookie don't need the check. See [CSRF Protection](../csrf/) and [API Tokens](../api-tokens/).
 
 ## With Docker, several servers and tests
 
 - **Several servers** behind a load balancer: use `database` or `redis` so every server sees the same sessions (`file` keeps them on one server's disk).
 - **Docker** changes nothing: the `database` driver uses the database container.
-- **Tests** don't need a browser session: the test client signs in with `actingAs(user)` (a user model), or `withToken(token)` for API tokens ([HTTP Tests](../http-tests/)).
+- **Tests** don't need a browser session: the test client signs in with `actingAs(user)` (coming in 0.2; see [HTTP Tests](../http-tests/)).
 
 ## Common mistakes
 
@@ -160,8 +162,8 @@ A request that carries `Authorization: Bearer …` is treated as a **token** req
 
 ### My POST from a script gets 419 "Page expired"
 
-**Why:** the script sent the session cookie, so the request must pass the CSRF check.
-**Fix:** scripts should use an API token (`Authorization: Bearer …`) instead of a session.
+**Why:** the script sent the session cookie, so the request must pass the CSRF check (a `Bearer` header next to the cookie doesn't change that).
+**Fix:** scripts should use an API token (`Authorization: Bearer …`) and send **no** session cookie.
 
 ### I stored a big object in the session and everything got slow
 
@@ -172,4 +174,4 @@ A request that carries `Authorization: Bearer …` is treated as a **token** req
 
 - [Authentication](../authentication/): sign-in, timeouts and "remember me".
 - [CSRF Protection](../csrf/): why cookie requests need a token.
-- [URL Generation](../urls/): the previous URL, kept in the session.
+- [URL Generation](../urls/): the previous URL, kept in the session (coming in 0.2).

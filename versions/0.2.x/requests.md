@@ -47,13 +47,15 @@ What you'll see:
 | `ctx.query` | `URLSearchParams` | The query string |
 | `ctx.params` | `Record<string, string>` | All path parameters, as text |
 | `ctx.param(name)` | `string` | One path parameter |
-| `ctx.body(limit?)` | `Promise<unknown>` | The JSON body, parsed once |
+| `ctx.body()` | `Promise<unknown>` | The JSON body, parsed once |
 | `ctx.user` | your user type `\| null` | The signed-in user, or `null` |
 | `ctx.requireUser()` | your user type | The user, or a `401` |
 | `ctx.model(Post)` | `Post` | The record bound from the route |
 | `ctx.wantsJson()` | `boolean` | Does the client want JSON? |
 | `ctx.ip` | `string` | The client address |
 | `ctx.route` | `{ name, method, uri, action }` | The matched route |
+| `ctx.tenant` | `{ id } \| undefined` | The current tenant, when tenancy is on |
+| `ctx.defer(task)` | `void` | Run work after the response is sent (see [Middleware](../middleware/)) |
 
 ## Path parameters: `ctx.param()`
 
@@ -118,22 +120,22 @@ The body is typed `unknown` on purpose: it came from outside. Use a [form reques
 
 `ctx.body()` refuses bad bodies with a clear problem+json response:
 
-| Problem | Status | `code` | `detail` |
+| Problem | Status | `code` | `title` / `detail` |
 |---|---|---|---|
-| `Content-Type` isn't `application/json` | **415** | `unsupported_media_type` | `Send the body as JSON with "Content-Type: application/json".` |
-| The JSON doesn't parse | **400** | `invalid_json` | `The request body is not valid JSON. Check for trailing commas and unquoted keys.` |
-| Bigger than 1 MiB | **413** | `payload_too_large` | `The body is larger than 1048576 bytes.` |
-| Nested more than 32 levels deep | **413** | `json_too_deep` | `The JSON is nested 40 levels deep; the limit is 32.` |
-| More than 1,000 keys in total | **413** | `json_too_many_keys` | `The JSON has 1500 keys; the limit is 1000.` |
-| A `__proto__` key (a known attack) | **400** | `forbidden_json_key` | `The JSON contains a "__proto__" key, which is never accepted.` |
+| `Content-Type` isn't `application/json` (or `application/*+json`) | **415** | `unsupported_media_type` | "Unsupported media type" |
+| The JSON doesn't parse | **400** | `invalid_json` | "The request body is not valid JSON. Check for trailing commas and unquoted keys." |
+| Bigger than 1 MiB | **413** | `payload_too_large` | "Request too large" |
+| Nested more than 32 levels deep | **413** | `json_too_deep` | "The request body is nested deeper than this server accepts." |
+| More than 1,000 keys in total | **413** | `json_too_many_keys` | "The request body has more keys than this server accepts." |
+| A `__proto__` key or a `constructor.prototype` object (a known attack) | **400** | `forbidden_json_key` | "The request body contains a "__proto__" key or a "constructor.prototype" object, which is never accepted." |
 
-The size limit holds even when `Content-Length` is missing or lies: bytes are counted as they arrive, and reading stops at the limit. Allow a bigger body on one action by passing a limit in bytes:
+For example, a trailing comma:
 
-```ts
-const body = await ctx.body(5 * 1024 * 1024)   // up to 5 MiB here
+```json
+{"type":"https://strutvane.dev/errors/invalid-json","title":"Invalid JSON","status":400,"code":"invalid_json","detail":"The request body is not valid JSON. Check for trailing commas and unquoted keys.","traceId":"…","instance":"/api/notes"}
 ```
 
-Or change the limits for the whole app:
+The size limit holds even when `Content-Length` is missing or lies: bytes are counted as they arrive, and reading stops at the limit. Change the limits for the whole app (the ceilings are 100 MiB, 512 levels and 1,000,000 keys):
 
 ```ts title="bootstrap/app.ts"
 .withMiddleware((middleware) => {
@@ -141,10 +143,14 @@ Or change the limits for the whole app:
 })
 ```
 
+:::caution[Coming in 0.2]
+A per-route body limit for application routes isn't built yet in 0.2.0-next.0; the app-wide `limits()` applies to every route.
+:::
+
 **Why such limits?** A huge or deeply nested body can tie up the server for seconds; these limits make that impossible, and the `__proto__` check stops **prototype pollution** (a trick that changes every object in your app through one crafted key).
 
 :::caution[Coming in 0.2]
-Form-encoded bodies (`application/x-www-form-urlencoded`), multipart forms and file uploads aren't read by `ctx.body()` yet. Uploads (checked by their content, not their file name) come with `@strutvane/files`; reading plain HTML forms comes with the session layer.
+`ctx.body()` reads JSON only. Reading form-encoded bodies (`application/x-www-form-urlencoded`) and multipart forms from application routes isn't built yet; the framework only looks inside a urlencoded form for `_token` (CSRF) and `_method` (method spoofing). Uploads (checked by their content, not their file name) come with `@strutvane/files`.
 :::
 
 ## Validating input: form requests
@@ -153,12 +159,12 @@ Never use the raw body directly. A **form request** is a small class that says w
 
 ```ts title="app/http/requests/note.request.ts"
 import { z } from 'zod'
-import { FormRequest, type StandardSchema } from '@strutvane/framework'
+import { FormRequest } from '@strutvane/framework'
 
 const schema = z.object({ text: z.string().trim().min(1).max(500) })
 
 export class StoreNoteRequest extends FormRequest<z.infer<typeof schema>> {
-  rules(): StandardSchema<z.infer<typeof schema>> {
+  rules() {
     return schema
   }
 }
@@ -179,9 +185,8 @@ export class NoteController extends Controller {
 **What you'll see** for `{"text":"","pinned":true}`: a `422` with one issue for `text`; once `text` is valid, `pinned` is refused as an `unknown_field`, because fields the schema doesn't list are rejected (Laravel only does that when you ask). A form request can also say who may send it (`authorize(ctx)`) and tidy input first (`prepareForValidation`). Every option is on [Validation](../validation/).
 
 :::caution[Coming in 0.2]
-Planned in the parity matrix, not in the prototype yet:
-- `node strut make:request StoreNoteRequest` to write the file;
-- `node strut make:rule` for your own reusable rules;
+Planned in the parity matrix, not built yet:
+- `node strut make:request StoreNoteRequest` to write the file (`node strut make:rule` for your own reusable rules already exists);
 - async database rules `unique()` and `exists()` ("this email isn't taken", "this author exists"), automatically limited to the current team when teams are on;
 - live validation from the browser with the same rules, without saving: see [Precognition](../precognition/).
 :::
@@ -191,7 +196,7 @@ Planned in the parity matrix, not in the prototype yet:
 | Read | Gives you |
 |---|---|
 | `ctx.cookie('theme')` | One cookie's value, or `undefined` (a malformed value is returned as-is, never a 500) |
-| `ctx.sessionId()` | The session cookie's id, or `undefined`. Always `undefined` when the request carries a `Bearer` token: a token request is never also a cookie session |
+| `ctx.sessionId()` | The session cookie's value, or `undefined`. Always `undefined` when the request carries a `Bearer` token: a token request is never also a cookie session |
 | `ctx.method` | `'GET'`, `'POST'`… (upper case) |
 | `ctx.url` | The full URL, parsed (`ctx.url.pathname`, `ctx.url.searchParams`) |
 | `ctx.params` | Every path parameter as text, before model binding |
@@ -200,12 +205,12 @@ Planned in the parity matrix, not in the prototype yet:
 | `ctx.request` | The raw Web-standard `Request`, when you need something else |
 
 :::caution[Coming in 0.2]
-Flash data (a message kept for the next request only), old input (re-filling a form after a validation error) and reading and writing session values come with the session layer of `@strutvane/auth`. The React UI doesn't need them: it keeps form state in the browser.
+Flash data (a message kept for the next request only), old input (re-filling a form after a validation error) and reading and writing session values from a request come with the session layer of `@strutvane/auth`. The framework already has the session store underneath (see [Session](../session/)). The React UI doesn't need these: it keeps form state in the browser.
 :::
 
 ## The signed-in user: `ctx.user` and `ctx.requireUser()`
 
-The `auth` middleware sets `ctx.user`. On routes without `auth` (or with `auth:optional`), it can be `null`:
+The authentication package finds the user for every request (from the session cookie or an API token) and puts it in `ctx.user`; the `auth` middleware then refuses guests. On routes without `auth` (or with `auth:optional`), `ctx.user` can be `null`:
 
 ```ts
 Route.get('/greeting', (ctx) =>
@@ -219,7 +224,7 @@ Route.get('/greeting', (ctx) =>
 const author = ctx.requireUser()      // typed as your user model, never null
 ```
 
-`ctx.user` is typed as **your** user model, so `ctx.user?.is_admin` is checked by the compiler. New apps declare it once in `bootstrap/app.ts`:
+`ctx.user` is typed as **your** user model, so `ctx.user?.is_admin` is checked by the compiler. Until you declare it, it's an **actor** (`id`, `type`, `roles`, `attrs`). Declare it once in `bootstrap/app.ts`:
 
 ```ts title="bootstrap/app.ts"
 declare module '@strutvane/framework' {
@@ -237,6 +242,12 @@ show(ctx: HttpContext): Response {
   return ctx.json({ data: post })
 }
 ```
+
+`ctx.bound('post')` returns the record bound to a parameter whatever its class, or `undefined`.
+
+:::caution[Coming in 0.2]
+Binding needs a model class with a static `resolveRouteBinding()` method; [ORM](../orm/) models get it later in 0.2. See [Routing](../routing/#route-model-binding).
+:::
 
 With two models in one path, pass the parameter name:
 
@@ -266,14 +277,15 @@ Behind a load balancer or reverse proxy, the connection comes from the proxy, so
 })
 ```
 
-**What you'll see:** for requests that arrive **from** those addresses, `ctx.ip` becomes the real client from `X-Forwarded-For`, and HTTPS and the host are read from `X-Forwarded-Proto` and `X-Forwarded-Host`. The same header from anyone else is still ignored. See [Security Features](../security/).
+**What you'll see:** for requests that arrive **from** those addresses, `ctx.ip` becomes the real client from `X-Forwarded-For`, and HTTPS and the host are read from `X-Forwarded-Proto` and `X-Forwarded-Host`. The same header from anyone else is still ignored. `'*'` is refused: name your proxies. When the address can't be known, `ctx.ip` is `'unknown'`. See [Security Features](../security/).
 
 ## Common mistakes
 
 ### "The route … has no {…} parameter"
 
 ```text
-Error: The route "/api/posts/{post:slug}" has no {id} parameter. Parameters here: post.
+✖ The route "/api/posts/{post:slug}" has no {id} parameter.
+→ Parameters here: post.
 ```
 
 **Why:** the name in `ctx.param()` doesn't match the name in the route path.
@@ -283,7 +295,8 @@ Error: The route "/api/posts/{post:slug}" has no {id} parameter. Parameters here
 ### "No Post is bound on route …"
 
 ```text
-Error: No Post is bound on route "/api/posts/{slug}" (bound parameters: none). Add {post} to the route path and register the model in withRouting({ bindings }).
+✖ No Post is bound on route "/api/posts/{slug}" (bound parameters: none).
+→ Add {post} to the route path and register the model in withRouting({ bindings }).
 ```
 
 **Fix:** name the parameter after the binding (`{post}` or `{post:slug}`) and register `bindings: { post: Post }`.
@@ -291,16 +304,18 @@ Error: No Post is bound on route "/api/posts/{slug}" (bound parameters: none). A
 ### 415 when I post a form
 
 ```json
-{ "status": 415, "code": "unsupported_media_type", "detail": "Send the body as JSON with \"Content-Type: application/json\"." }
+{ "title": "Unsupported media type", "status": 415, "code": "unsupported_media_type", … }
 ```
+
+**Why:** `ctx.body()` reads JSON only, and an HTML form sends `application/x-www-form-urlencoded`.
 
 **Fix:** send JSON with the header `Content-Type: application/json`.
 
 ### `ctx.user` is always `null`
 
-**Why:** the route has no `auth` (or `auth:optional`) middleware, so nobody signs the user in.
+**Why:** nothing signs users in yet. The `auth` middleware only checks that someone is signed in; finding the user (from a session cookie or a token) is the job of the authentication package's request hook.
 
-**Fix:** `.middleware('auth')` on the route.
+**Fix:** install and configure `@strutvane/auth` (see [Authentication](../authentication/)), then add `.middleware('auth')` to routes that need a user.
 
 ### 413 "json_too_deep" on a big import
 

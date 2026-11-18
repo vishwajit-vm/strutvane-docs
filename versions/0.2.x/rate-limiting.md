@@ -13,8 +13,8 @@ It's the same `throttle` middleware: `throttle:60,1` (60 per minute) or `throttl
 One difference: `throttle` always runs **after** `auth`, whatever order you list them in, so signed-in users always get their own bucket.
 :::
 
-:::caution[Coming in 0.2]
-The `throttle` middleware, named limiters, user and IP buckets and the headers are **proven in a prototype** (spike 12). In that prototype the counts are kept in memory, per process, with fixed one-window counting. In 0.2 the counts live in the **cache** (the database by default, Redis if you chose it), so limits hold across processes and servers, and the four named limiters below ship by default.
+:::note[What exists, and when]
+The `throttle` middleware, the four named limiters, user and IP buckets and the headers ship in `@strutvane/framework` 0.2.0-next.0. Counting uses a fixed window and lives in the app's default [cache](../cache/) store (`memory` or `file` in 0.2). Shared stores (database, Redis) come in 0.3.
 :::
 
 ## The smallest example
@@ -41,7 +41,7 @@ x-ratelimit-limit: 60
 x-ratelimit-remaining: 0
 content-type: application/problem+json
 
-{"type":"https://strutvane.dev/problems/too_many_requests","title":"Too many requests","status":429,"code":"too_many_requests","detail":"Slow down: try again in 42 seconds."}
+{"type":"https://strutvane.dev/errors/rate-limited","title":"Too many requests","status":429,"code":"rate_limited","detail":"Please wait a moment and try again.","traceId":"…","instance":"/api/posts"}
 ```
 
 `retry-after` says how many seconds until the window resets. Well-behaved clients wait that long.
@@ -52,7 +52,7 @@ A **bucket** is one counter. Requests in the same bucket count together:
 
 | Client | Bucket | Why |
 |---|---|---|
-| A signed-in user | their user id | Colleagues behind one office IP don't slow each other down |
+| A signed-in user (`ctx.user` has an `id`) | their user id | Colleagues behind one office IP don't slow each other down |
 | A guest | their IP address | The only thing we know about them |
 | A guest on IPv6 | their `/64` network | One person usually controls a whole `/64`, so changing the last part of the address mustn't reset the limit |
 | Behind a load balancer | the real client IP | Only if you trust the proxy: `middleware.trustProxies({ at: [...] })` (otherwise everyone shares the proxy's bucket) |
@@ -90,16 +90,14 @@ A **named limiter** is a limit you define once and use by name. Define it in `bo
 
 ### The limiters Strutvane ships
 
-| Name | Used by | Default |
+| Name | Meant for | Default |
 |---|---|---|
-| `api` | every route in `routes/api.ts` | 60 per minute per user or IP |
-| `login` | sign-in | tight, per account and per IP |
-| `password-reset` | "forgot password" | tight, per email and per IP |
-| `aggregate` | the generated `/aggregate` endpoints (group-by counts) | tighter than `api`, because they're expensive |
+| `api` | every route in `routes/api.ts` | 60 per minute, per user or IP |
+| `login` | sign-in forms | 5 per minute, per IP |
+| `password-reset` | "forgot password" | 3 per 15 minutes, per IP |
+| `aggregate` | routes a distributed attack would hammer | 1,000 per minute shared by **every** client: a circuit breaker |
 
-:::caution[Coming in 0.2]
-The prototype defines only `api` (60 per minute). `login`, `password-reset` and `aggregate` ship with 0.2; their exact numbers aren't final. Redefining one with `rateLimiter()` replaces it.
-:::
+Redefining one with `rateLimiter()` replaces it. `maxAttempts` and `decaySeconds` must be whole numbers of at least 1, or the app refuses to start.
 
 ### Your own bucket key: `by`
 
@@ -120,7 +118,7 @@ Limit sign-in attempts **per email address** as well as per IP, so one attacker 
 Route.post('/exports', [ExportController, 'store']).middleware('auth', 'throttle:exports'),
 ```
 
-**What you'll see:** the fourth export within an hour answers `429` with a `retry-after` of up to 3,600 seconds.
+**What you'll see:** the fourth export within an hour answers `429` with a `retry-after` of up to 3,600 seconds. A bucket key you return is prefixed with the limiter's name, so two limiters never share a counter.
 
 ## Every way to apply a limit
 
@@ -135,7 +133,7 @@ Route.post('/exports', [ExportController, 'store']).middleware('auth', 'throttle
 | Some resource actions | `.middlewareFor(['store'], 'throttle:10,1')` |
 | A controller | `static readonly middleware = [throttle({ params: ['10', '1'], only: ['store'] })]` |
 | A closure | `withThrottle(async (ctx) => …, '5', '1')` |
-| By hand | `await throttle.verify(ctx, '5', '1')` |
+| By hand | `await throttle.verify(ctx, '5', '1')` (throws the 429 when the bucket is empty) |
 | Turn it off for a route | `.withoutMiddleware('throttle')` (flagged by `route:list --security`) |
 
 Typical example, a controller that throttles only writing:
@@ -155,7 +153,7 @@ See [Middleware](../middleware/) for the styles in detail.
 
 ## Several limits on one route
 
-Limits add up: a route in the `api` group with `throttle:5,1` of its own is limited by **both** (`api` and `5,1` are different buckets). The tightest one decides first.
+Limits add up: a route in the `api` group with `throttle:5,1` of its own is limited by **both** (`api` and `5,1` are different buckets). The tightest one decides first. The `x-ratelimit-*` headers on a successful response come from the limiter that ran first (the group's).
 
 ## Seeing the limits
 
@@ -167,45 +165,53 @@ The Protections column shows every `throttle:…` that really applies to each ro
 
 ## Testing limits
 
-Freeze the clock so windows are predictable, then send requests:
+Send the requests straight into a fresh app, with no server:
 
 ```ts title="tests/feature/contact-throttle.test.ts"
 import { randomBytes } from 'node:crypto'
 import { expect, test } from 'vitest'
-import { ClockToken } from '@strutvane/framework'
-import { client } from '@strutvane/framework/testing'
 import { createApp } from '../../bootstrap/app.ts'
 
 test('the contact form allows 5 posts a minute', async () => {
-  const app = createApp({ APP_ENV: 'testing', APP_KEY: `base64:${randomBytes(32).toString('base64')}`, DB_CONNECTION: 'sqlite' })
-  app.container.instance(ClockToken, () => new Date('2026-11-14T10:00:00Z'))
-  const http = client(app).withoutCsrf()
+  const app = createApp({ APP_ENV: 'testing', APP_KEY: `base64:${randomBytes(32).toString('base64')}` })
+  const post = () =>
+    app.handle(new Request('http://localhost/api/contact', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ message: 'hi' }),
+    }))
 
-  for (let i = 0; i < 5; i += 1) (await http.postJson('/api/contact', { message: 'hi' })).assertStatus(200)
-  const sixth = await http.postJson('/api/contact', { message: 'hi' })
+  for (let i = 0; i < 5; i += 1) expect((await post()).status).toBe(200)
+  const sixth = await post()
 
-  sixth.assertProblem(429, 'too_many_requests')
-  expect(sixth.headers.get('retry-after')).toBe('60')
+  expect(sixth.status).toBe(429)
+  expect((await sixth.json()).code).toBe('rate_limited')
+  expect(Number(sixth.headers.get('retry-after'))).toBeGreaterThan(0)
 })
 ```
 
-**What you'll see** with `npm test`: the test passes. A new app per test means a fresh set of buckets. (`withoutCsrf()` skips the CSRF check for the test client; it only works when `APP_ENV=testing`, so it can never switch CSRF off in a real deployment.)
+**What you'll see** with `npm test`: the test passes. A new app per test means a fresh set of buckets, as long as the cache store is `memory` (with the `file` store, counts survive in `storage/`).
+
+:::caution[Coming in 0.2]
+Laravel-style test helpers (`getJson()`, `assertProblem(429, 'rate_limited')`, `withoutCsrf()`) are built but not exported from `@strutvane/framework/testing` yet. See [HTTP Tests](../http-tests/).
+:::
 
 ## With Docker, several processes and several servers
 
 The counting store matters once your app runs more than one process:
 
-| Setup | In the prototype (memory) | In 0.2 (the cache) |
-|---|---|---|
-| One process (`npm run dev`, one server) | correct | correct |
-| Several processes or servers | each counts alone, so the real limit is multiplied | shared, so the limit holds |
+| Setup | `memory` cache store | `file` cache store | database or Redis (0.3) |
+|---|---|---|---|
+| One process (`npm run dev`, one server) | correct | correct | correct |
+| Several processes on one server | each counts alone, so the real limit is multiplied | shared through `storage/` | shared |
+| Several servers | each counts alone | each server counts alone | shared |
 
-Docker mode changes nothing: the app container is one process in development. To use your own store, bind `RateLimitStoreToken` in a provider's `register()`.
+Docker mode changes nothing: the app container is one process in development. The limiter uses the cache's default store, so choosing the store in `config/cache.ts` chooses where counts live.
 
 ## Coming later
 
 :::caution[Coming in 0.2]
-Not in the prototype yet: sliding windows (smoother than a fixed one-minute window), lockout with growing back-off after repeated failed sign-ins, and **lockout events** for the audit log.
+Not built yet: sliding windows (smoother than a fixed one-minute window), lockout with growing back-off after repeated failed sign-ins, and **lockout events** for the audit log.
 :::
 
 ## Common mistakes
@@ -214,10 +220,19 @@ Not in the prototype yet: sliding windows (smoother than a fixed one-minute wind
 
 ```text
 ✖ No rate limiter is called "report".
-→ Define it in bootstrap/app.ts: withMiddleware((m) => m.rateLimiter('report', { maxAttempts: 60, decaySeconds: 60 })), or use numbers: throttle:60,1.
+→ Did you mean "reports"?
 ```
 
-**Fix:** define it, or correct the name (`reports`).
+When no name is close, the hint says how to define it: `withMiddleware((m) => m.rateLimiter('report', { maxAttempts: 60, decaySeconds: 60 })), or use numbers: throttle:60,1.`
+
+**Fix:** define it, or correct the name.
+
+### "throttle:… is not a valid limit"
+
+```text
+✖ throttle:0,1 is not a valid limit.
+→ Write throttle:<attempts>,<minutes> with whole numbers of at least 1 (throttle:60,1), or a limiter name (throttle:api).
+```
 
 ### Everyone in our office gets 429 at once
 
@@ -226,13 +241,13 @@ Not in the prototype yet: sliding windows (smoother than a fixed one-minute wind
 
 ### Signed-in users still share a bucket
 
-**Why:** the route has `throttle` but no `auth`, so nobody is signed in when it counts.
-**Fix:** add `auth` (or `auth:optional`) to the route. `throttle` always runs after it.
+**Why:** nothing put the user on the request, so `ctx.user` is `null` and the IP decides. The user is found by the authentication package's request hook (before any middleware), not by the `auth` middleware.
+**Fix:** check that `@strutvane/auth` is installed and the request carries its session cookie or token. Add `auth` where guests must be refused.
 
 ### The limit seems higher than I set in production
 
-**Why:** with several processes and the in-memory prototype store, each process counts on its own.
-**Fix:** use the shared store (the default from 0.2), or bind `RateLimitStoreToken` to one.
+**Why:** with several processes and the `memory` cache store, each process counts on its own.
+**Fix:** use the `file` store on a single server (`config/cache.ts`); shared database and Redis stores come in 0.3.
 
 ## Next steps
 

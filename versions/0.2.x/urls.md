@@ -1,16 +1,16 @@
 ---
 title: URL Generation
-description: Build links to your own routes with the typed `route()` helper and `url`, make signed and expiring links with `url.signedRoute()` and `url.temporarySignedRoute()`, read the current and previous URL, add absolute URLs and query strings, and avoid the mistakes that break links.
+description: Build links to your own routes with the `route()` helper, make signed and expiring links with `url.signedRoute()` and `url.temporarySignedRoute()`, add absolute URLs and query strings, and avoid the mistakes that break links.
 ---
 
 **URL generation** means letting the framework build addresses for you instead of typing them as strings. You name a route once (`posts.show`) and ask for its URL wherever you need it: in an API response, an email, a redirect. If the route's path changes later, every link follows, and a typo in a route name is a **compile error**, not a broken link in production.
 
 :::tip[Coming from Laravel?]
-`route('posts.show', $post)` is `route('posts.show', { post })`, `url('/posts')` is `url('/posts')`, and `URL::signedRoute()` / `URL::temporarySignedRoute()` are `url.signedRoute()` / `url.temporarySignedRoute()`. The difference: route names and their parameters are **typed** from your routes files, so `route('posts.shwo')` or a missing `{post}` doesn't compile.
+`route('posts.show', $post)` is `route('posts.show', { post })`, and `URL::signedRoute()` / `URL::temporarySignedRoute()` are `url.signedRoute()` / `url.temporarySignedRoute()`. The difference: route names and their parameters can be **typed** from your routes files, so `route('posts.shwo')` or a missing `{post}` doesn't compile.
 :::
 
-:::caution[Coming in 0.2]
-**Proven in a prototype** (spike 12): typed `route()`, absolute URLs, query strings, model parameters and signed and expiring links (as the functions `signedRoute()` and `temporarySignedRoute()`). Decided for 0.2 and not built yet: the `url` object (`url()`, `url.signedRoute()`, `url.temporarySignedRoute()` with `expiresIn` and `oneTime`, `url.current()`, `url.previous()`) and default parameters.
+:::note[What exists, and when]
+In `@strutvane/framework` 0.2.0-next.0: `route()` with absolute URLs, query strings and model parameters, and the `url` object with `url.route()`, `url.signedRoute()` (with `expiresIn` and `oneTime`) and `url.temporarySignedRoute()`. Still coming in 0.2: compile-time route names (the `RoutesOf` type isn't exported yet), `url()` for any path, `url.current()`, `url.previous()` and default parameters; each has its own box below.
 :::
 
 ## The smallest example
@@ -51,13 +51,13 @@ export class PostController extends Controller {
 | Call | Result |
 |---|---|
 | `route('posts.index')` | `/api/posts` |
-| `route('posts.show', { post })` | `/api/posts/hello-world` (a model fills `{post:slug}` with its slug) |
+| `route('posts.show', { post })` | `/api/posts/hello-world` (a model with a `routeKey()` method fills `{post:slug}` with its slug) |
 | `route('posts.show', { post: 'hello-world' })` | `/api/posts/hello-world` (a string or a number works too) |
 | `route('posts.index', { page: 2 })` | `/api/posts?page=2` (parameters the path doesn't use become the query string) |
 | `route('posts.index', {}, { query: { page: 2, sort: '-created_at' } })` | `/api/posts?page=2&sort=-created_at` |
 | `route('posts.show', { post }, { absolute: true })` | `http://localhost:3000/api/posts/hello-world` |
 
-Values are URL-encoded for you, so a slug or search term with spaces or symbols is safe.
+Values are URL-encoded for you, so a slug or search term with spaces or symbols is safe. `url.route()` is the same as `route()`.
 
 ### Typed names and parameters
 
@@ -72,6 +72,10 @@ route('admin.stats')                  // ✔ group name prefixes are typed too
 
 When the name comes from a variable (so TypeScript can't check it), the same mistakes are friendly runtime errors (see Common mistakes).
 
+:::caution[Coming in 0.2]
+The block in `bootstrap/app.ts` that switches these compile errors on needs the `RoutesOf` type, which isn't exported in 0.2.0-next.0 yet (see [Routing](../routing/#every-way-to-call-route)). Until then every check above happens when the code runs.
+:::
+
 ### Absolute URLs
 
 By default `route()` returns a **path** (`/api/posts`), which is what you want inside your own app. For anything that leaves the app (an email, a webhook, a QR code), ask for an **absolute** URL. It's built from `APP_URL`, never from the request's `Host` header, so a forged header can't end up in a password-reset link:
@@ -82,9 +86,13 @@ route('posts.show', { post }, { absolute: true })   // → 'https://blog.example
 
 Set `APP_URL` to the address people use (with `https://` in production). See [Configuration](../configuration/).
 
-## `url()`: any path on your site (preview)
+## `url()`: any path on your site
 
-For a path that isn't a named route, `url()` makes it absolute from `APP_URL`:
+:::caution[Coming in 0.2]
+Not built yet: in 0.2.0-next.0, `url` is an object with `route()`, `signedRoute()` and `temporarySignedRoute()`, and can't be called. Planned shape:
+:::
+
+For a path that isn't a named route, `url()` will make it absolute from `APP_URL`:
 
 ```ts
 import { url } from '@strutvane/framework'
@@ -121,13 +129,15 @@ Route.get('/reports/{report}/download', [ReportController, 'download']).name('re
 | `url.signedRoute(name, params, { oneTime: true })` | One that works once |
 | `url.temporarySignedRoute(name, expiresAt, params)` | One that expires at a given `Date` |
 
-**What you'll see** when the link is opened: the route runs. A changed link answers `403 invalid_signature`, an expired one `403 signature_expired`, so your page can offer "send me a new link". The same signer (an HMAC over the path, the sorted query, the expiry and a purpose) is used by sign-in emails and temporary file URLs. After `node strut key:rotate`, links made with the old key keep working. See [Routing: Signed routes](../routing/).
+**What you'll see** when the link is opened: the route runs. A changed link answers `403 invalid_signature`, an expired (or already used one-time) link `403 signature_expired`, so your page can offer "send me a new link". The signature covers the path, the query, the expiry and a **purpose** (`route:reports.download`), so a link signed for one route never works on another. After `node strut key:rotate`, links made with the old key keep working (the old key stays in `APP_PREVIOUS_KEYS`). See [Routing: Signed routes](../routing/#signed-routes).
 
-:::note[Today's names]
-In the prototype these are plain functions, `signedRoute(name, params)` and `temporarySignedRoute(name, expiresAt, params)`, imported from `@strutvane/framework`. `expiresIn` and `oneTime` come with the `url.` form.
+`expiresIn` is a number of seconds and must be positive; `oneTime` needs an expiry too. All three helpers take the same `{ absolute: true, query: {…} }` options as `route()`: use `absolute: true` for links in emails.
+
+## The current and previous URL
+
+:::caution[Coming in 0.2]
+Not built yet. Until then, `ctx.url` is the current request's URL. Planned shape:
 :::
-
-## The current and previous URL (preview)
 
 ```ts
 url.current()     // the URL of this request, without the query string
@@ -137,7 +147,11 @@ url.previous()    // where the user came from (from the session), or a fallback
 
 `url.previous()` reads the **session**, not the `Referer` header (which any client can fake or leave out), and only ever returns a same-site path, so it's safe to redirect to. For "back to where you were going after sign-in", use `redirect().intended(ctx, '/dashboard')` ([Helpers](../helpers/)).
 
-## Default parameters (preview)
+## Default parameters
+
+:::caution[Coming in 0.2]
+Not built yet. Planned shape:
+:::
 
 Laravel's `URL::defaults()`: when many routes share a parameter, such as `{locale}` or `{team}`, set it once per request (in a middleware) and `route()` fills it in:
 
@@ -148,7 +162,7 @@ route('team.projects.index')   // → '/acme/projects', no need to pass { team }
 
 ## In the browser
 
-The generated UI uses a typed client built from the same route table (`.strutvane/client.gen.ts`), so browser code gets the same compile errors for a wrong route or field. See [Frontend](../frontend/).
+The generated UI is planned to use a typed client built from the same route table, so browser code gets the same compile errors for a wrong route or field *(unverified: not part of `@strutvane/framework` 0.2.0-next.0)*. See [Frontend](../frontend/).
 
 ## With Docker
 
@@ -182,13 +196,22 @@ Nothing changes, except one thing to check: `APP_URL` must be the address **your
 
 ### "route() was called outside a request or console command"
 
+```text
+✖ route() was called outside a request or console command, so there is no current app.
+→ Call it from a controller, middleware or command, or wrap the code in app.run(() => …) (tests: await app.run(async () => …)).
+```
+
 **Why:** `route()` ran at the top level of a file, before any app was handling a request.
-**Fix:** call it inside a function, or wrap it: `app.run(() => route('posts.index'))`. See [Helpers](../helpers/).
+**Fix:** call it inside a function, or wrap it: `app.run(() => route('posts.index'))` (after `await app.boot()`). See [Helpers](../helpers/).
+
+### "signedRoute() was given an expiresIn that is not a positive number of seconds"
+
+**Fix:** pass seconds, e.g. `{ expiresIn: 3600 }` for one hour (not milliseconds, not a `Date`; for a `Date` use `url.temporarySignedRoute()`).
 
 ### A signed link answers 403 "invalid_signature"
 
 **Why:** something changed the URL after it was signed (an email client re-encoding it, a parameter added by hand), or the checking server has a different `APP_KEY`.
-**Fix:** send the link exactly as it was made, and give every server the same `APP_KEY`.
+**Fix:** send the link exactly as it was made, and give every server the same `APP_KEY` (and `APP_PREVIOUS_KEYS`).
 
 ## Next steps
 

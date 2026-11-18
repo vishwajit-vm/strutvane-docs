@@ -1,6 +1,6 @@
 ---
 title: Controllers
-description: Group request handling into controller classes. Plain controllers, constructor injection, ResourceController with its hooks (indexConstraints, prepareForStore, prepareForUpdate, visible), custom actions, and every make:controller variant.
+description: Group request handling into controller classes. Plain and single-action controllers, constructor injection, ResourceController with its hooks (indexConstraints, prepareForStore, prepareForUpdate, visible), custom actions and controller middleware.
 ---
 
 A **controller** is a class whose methods (called **actions**) answer requests. Instead of writing every route's code inside `routes/api.ts`, you point the route at a controller action, and keep related actions together: everything about posts in `PostController`.
@@ -8,32 +8,20 @@ A **controller** is a class whose methods (called **actions**) answer requests. 
 Controllers live in `app/http/controllers/`, one per file, named `post.controller.ts`.
 
 :::tip[Coming from Laravel?]
-Same idea. `php artisan make:controller PostController --resource` is `node strut make:controller PostController --resource`.
+Same idea. `php artisan make:controller` becomes `node strut make:controller` once it ships (see [Generating controllers](#generating-controllers)); until then you write the file yourself, as below.
 
 What's new is `ResourceController`: a base class that already implements `index`, `show`, `store`, `update` and `destroy` (pagination, search, sorting, filters, validation, policies, problem+json errors). You set the model and the policy, and override only the steps you want to change. Each action receives one `ctx` argument instead of injected `Request $request, Post $post`.
 :::
 
 ## The smallest example
 
-```bash
-node strut make:controller ReportController
-```
-
-What you'll see:
-
-```text
-  Created app/http/controllers/report.controller.ts
-```
-
-The new file:
+Create the file:
 
 ```ts title="app/http/controllers/report.controller.ts"
 import { Controller, type HttpContext } from '@strutvane/framework'
 
-/** TODO: say what this controller is for. */
+/** Reports for the admin area. */
 export class ReportController extends Controller {
-  // Add actions, then route them in routes/api.ts or routes/web.ts, for example:
-  // Route.get('/reports', [ReportController, 'index']).name('reports.index')
   index(ctx: HttpContext): Response {
     return ctx.json({ data: [] })
   }
@@ -50,7 +38,7 @@ Route.get('/reports', [ReportController, 'index']).name('reports.index'),
 
 ## Plain controllers
 
-An action takes `ctx` (the [request context](../requests/)) and returns a `Response`, or a `Promise` of one:
+An action takes `ctx` (the [request context](../requests/)) and returns a `Response`, or a `Promise` of one. Returning anything else (a plain object, nothing) is an error: use `ctx.json()`, `ctx.html()` or `ctx.noContent()`.
 
 ```ts title="app/http/controllers/profile.controller.ts"
 import { Controller, type HttpContext } from '@strutvane/framework'
@@ -72,32 +60,32 @@ export class ProfileController extends Controller {
 }
 ```
 
+`Post` is an [ORM](../orm/) model; any code that returns data works the same way.
+
 **Why write the return type (`: Response`, `: Promise<Response>`)?** Your routes file reads the controller's types, and your controller may call `route()`, which reads the routes file. Writing the return type stops TypeScript from going round in that circle. Generated controllers always include it.
 
-A **new controller object is made for every request**, so it's safe to keep per-request values on `this`; they never leak to another user.
+A **new controller object is made for every request**, so it's safe to keep per-request values on `this`; they never leak to another user. The app also builds every routed controller once at start-up, to check that each action exists, so a constructor must not do slow work.
 
 ## Constructor injection
 
-A controller that needs a service lists it in `static inject`; the container passes it to the constructor:
+A controller that needs a service lists its container tokens in `static inject`, in constructor order; the container passes them to the constructor:
 
-```ts title="app/http/controllers/stats.controller.ts"
-import { ConnectionToken, Controller, type Connection, type HttpContext } from '@strutvane/framework'
+```ts title="app/http/controllers/about.controller.ts"
+import { type ConfigRepository, ConfigRepositoryToken, Controller, type HttpContext } from '@strutvane/framework'
 
-/** Admin statistics. */
-export class StatsController extends Controller {
-  static readonly inject = [ConnectionToken] as const
-  readonly #db: Connection
+/** What this app is. */
+export class AboutController extends Controller {
+  static readonly inject = [ConfigRepositoryToken] as const
+  readonly #config: ConfigRepository
 
-  constructor(db: Connection) {
+  constructor(config: ConfigRepository) {
     super()
-    this.#db = db
+    this.#config = config
   }
 
-  /** GET /api/admin/stats */
-  async show(ctx: HttpContext): Promise<Response> {
-    const [posts] = await this.#db.select('SELECT COUNT(*) AS "total" FROM "posts" WHERE "deleted_at" IS NULL')
-    const [authors] = await this.#db.select('SELECT COUNT(*) AS "total" FROM "authors"')
-    return ctx.json({ data: { posts: Number(posts?.['total'] ?? 0), authors: Number(authors?.['total'] ?? 0) } })
+  /** GET /api/about */
+  show(ctx: HttpContext): Response {
+    return ctx.json({ data: { name: this.#config.string('app.name', 'Strutvane') } })
   }
 }
 ```
@@ -105,7 +93,7 @@ export class StatsController extends Controller {
 What you'll see:
 
 ```json
-{ "data": { "posts": 5, "authors": 3 } }
+{ "data": { "name": "Blog" } }
 ```
 
 If the `inject` list doesn't match the constructor, it doesn't compile. See [Service Container](../container/).
@@ -113,6 +101,10 @@ If the `inject` list doesn't match the constructor, it doesn't compile. See [Ser
 ## ResourceController: a whole API in a few lines
 
 For a model that needs the standard API, extend `ResourceController` and set two things: the **model** and the **policy** (who may do what; see [Authorization](../authorization/)).
+
+:::caution[Coming in 0.2]
+In 0.2.0-next.0, `ResourceController` works with a model that implements its small `ResourceModel` contract (`metadata()`, `paginate()`, `createFromValidated()`, `resolveRouteBinding()`, `isTaken()`). [ORM](../orm/) models don't implement it yet: that wiring is the next step on the 0.2 plan, and the examples below show the finished shape.
+:::
 
 ```ts title="app/http/controllers/author.controller.ts"
 import { ResourceController } from '@strutvane/framework'
@@ -134,11 +126,13 @@ That's the whole controller. You get:
 
 | Request | Action | What it does | Checks the policy's |
 |---|---|---|---|
-| `GET /api/authors` | `index` | One page, with `?page`, `?perPage`, `?search`, `?sort`, `?filter[…]` | `viewAny` |
+| `GET /api/authors` | `index` | One page from the model's `paginate()`, which reads the query string | `viewAny` |
 | `GET /api/authors/{author}` | `show` | The bound record | `view` |
-| `POST /api/authors` | `store` | Validate, check unique columns, create; `201` + `Location` | `create` |
-| `PATCH /api/authors/{author}` | `update` | Validate (every field optional), check uniques, save | `view`, then `update` |
-| `DELETE /api/authors/{author}` | `destroy` | Delete (soft delete when the table has `deleted_at`); `204` | `view`, then `delete` |
+| `POST /api/authors` | `store` | Validate, refuse non-`fillable` fields, check unique columns, create; `201` + `Location` | `create` |
+| `PUT`/`PATCH /api/authors/{author}` | `update` | Validate, check uniques, save | `view`, then `update` |
+| `DELETE /api/authors/{author}` | `destroy` | Delete the record; `204` | `view`, then `delete` |
+
+Without a `policy` property, the controller uses the policy **discovered** for the model (`app/policies/author.policy.ts`, exporting `AuthorPolicy` or a default). With neither, the app refuses to start. A duplicate value in a unique column is a `422` issue with code `taken` ("That Email is already taken."), and a race the database catches is a `409` `conflict`.
 
 What you'll see for `GET /api/authors?search=ada&sort=-created_at`:
 
@@ -200,7 +194,7 @@ location: /api/posts/creme-brulee-tips
 {"data":{"id":6,"title":"Crème brûlée tips","slug":"creme-brulee-tips","status":"draft","author_id":3, …}}
 ```
 
-Sending `author_id` in the body is refused with `422` (`"author_id" is not a field you can send here.`), because it isn't a field the request accepts.
+Sending `author_id` in the body is refused with `422`, because it isn't a field the request accepts. The issue has code `unknown_field` and the message `"Author id" is not a field you can send here. Remove it from the request body.`
 
 ### Hook: `prepareForUpdate()`: adjust values before saving
 
@@ -221,7 +215,8 @@ protected override prepareForUpdate(values: Record<string, unknown>, post: Post,
 Add your own actions next to the inherited ones. Use `visible()` and `authorize()` the same way:
 
 ```ts title="app/http/controllers/post.controller.ts"
-import { authorize, now, ResourceController, route, type Constraint, type HttpContext } from '@strutvane/framework'
+import { type HttpContext, ResourceController, route } from '@strutvane/framework'
+import { ForbiddenError } from '@strutvane/framework/core'
 import { Post } from '../../models/post.ts'
 import { PostPolicy } from '../../policies/post.policy.ts'
 import { StorePostRequest, UpdatePostRequest } from '../requests/post.request.ts'
@@ -238,14 +233,15 @@ export class PostController extends ResourceController<typeof Post> {
 
   /** POST /api/posts/{post:slug}/publish */
   async publish(ctx: HttpContext): Promise<Response> {
-    const post = await this.visible(ctx)                                  // 404 if they can't see it
-    await authorize(this.policy, 'update', ctx.user, post, 'post')       // 403 if they can't change it
-    post.fill({ status: 'published' })
-    await post.save()
+    const post = await this.visible(ctx)                                     // 404 if they can't see it
+    if ((await this.policy.update(ctx.user, post)) !== true) throw new ForbiddenError() // 403 if they can't change it
+    await post.updateFromValidated({ status: 'published' })
     return ctx.json({ data: post, links: { self: route('posts.show', { post }) } })
   }
 }
 ```
+
+A policy method allows only when it returns exactly `true`, so the check above compares with `true` too.
 
 ```ts title="routes/api.ts"
 Route.apiResource('posts', PostController, { bindBy: 'slug' })
@@ -255,7 +251,7 @@ Route.post('/posts/{post:slug}/publish', [PostController, 'publish']).name('post
 ```
 
 :::caution[Coming in 0.2]
-In the application-core prototype (spike 12), `ResourceController` runs on a small stand-in data layer. In 0.2 it runs on the [Strutvane ORM](../orm/) (the `post.fill(...).save()` style above). The controller API on this page stays the same.
+Laravel-style `authorize()` and `allows()` helpers for policies exist inside the framework but aren't exported in 0.2.0-next.0; until they are, call the policy method yourself as above. Once ORM models implement the resource contract, `post.fill(…)` and `post.save()` work here as well.
 :::
 
 ## Middleware in a controller
@@ -280,79 +276,78 @@ export class CommentController extends Controller {
 
 ## Which kind of controller?
 
-| You want | Use | Write |
-|---|---|---|
-| A few custom endpoints | a plain `Controller` | `make:controller ReportController` |
-| The standard 5 API actions for a model, with every safety check | `ResourceController` | `make:controller PostController --model=Post` |
-| The standard actions, but every line in your file | an owned resource controller | `make:controller PostController --api` (or `--resource` for 7) |
-| Nothing at all | the generated API from `node strut migrate` | — |
+| You want | Use |
+|---|---|
+| A few custom endpoints | a plain `Controller` |
+| One endpoint per class | a [single-action controller](#single-action-controllers) |
+| The standard 5 API actions for a model, with every safety check | `ResourceController` |
+| The standard actions, but every line in your file | your own controller with `index`, `store`, `show`, `update`, `destroy` and a `policy` |
+| Nothing at all | the generated API from `node strut migrate` |
 
 The generated API already covers most tables; write a controller only when you need different behaviour. To take over one model's API, write the controller, route it with `Route.apiResource()` in `routes/api.ts`, and opt that model out of the generated routes.
 
-## Coming in 0.2: single-action, singleton and nested controllers
+## Single-action controllers
 
-:::caution[Coming in 0.2]
-Not in the prototype yet. Planned in the Laravel parity matrix; the syntax shown is a preview.
-:::
+A controller that does one thing can be a class with one `__invoke` method, Laravel's invokable controller. Route it without a method name:
 
-- **Single-action (invokable) controllers.** Laravel's `__invoke` controllers: a class with one action, routed without a method name. Until it lands, route `[ExportController, 'handle']`, or a closure.
+```ts title="app/http/controllers/export-posts.controller.ts"
+import { Controller, type HttpContext } from '@strutvane/framework'
 
-  ```ts
-  Route.post('/exports', [ExportController, 'handle']).name('exports.store'),   // works today
-  ```
+export class ExportPostsController extends Controller {
+  __invoke(ctx: HttpContext): Response {
+    return ctx.json({ queued: true }, 202)
+  }
+}
+```
 
-- **Singleton resource controllers** for things that exist once (a profile, a team's settings): `show`, `edit` and `update` only, routed with `Route.singleton('profile', ProfileController)`.
-- **Nested, shallow resources**: `Route.apiResource('posts.comments', CommentController, { shallow: true })` gives `CommentController` the parent post on `index` and `store`, and short URLs for the rest.
+```ts title="routes/api.ts"
+Route.post('/exports', ExportPostsController).name('exports.store'),
+```
 
-See [Routing](../routing/) for the URLs each one produces.
+**What you'll see:** `POST /api/exports` answers `202` with `{ "queued": true }`, and `route:list` shows the action as `ExportPostsController@__invoke`.
+
+## Singleton and nested controllers
+
+- **Singleton resource controllers** for things that exist once (a profile, a team's settings): `show`, `edit` and `update` only, routed with `Route.singleton('profile', ProfileController)` (`Route.apiSingleton()` without `edit`).
+- **Nested, shallow resources**: `Route.apiResource('posts.comments', CommentController, { shallow: true })`. The `index` and `store` routes carry the parent (`{post}`); the others use the short `/comments/{comment}`.
+
+See [Routing](../routing/#more-route-types) for the URLs each one produces.
 
 ## Testing a controller
 
 Call the app with a request and check the answer; no server is needed:
 
 ```ts title="tests/feature/reports.test.ts"
-import { randomBytes } from 'node:crypto'
 import { expect, test } from 'vitest'
-import { client } from '@strutvane/framework/testing'
-import { createApp } from '../../bootstrap/app.ts'
+import app from '../../bootstrap/app.ts'
 
 test('reports list is empty at first', async () => {
-  const app = createApp({ APP_ENV: 'testing', APP_KEY: `base64:${randomBytes(32).toString('base64')}`, DB_CONNECTION: 'sqlite' })
-  const response = await client(app).getJson('/api/reports')
-  response.assertStatus(200)
-  expect(response.json).toEqual({ data: [] })
+  const response = await app.handle(new Request('http://localhost/api/reports'))
+  expect(response.status).toBe(200)
+  expect(await response.json()).toEqual({ data: [] })
 })
 ```
 
-**What you'll see** with `npm test`: the test passes. See [HTTP Tests](../http-tests/).
+**What you'll see** with `npm test` (and `APP_ENV=testing`): the test passes. `app.handle()` boots the app on the first call and runs the request through the whole pipeline, with no port.
+
+:::caution[Coming in 0.2]
+Laravel-style test helpers for an application (`getJson()`, `actingAs(user)`, `withoutCsrf()`, `assertStatus()`) are built but not exported from `@strutvane/framework/testing` in 0.2.0-next.0. See [HTTP Tests](../http-tests/).
+:::
 
 ## Generating controllers
+
+:::caution[Coming in 0.2]
+`node strut make:controller` isn't in 0.2.0-next.0 (the app generators that ship are `make:command`, `make:rule` and `make:observer`). It's planned with these variants:
 
 | Command | Writes |
 |---|---|
 | `node strut make:controller ReportController` | An empty controller with one `index` action |
-| `node strut make:controller PostController --model=Post` (or `-m Post`) | A `ResourceController` for `Post` (all five actions inherited) **and** a deny-all `post.policy.ts` |
-| `node strut make:controller PostController --api` | An owned controller with the 5 API actions written out, each calling `authorize()`, plus the policy |
-| `node strut make:controller PostController --resource` (or `-r`) | The 7 actions, including the `create` and `edit` form-page actions, plus the policy |
-| add `--force` | Overwrite an existing controller file |
+| `node strut make:controller PostController --model=Post` | A `ResourceController` for `Post` and a deny-all `post.policy.ts` |
+| `node strut make:controller PostController --api` | An owned controller with the 5 API actions written out, plus the policy |
+| `node strut make:controller PostController --resource` | The 7 actions, including the `create` and `edit` form pages, plus the policy |
 
-What you'll see for `--resource`:
-
-```bash
-node strut make:controller CommentController --resource
-```
-
-```text
-  Created app/http/controllers/comment.controller.ts
-  Created app/policies/comment.policy.ts (denies everyone but admins until you edit it)
-  Note: app/models/comment.ts doesn't exist yet. Create it with: node strut make:migration create_comments_table
-
-  Next: route it in routes/web.ts:
-    Route.resource('comments', CommentController)
-  and bind the model in bootstrap/app.ts: withRouting({ bindings: { comment: Comment } })
-```
-
-The generated policy **denies everyone except admins**, so a new endpoint is never open by accident. A generated controller compiles under strict TypeScript straight away and answers `403` for every action until you edit the policy.
+Until then, copy the examples on this page. `node strut make:policy Post` writes the deny-by-default policy.
+:::
 
 ## Common mistakes
 
@@ -360,17 +355,26 @@ The generated policy **denies everyone except admins**, so a new endpoint is nev
 
 ```text
 ✖ PostController serves resource routes but has no policy.
-→ Give it a `protected readonly policy = new PostPolicy()` and call authorize() in every action (node strut make:controller --resource writes this for you).
+→ Give it a `protected readonly policy = new PostPolicy()` and call authorize() in every action, or extend ResourceController.
 ```
 
 **Why:** a resource route without a policy would let anyone do anything.
 
 **Fix:** add `protected readonly policy = new PostPolicy()`.
 
+### "… serves Post but no policy was found for it"
+
+```text
+✖ PostController serves Post but no policy was found for it.
+→ Create app/policies/post.policy.ts (node strut make:policy Post), or set `protected readonly policy` on the controller.
+```
+
+**Why:** a `ResourceController` without a `policy` property looks for `app/policies/post.policy.ts` at start-up, and there is none.
+
 ### "… doesn't exist (route …)"
 
 ```text
-✖ PostController@publsh doesn't exist (route /api/posts/{post:slug}/publish).
+✖ PostController@publsh doesn't exist (POST /api/posts/{post:slug}/publish).
 → Add a publsh(ctx: HttpContext) method to PostController.
 ```
 
@@ -385,33 +389,14 @@ The generated policy **denies everyone except admins**, so a new endpoint is nev
 
 **Fix:** extend `Controller` instead and return only the fields you mean to expose.
 
-### "--resource and --api can't be used together"
-
-```text
-✖ --resource and --api can't be used together.
-→ Use --resource for 7 actions (with form pages) or --api for 5.
-```
-
-### "… already exists, so nothing was written"
-
-```text
-✖ app/http/controllers/post.controller.ts already exists, so nothing was written.
-→ Pick another name, or add --force to overwrite it (your changes in that file would be lost).
-```
-
-### "… is not a controller class name"
-
-```text
-✖ "posts" is not a controller class name.
-→ Use PascalCase ending in "Controller", for example: node strut make:controller PostsController
-```
-
 ### My action returned nothing
 
 ```text
 PostController@show returned nothing instead of a Response.
 → Return ctx.json(...), ctx.html(...) or ctx.noContent().
 ```
+
+**Why:** unlike Laravel, a returned object isn't turned into JSON for you, so a forgotten `return` can't silently send an empty page.
 
 **Fix:** `return ctx.json(...)`.
 

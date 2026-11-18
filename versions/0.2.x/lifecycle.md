@@ -14,13 +14,13 @@ Two differences: the app is checked **at start-up** (a typo in a middleware alia
 :::
 
 :::note[Import paths]
-Examples on these pages import from `@strutvane/framework`. The exact sub-paths (for example `@strutvane/framework/http`) may still change before 0.2 ships; the names you import won't.
+Examples on these pages import the application core (`Application`, `Route`, `Controller`, middleware, helpers) from `@strutvane/framework`, and the HTTP error classes (`NotFoundError`, `ForbiddenError`…) from `@strutvane/framework/core`, as `@strutvane/framework` 0.2.0-next.0 exports them.
 :::
 
 ## The whole journey in one picture
 
 ```text
-             node strut serve  /  npm run dev
+          node strut start  /  npm run dev
                         │
      ┌──────────────────▼──────────────────┐
   1  │ bootstrap/app.ts builds the app      │  Application.configure(…)…create()
@@ -34,7 +34,7 @@ Examples on these pages import from `@strutvane/framework`. The exact sub-paths 
                         │  each request
      ┌──────────────────▼──────────────────┐
   5  │ global checks: trusted host,         │  before any of your code
-     │ maintenance mode, CORS preflight     │
+     │ maintenance, CORS preflight, timeout │
   6  │ match the route (404 / 405)          │
   7  │ middleware: csrf → signed → auth →   │  app/http/middleware
      │   can → throttle → idempotent, …     │
@@ -57,13 +57,16 @@ Everything starts in one file. It's a single chain that lists your config, provi
 
 ```ts title="bootstrap/app.ts"
 import { dirname } from 'node:path'
-import { Application, type EnvSource } from '@strutvane/framework'
+import { Application } from '@strutvane/framework'
 import { EnsureAdmin } from '../app/http/middleware/ensure-admin.ts'
 import { Post } from '../app/models/post.ts'
 import { config } from '../config/index.ts'
 import api from '../routes/api.ts'
 import web from '../routes/web.ts'
 import { providers } from './providers.ts'
+
+/** Environment values that win over `.env`, for tests. */
+type EnvSource = Readonly<Record<string, string | undefined>>
 
 export function createApp(env?: EnvSource): Application {
   return Application.configure({ basePath: dirname(import.meta.dirname), ...(env === undefined ? {} : { env }) })
@@ -74,14 +77,14 @@ export function createApp(env?: EnvSource): Application {
       middleware.alias({ admin: EnsureAdmin })
       middleware.rateLimiter('api', { maxAttempts: 120, decaySeconds: 60 })
     })
-    .withExceptions((exceptions) => exceptions.shouldRenderJsonWhen((ctx) => ctx.wantsJson()))
+    .withExceptions((exceptions) => exceptions.throttle({ windowSeconds: 60 }))
     .create()
 }
 
 export default createApp()
 ```
 
-**Why a function plus a default export?** The server and `node strut` use the default app. Tests call `createApp({ APP_ENV: 'testing', … })` to get a fresh app with their own settings, so two tests never share state.
+**Why a function plus a default export?** The server and `node strut` use the default app. Tests call `createApp({ APP_ENV: 'testing', … })` to get a fresh app with their own settings, so two tests never share state. (`bindings: { post: Post }` needs a model with a static `resolveRouteBinding()`; see [Routing](../routing/#route-model-binding).)
 
 `create()` does **no work**: no files are read and no database is opened. That makes importing the app cheap and safe.
 
@@ -110,19 +113,21 @@ Strutvane calls them in **two rounds**, exactly like Laravel:
 2. `boot()` on every provider. Now it's safe to use other services, because everything is registered.
 
 ```ts title="app/providers/app.provider.ts"
-import { ServiceProvider, type Application } from '@strutvane/framework'
+import { type Application, ServiceProvider } from '@strutvane/framework'
 
 export class AppServiceProvider extends ServiceProvider {
-  override register(app: Application): void {
+  override register(_app: Application): void {
     // 1st round: bind services
   }
 
   override boot(app: Application): void {
     // 2nd round: use services, add menu entries
-    app.navigation.add({ label: 'Posts', route: 'posts.index', order: 10 })
+    app.navigation.add({ name: 'posts', label: 'Posts', path: '/posts', icon: 'file-text', group: 'Content', order: 10, permission: null })
   }
 }
 ```
+
+`register()` must be synchronous (a `Promise` from it stops the app at start-up); `boot()` may be `async`. A provider's optional `shutdown()` runs in reverse order when the app stops.
 
 More in [Service Providers](../providers/).
 
@@ -134,19 +139,23 @@ Strutvane reads `routes/web.ts` and `routes/api.ts`, adds the `/api` prefix to A
 |---|---|
 | Every middleware alias exists | `No middleware is called "auht" (used by GET /api/me).` → `Did you mean "auth"?` |
 | Every `{post:slug}` has a model binding | `/api/posts/{post:slug} binds {post:slug}, but no model is bound to "post".` |
-| Every controller action exists | `PostController@publsh doesn't exist (route /api/posts/{post:slug}/publish).` |
+| Every controller action exists | `PostController@publsh doesn't exist (POST /api/posts/{post:slug}/publish).` |
 | Resource controllers have a policy | `PostController serves resource routes but has no policy.` |
 | No two routes share a name or method + path | `Two routes are named "posts.show": …` |
+| Every `can:` ability and `throttle:` limiter is defined | `GET /api/admin/stats uses can:view-stat, but no such ability is defined.` |
+| Every `signed` route has a name | `GET /downloads/{file} uses the signed middleware but has no name.` |
+| No resource controller serves an internal table | `UserController would serve the internal "users" table over the API.` |
 
 **Why at start-up?** Because `node strut route:list` and your test suite boot the app too. A typo fails there, on your machine, instead of on the first real request in production.
 
 ## Step 5: global checks, before any of your code
 
-Before Strutvane even looks for a route, every request passes three global checks (Laravel calls these "global middleware"):
+Before Strutvane even looks for a route, every request passes four global checks (Laravel calls these "global middleware"):
 
-1. **Trusted host.** The `Host` header must be one your app serves: `APP_URL`'s host, plus `localhost`, `127.0.0.1` and `[::1]` in local and testing. Anything else is a `400 untrusted_host`, and the bad host name isn't echoed back. This stops attacks where a fake `Host` ends up in a password-reset link.
+1. **Trusted host.** The `Host` header must be one your app serves: `APP_URL`'s host, plus `localhost`, `127.0.0.1` and `[::1]`, in every environment. Anything else is a `400 untrusted_host`, and the bad host name isn't echoed back. This stops attacks where a fake `Host` ends up in a password-reset link, and DNS rebinding of your dev server.
 2. **Maintenance mode.** While the app is "down", requests stop here with a `503` (except the health route and people with the bypass cookie). See [Maintenance Mode](../maintenance-mode/).
 3. **CORS preflight.** If you switched CORS on for other sites, their browser's preflight `OPTIONS` request is answered here.
+4. **Request timeout.** A request that takes longer than 30 seconds gets a `503` (`middleware.requestTimeout(10_000)` changes it, `0` turns it off).
 
 At the same time the request's **state** is worked out once: the real client IP (forwarded headers are believed only from proxies you trust), whether it came over HTTPS, the body size limits, and a fresh **CSP nonce** (a random value for this response's inline scripts). Your code reads them as `ctx.ip`, `ctx.nonce` and so on.
 
@@ -160,20 +169,18 @@ curl -i http://localhost:3000/up -H "Host: evil.example"
 HTTP/1.1 400 Bad Request
 content-type: application/problem+json
 
-{"type":"https://strutvane.dev/problems/untrusted_host","title":"Untrusted host","status":400,"code":"untrusted_host","detail":"This server does not answer for the requested host name."}
+{"type":"https://strutvane.dev/errors/untrusted-host","title":"Untrusted host","status":400,"code":"untrusted_host","detail":"This server does not answer for the requested host name.","traceId":"…","instance":"/up"}
 ```
 
 To serve more host names, list them in `bootstrap/app.ts`: `.withMiddleware((m) => m.trustHosts({ at: ['blog.example.com'], subdomains: true }))`. See [Security Features](../security/).
 
-:::caution[Coming in 0.2]
-Maintenance mode's stage is reserved in the prototype's pipeline but not built yet. The trusted-host and CORS stages are proven in spike 12.
-:::
+Next, the **CSRF check** runs for routes in the `web` and `api` groups (and for paths no route matches), then the **request hooks**: this is where the authentication package finds the signed-in user and sets `ctx.user`. A hook may also answer the request itself (a sign-in route of a package); that answer still gets every header from step 11.
 
 ## Step 6: the route is matched
 
 For each request, Strutvane finds the route whose method and path match.
 
-- **No route has that path:** a `404` with `Nothing is at GET /api/postz.`
+- **No route has that path:** a `404` problem with code `not_found` ("We couldn't find what you were looking for."), unless a [fallback route](../routing/#more-route-types) answers GET and HEAD.
 - **The path exists, but not with that method:** a `405`, with an `Allow` header listing the methods that do work:
 
 ```bash
@@ -184,11 +191,13 @@ What you'll see:
 
 ```text
 HTTP/1.1 405 Method Not Allowed
-allow: GET
+allow: GET, HEAD
 content-type: application/problem+json
 
-{"type":"https://strutvane.dev/problems/method_not_allowed","title":"Method not allowed","status":405,"code":"method_not_allowed","detail":"DELETE is not supported here. Use GET."}
+{"type":"https://strutvane.dev/errors/method-not-allowed","title":"Method not allowed","status":405,"code":"method_not_allowed","traceId":"…","instance":"/up"}
 ```
+
+A POST form's `_method` field (PUT, PATCH or DELETE) is applied before matching; see [Routing](../routing/#more-route-types).
 
 ## Step 7: middleware runs
 
@@ -215,7 +224,7 @@ Route.get('/posts/{post:slug}', [PostController, 'show'])   // GET /api/posts/he
 ```
 
 - Found: the controller gets it with `ctx.model(Post)`.
-- Not found: `404` with `No post matches "hello-world".`
+- Not found: a `404` problem with code `not_found`.
 
 **Why after middleware?** So a guest gets `401 Unauthenticated` from `auth` before they can learn whether a record exists.
 
@@ -298,11 +307,9 @@ The parity plan adds a request **context** you can write to (`Context`, like Lar
 
 ## After the response: shutdown and deferred work
 
-When you stop the server with `Ctrl+C`, `node strut serve` stops accepting connections, waits for the open ones, then closes the database connection (`app.shutdown()`), so nothing is cut off halfway.
+After the response is sent, a middleware's `terminate()` hook and work queued with `defer()` run; their errors are logged, never lost. See [Middleware](../middleware/#work-after-the-response).
 
-:::caution[Coming in 0.2]
-Work that runs **after** the response is sent (Laravel's terminable middleware and `defer()`) is planned as a `terminate()` hook on middleware and a `defer(fn)` helper. Errors in deferred work are logged, never lost. See [Middleware](../middleware/).
-:::
+When you stop the server with `Ctrl+C`, `node strut start` stops accepting connections, waits for the open ones and for deferred work, then shuts the app down (`app.shutdown()`: providers' `shutdown()` in reverse, database connections closed), so nothing is cut off halfway.
 
 ## Calling the app directly (tests)
 
@@ -336,7 +343,7 @@ Commands that only write files (`make:*`) skip booting, so they work even before
 ## With Docker, in production, and on Windows
 
 - **With Docker**, the same steps run inside the `app` container; nothing changes in your code.
-- **In production**, boot happens once when the process starts, and the debug page is never shown. With `APP_DEBUG=true` and `APP_ENV=production` the app refuses to boot unless you pass `--force-debug` (coming in 0.2; the prototype ignores the flag and logs a warning).
+- **In production**, boot happens once when the process starts (`node strut start` boots `bootstrap/app.ts` before the port opens, so a broken route or a weak key never starts serving), and the debug page is never shown. With `APP_DEBUG=true` and `APP_ENV=production` the app refuses to boot (see [Error Handling](../errors/#the-app_debug-safety-net)).
 - **On every operating system**, the order is the same; only file paths in error messages look different (`C:\…` on Windows).
 
 ## Common mistakes
@@ -359,7 +366,7 @@ const name = await app.run(() => config('app.name'))
 ### "Routes were added after the app booted"
 
 ```text
-✖ Routes were added after the app booted, so they would never be matched.
+✖ Routes were added after the app compiled its routes, so they would never be matched.
 → Call app.addRoutes() in a provider's register() method.
 ```
 
@@ -379,10 +386,10 @@ PostController@show returned nothing instead of a Response.
 ### Every request answers 400 "Untrusted host"
 
 ```text
-{"type":"https://strutvane.dev/problems/untrusted_host","title":"Untrusted host","status":400,"code":"untrusted_host","detail":"This server does not answer for the requested host name."}
+{"type":"https://strutvane.dev/errors/untrusted-host","title":"Untrusted host","status":400,"code":"untrusted_host","detail":"This server does not answer for the requested host name.", …}
 ```
 
-**Why:** the request's host name isn't `APP_URL`'s host (or a loopback name in development). It happens when you open the app under a new domain, or behind a proxy that changes the host.
+**Why:** the request's host name isn't `APP_URL`'s host or a loopback name (`localhost`, `127.0.0.1`, `[::1]`). It happens when you open the app under a new domain, or behind a proxy that changes the host.
 **Fix:** set `APP_URL` to the address people use, or allow more names in `bootstrap/app.ts`:
 
 ```ts title="bootstrap/app.ts"
@@ -407,4 +414,4 @@ Behind a load balancer, also tell Strutvane which proxies to believe: `middlewar
 
 - [Service Providers](../providers/): what goes in `register()` and `boot()`.
 - [Routing](../routing/): define the routes from step 4.
-- [Middleware](../middleware/): write your own step 6.
+- [Middleware](../middleware/): write your own step 7.

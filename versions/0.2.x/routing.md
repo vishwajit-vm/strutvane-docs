@@ -1,6 +1,6 @@
 ---
 title: Routing
-description: Map URLs to controllers in routes/web.ts and routes/api.ts. Single routes, names and typed URLs, groups, middleware and opt-outs, signed links, resource routes, slug binding, 405s and the /up health check, plus fallback, singleton, shallow and spoofed-method routes coming in 0.2, each with a complete example.
+description: Map URLs to controllers in routes/web.ts and routes/api.ts. Single routes, names and URLs, groups, middleware and opt-outs, signed links, resource, singleton and nested routes, binding, fallbacks, spoofed methods, 405s and the /up health check, each with a complete example.
 ---
 
 A **route** connects a URL and an HTTP method (GET, POST…) to the code that answers it. Your routes live in two files:
@@ -11,7 +11,7 @@ A **route** connects a URL and an HTTP method (GET, POST…) to the code that an
 :::tip[Coming from Laravel?]
 `Route::get()`, `->name()`, `->middleware()`, `Route::group()`, `Route::resource()` and `Route::apiResource()` are all here as `Route.get()`, `.name()`, `.middleware()`, `Route.group()`, `Route.resource()` and `Route.apiResource()`. `{post:slug}` binding works the same way.
 
-Two differences: routes are **values** in an array (`defineRoutes([...])`), not global side effects, and every route **name and parameter is typed**, so `route('posts.shwo')` doesn't compile.
+Two differences: a routes file can be a list of **values** (`defineRoutes([...])`) as well as Laravel's callback, and importing a routes file registers nothing globally. Route names and parameters can be typed, so `route('posts.shwo')` fails to compile (see [Every way to call `route()`](#every-way-to-call-route)).
 :::
 
 ## The smallest example
@@ -24,7 +24,7 @@ export default defineRoutes([
 ])
 ```
 
-Start the app (`npm run dev`, or `node strut serve`) and call it:
+Start the app (`npm run dev`, which runs `node strut dev`) and call it:
 
 ```bash
 curl http://localhost:3000/api/hello
@@ -70,11 +70,16 @@ export default Application.configure({ basePath: dirname(import.meta.dirname) })
   .create()
 ```
 
-The callback is still only **called** by Strutvane when it builds the route table, so importing the file registers nothing, and route names stay typed.
+The callback is only **called** by Strutvane when it builds the route table, so importing the file registers nothing. Every builder method (`get`, `post`, `apiResource`, `group`, `.name()`, `.middleware()`…) is the same in both forms, and you can mix them: `defineRoutes((router) => [router.get(…), …])` registers the array the callback returns.
 
-:::caution[Coming in 0.2]
-The callback form is decided but not in the prototype yet: spike 12 uses `export default defineRoutes([...])` with `Route.…` builders, and the examples on this page show that form. Every builder method (`get`, `post`, `apiResource`, `group`, `.name()`, `.middleware()`…) is the same in both.
-:::
+**Which form keeps names typed?** The array form, and a callback that **returns** its array. A callback that only registers routes (and returns nothing) works the same when the app runs, but TypeScript can't see its route names.
+
+Routes are a table, not a process, so the callback must be synchronous. An `async` callback stops the app at start-up:
+
+```text
+✖ A routes callback returned a Promise.
+→ Routes are declared synchronously: remove `async` from the routes callback (load data in a controller instead).
+```
 
 ## Single routes
 
@@ -94,7 +99,13 @@ export default defineRoutes([
 ])
 ```
 
-The second argument is the **action**: either `[ControllerClass, 'methodName']`, or a function `(ctx) => Response` for tiny routes. A method name that doesn't exist on the controller is a compile error.
+The second argument is the **action**, one of:
+
+- `[ControllerClass, 'methodName']`: a controller action;
+- a function `(ctx) => Response` for tiny routes;
+- a controller class on its own, for a single-action controller (see [Controllers](../controllers/#single-action-controllers)).
+
+`Route.options()` answers OPTIONS, and `Route.any()` answers GET, POST, PUT, PATCH, DELETE and OPTIONS. Every GET route answers HEAD too. A method name that doesn't exist on the controller is a compile error, and the app checks it again at start-up.
 
 ## Naming routes
 
@@ -123,6 +134,9 @@ What you'll see in the response:
 | `route('posts.show', { post: 'hello-world' })` | `/api/posts/hello-world` (a plain string or number works too) |
 | `route('posts.index', {}, { query: { page: 2, sort: '-created_at' } })` | `/api/posts?page=2&sort=-created_at` |
 | `route('posts.show', { post }, { absolute: true })` | `http://localhost:3000/api/posts/hello-world` (prefixed with `APP_URL`) |
+| `route('posts.show', { post: 'hello-world', tab: 'comments' })` | `/api/posts/hello-world?tab=comments` (a value the path doesn't use goes into the query string, as in Laravel) |
+
+`route()` is imported from `@strutvane/framework` and builds URLs for the app that is handling the current request or command.
 
 These are **compile errors**, caught before you run anything:
 
@@ -139,6 +153,10 @@ declare module '@strutvane/framework' {
   interface RouteRegistry extends RoutesOf<[typeof web, typeof api]> {}
 }
 ```
+
+:::caution[Coming in 0.2]
+`RouteRegistry` is exported, but the `RoutesOf` helper type isn't exported from `@strutvane/framework` in 0.2.0-next.0, so this block doesn't compile in an app yet. Until it is, `route()` accepts any string, and a wrong name or a missing parameter is caught when the code runs instead (`No route is named "posts.shwo".`, or the error under [Common mistakes](#route-needs-a-value-for-post)).
+:::
 
 ## Route parameters
 
@@ -178,7 +196,13 @@ What you'll see:
 | Request | Response |
 |---|---|
 | `GET /api/posts/1` (exists) | `200` with the post |
-| `GET /api/posts/999` (missing) | `404`: `No post matches "999".` |
+| `GET /api/posts/999` (missing) | `404` problem with code `not_found`: "We couldn't find what you were looking for." |
+
+A model can be bound when it has a static `resolveRouteBinding(value, field?)` method that returns the record, or `null` for the 404.
+
+:::caution[Coming in 0.2]
+In 0.2.0-next.0, [ORM](../orm/) models don't have `resolveRouteBinding()` yet, so `bindings: { post: Post }` only works with a model class you give that method yourself. Wiring ORM models into route model binding (and into `ResourceController`) is the next step on the 0.2 plan.
+:::
 
 ### Binding by slug: `{post:slug}`
 
@@ -209,13 +233,13 @@ export default defineRoutes([
 ])
 ```
 
-What you'll see in `node strut route:list`:
+What you'll see in `node strut route:list` (the `api` group is shown expanded, in the order the middleware runs):
 
 ```text
   Method  URI               Name         Action                     Middleware
-  ------  ----------------  -----------  -------------------------  ----------------
-  GET     /api/admin/stats  admin.stats  StatsController@show       api, auth, admin
-  GET     /api/admin/users  admin.users  UserAdminController@index  api, auth, admin
+  ------  ----------------  -----------  -------------------------  -------------------------------
+  GET     /api/admin/stats  admin.stats  StatsController@show       csrf, auth, throttle:api, admin
+  GET     /api/admin/users  admin.users  UserAdminController@index  csrf, auth, throttle:api, admin
 ```
 
 The name prefix is typed too: `route('admin.stats')` compiles, `route('stats')` doesn't. Groups can be nested; prefixes, names and middleware add up.
@@ -243,11 +267,9 @@ export default defineRoutes([
 ])
 ```
 
-Inside the callback, `Route.get()` and friends add their routes **to that group**, exactly like Laravel. The callback runs only when Strutvane builds the route table, never when the file is imported, so loading a routes file twice (the server, `route:list`, your tests) still registers nothing twice.
+Inside the callback, `Route.get()` and friends add their routes **to that group**, exactly like Laravel. Those routes belong only to the group, so loading a routes file twice (the server, `route:list`, your tests) still registers nothing twice.
 
-:::caution[Coming in 0.2]
-Registering routes inside the callback is the decided syntax (it matches Laravel), with a returned array also accepted; the prototype (spike 12) accepts only the array form so far.
-:::
+The fluent chain has four starters, and each returns a group you can keep chaining: `Route.middleware(...)`, `Route.withoutMiddleware(...)`, `Route.prefix('admin')` and `Route.name('admin.')`, for example `Route.prefix('admin').name('admin.').middleware('auth').group(() => { … })`.
 
 ### Versioned APIs
 
@@ -259,7 +281,7 @@ Route.group({ prefix: 'v1', name: 'v1.' }, [
 ]),
 ```
 
-A shorter `Route.prefix('v1').group(…)` form is planned for 0.2.
+The fluent `Route.prefix('v1').name('v1.').group([...])` does the same.
 
 ## Middleware on routes
 
@@ -281,7 +303,7 @@ Route.post('/webhooks/stripe', [StripeWebhookController, 'handle']).withoutMiddl
 
 The same works for whole groups (`Route.withoutMiddleware('csrf').group([...])`, or `Route.group({ withoutMiddleware: ['csrf'] }, [...])`) and resources (`.withoutMiddleware('throttle')`). Every opt-out is listed by `node strut route:list --security`, so a reviewer sees it. A webhook still needs **its own** check, usually a signature from the sender. See [CSRF Protection](../csrf/).
 
-To exempt paths app-wide instead, list them in `bootstrap/app.ts`: `.withMiddleware((m) => m.validateCsrfTokens({ except: ['api/webhooks/*'] }))`. Patterns match the **full path** without the leading slash, `api/` prefix included, so `webhooks/*` alone would never match an API route (a start-up warning for patterns that can never match is coming in 0.2).
+To exempt paths app-wide instead, list them in `bootstrap/app.ts`: `.withMiddleware((m) => m.validateCsrfTokens({ except: ['api/webhooks/*'] }))`. Patterns match the **full path** without the leading slash, `api/` prefix included, so `webhooks/*` alone would never match an API route. The app logs a warning at start-up for a pattern that matches no route.
 
 ### Rate limits on routes
 
@@ -290,7 +312,7 @@ Route.post('/login', [LoginController, 'store']).middleware('throttle:5,1'),   /
 Route.get('/search', [SearchController, 'index']).middleware('throttle:search'), // a named limiter
 ```
 
-Every `/api` route already has `throttle:api` (60 requests per minute per user, or per IP for guests). See [Rate Limiting](../rate-limiting/).
+Every `/api` route already has `throttle:api` (60 requests per minute per user, or per IP for guests). A limiter name nobody defined stops the app at start-up. See [Rate Limiting](../rate-limiting/).
 
 ## Signed routes
 
@@ -317,14 +339,12 @@ A **signed URL** has a signature on the end, made with your `APP_KEY`. Anyone ca
 | Request | Answer |
 |---|---|
 | The link as made | `200`, your controller runs |
-| The link with anything changed | `403` `invalid_signature`: "This link is not valid. It may have been changed or copied incompletely." |
-| A temporary link after it expired | `403` `signature_expired`: "This link has expired. Ask for a new one." |
+| The link with anything changed | `403` `invalid_signature`: "This link is not valid. It may have been changed or copied incompletely. Ask for a new one." |
+| A temporary link after it expired, or a `oneTime` link used a second time | `403` `signature_expired`: "This link has expired or has already been used. Ask for a new one." |
 
-`signed` runs before `auth`, so a bad link is refused whoever you are.
+`signed` runs before `auth`, so a bad link is refused whoever you are. A link is signed **for its route name**, so a link made for one route never works on another, even when the paths look alike. That's also why a route with `signed` must have a name; without one the app refuses to start (`… uses the signed middleware but has no name.`).
 
-:::note[Naming]
-The names are Laravel's: `url.signedRoute()` and `url.temporarySignedRoute()`. The prototype (spike 12) exports them as plain functions, `signedRoute()` and `temporarySignedRoute()`; the `url.` form and the `expiresIn` and `oneTime` options come in 0.2.
-:::
+`expiresIn` is in seconds, and a `oneTime` link needs an expiry. Used one-time links are remembered in memory by default, so with several server processes a one-time link is "once per process" until a shared store is bound *(unverified: no shared store for used links ships in 0.2.0-next.0)*. See [URL Generation](../urls/) for every option.
 
 ## Resource routes
 
@@ -366,6 +386,7 @@ You get `index`, `store`, `show`, `update` and `destroy`. Pair it with a `Resour
 | `except` | Drop these actions | `{ except: ['destroy'] }` |
 | `bindBy` | Bind the parameter by this column | `{ bindBy: 'slug' }` → `/posts/{post:slug}` |
 | `parameter` | Rename the parameter (for irregular plurals) | `Route.resource('news', NewsController, { parameter: 'story' })` → `{story}` |
+| `shallow` | For a nested resource, drop the parent from member routes | see [More route types](#more-route-types) |
 
 And two methods to add middleware to the whole resource or to some actions:
 
@@ -378,11 +399,11 @@ Route.apiResource('authors', AuthorController, { only: ['index', 'show', 'store'
   .middleware('throttle:30,1'),
 ```
 
-The controller must have a method for **every** action you keep; if it doesn't, the line doesn't compile.
+The controller must have a method for **every** action you keep; if it doesn't, the line doesn't compile. A resource also needs a policy on its controller (or a `ResourceController`), so it can never be served unprotected by accident; see [Controllers](../controllers/).
 
 ## The health route: `/up`
 
-Every app has `/up`: a route that answers `200` to GET and HEAD when the app is alive, for load balancers, uptime checks and the Docker `HEALTHCHECK`. It stays reachable in [maintenance mode](../maintenance-mode/). (In the prototype it's switched on with `health: '/up'` in `withRouting`.)
+Every app has `/up`: a route that answers `200` to GET and HEAD when the app is alive, for load balancers, uptime checks and the Docker `HEALTHCHECK`. It stays reachable in [maintenance mode](../maintenance-mode/). It's always there; `withRouting({ health: '/healthz' })` moves it to another path.
 
 ```bash
 curl http://localhost:3000/up
@@ -406,12 +427,13 @@ curl -i -X DELETE http://localhost:3000/api/hello
 
 ```text
 HTTP/1.1 405 Method Not Allowed
-allow: GET
+allow: GET, HEAD
+content-type: application/problem+json
 
-{"type":"https://strutvane.dev/problems/method_not_allowed","title":"Method not allowed","status":405,"code":"method_not_allowed","detail":"DELETE is not supported here. Use GET."}
+{"type":"https://strutvane.dev/errors/method-not-allowed","title":"Method not allowed","status":405,"code":"method_not_allowed","traceId":"…","instance":"/api/hello"}
 ```
 
-A path that doesn't exist at all is a `404`: `Nothing is at GET /api/helo.`
+A path that doesn't exist at all is a `404` problem with code `not_found` and the detail "We couldn't find what you were looking for." (`traceId` is the request id, the same value as the `X-Request-Id` header.)
 
 ## Closures or controllers?
 
@@ -423,31 +445,35 @@ A path that doesn't exist at all is a `404`: `Nothing is at GET /api/helo.`
 
 A closure can also carry protections, with a wrapper: `withAuth(async (ctx) => …)`. See [Middleware](../middleware/).
 
-## Coming in 0.2: more route types
-
-:::caution[Coming in 0.2]
-These are on the 0.2 plan (Laravel parity matrix) and **not in the prototype yet**. The names are decided; the exact options shown are a preview.
-:::
+## More route types
 
 ### Fallback route: `Route.fallback()`
 
-Laravel's `Route::fallback()`: one route that answers when nothing else matches, instead of the default `404` problem. Useful for a custom "not found" page.
+Laravel's `Route::fallback()`: one route that answers every GET or HEAD that nothing else matched, instead of the default `404` problem. Use it for a single-page app's own "not found" screen:
 
 ```ts title="routes/web.ts"
-Route.fallback([SpaController, 'show']),   // let the React app show its own "not found" screen
+import { defineRoutes, Route } from '@strutvane/framework'
+import { SpaController } from '../app/http/controllers/spa.controller.ts'
+
+export default defineRoutes([
+  Route.get('/', [SpaController, 'show']).name('home'),
+  Route.fallback([SpaController, 'show']),   // let the React app show its own "not found" screen
+])
 ```
 
-It runs only after every other route failed to match, and still goes through the group's middleware.
+**What you'll see:** `GET /anything/else` runs `SpaController@show`. Three things never reach the fallback: a path some route serves with another method (still a `405`), methods other than GET and HEAD, and, for a fallback in `routes/web.ts`, API paths (they stay problem+json `404`s). It runs the `web` group's middleware like any route, `.middleware()` adds more, and `route:list` marks it `(fallback)`. One fallback per routes file; a second one stops the app at start-up.
 
 ### Subdomain routing
 
-Laravel's `Route::domain('{account}.example.com')`: routes that match a host name, with the subdomain as a parameter. It's planned together with teams picked by subdomain (`acme.yourapp.com`, installer question 12). Until then, every route answers on every trusted host.
+:::caution[Coming in 0.2]
+Laravel's `Route::domain('{account}.example.com')` (routes that match a host name, with the subdomain as a parameter) isn't built yet. It's planned together with teams picked by subdomain (`acme.yourapp.com`, installer question 12). Until then, every route answers on every trusted host.
+:::
 
 ### Singleton resources: `Route.singleton()`
 
 Some resources exist **once** per parent: a user's profile, a team's settings. There's no id in the URL and no list:
 
-```ts
+```ts title="routes/web.ts"
 Route.singleton('profile', ProfileController),
 ```
 
@@ -457,11 +483,13 @@ Route.singleton('profile', ProfileController),
 | GET | `/profile/edit` | `profile.edit` | `edit` |
 | PUT\|PATCH | `/profile` | `profile.update` | `update` |
 
+`Route.apiSingleton('profile', ProfileController)` leaves out the `edit` form page. Add `.creatable()` when the record can be created and deleted: it adds `store` and `destroy` (and `create` for the non-API form). Singletons take `.middleware()`, `.middlewareFor()` and `.withoutMiddleware()` like resources.
+
 ### Nested and shallow resources: `{ shallow: true }`
 
-A nested resource lives under its parent: the comments of a post. **Shallow** nesting keeps the parent only where it's needed (listing and creating), so a single comment has a short URL:
+A nested resource lives under its parent: the comments of a post. Name it `parent.children`. **Shallow** nesting keeps the parent only where it's needed (listing and creating), so a single comment has a short URL:
 
-```ts
+```ts title="routes/api.ts"
 Route.apiResource('posts.comments', CommentController, { shallow: true }),
 ```
 
@@ -469,9 +497,11 @@ Route.apiResource('posts.comments', CommentController, { shallow: true }),
 |---|---|---|
 | GET | `/posts/{post}/comments` | `posts.comments.index` |
 | POST | `/posts/{post}/comments` | `posts.comments.store` |
-| GET | `/comments/{comment}` | `comments.show` |
-| PUT\|PATCH | `/comments/{comment}` | `comments.update` |
-| DELETE | `/comments/{comment}` | `comments.destroy` |
+| GET | `/comments/{comment}` | `posts.comments.show` |
+| PUT\|PATCH | `/comments/{comment}` | `posts.comments.update` |
+| DELETE | `/comments/{comment}` | `posts.comments.destroy` |
+
+Without `shallow`, every route keeps the parent: `/posts/{post}/comments/{comment}`. One level of nesting is supported.
 
 ### Form method spoofing: `_method`
 
@@ -485,7 +515,7 @@ HTML forms can only send GET and POST. To send PUT, PATCH or DELETE from a plain
 </form>
 ```
 
-Only POST can be turned into PUT, PATCH or DELETE (a GET never becomes a write), and the **CSRF check still applies** to the spoofed request. The React UI doesn't need this: it sends real methods.
+Only a POST with a urlencoded form body can be turned into PUT, PATCH or DELETE. A `?_method=` query parameter and the `X-HTTP-Method-Override` header are ignored on purpose, and any other value (`GET`, `TRACE`…) is a `400` problem with code `invalid_method_override`: "The "_method" field may only turn a POST form into PUT, PATCH or DELETE." The **CSRF check still applies** to the spoofed request. The React UI doesn't need this: it sends real methods.
 
 ## Coming in 0.3: session blocking
 
@@ -507,17 +537,21 @@ node strut route:list --json          # machine-readable
 
 With Docker, type the same commands: `node strut` forwards them into the app container.
 
-What you'll see (the example app, shortened):
+`--method POST` keeps only one method. `--force-debug` lets these commands boot an app that has `APP_DEBUG=true` in production.
+
+What you'll see (the example app, shortened; the Middleware column lists what really runs, groups expanded):
 
 ```text
-  Method     URI                             Name           Action                 Middleware
-  ---------  ------------------------------  -------------  ---------------------  ----------------
-  GET        /api/posts                      posts.index    PostController@index   api, auth:optional
-  POST       /api/posts                      posts.store    PostController@store   api, auth
-  GET        /api/posts/{post:slug}          posts.show     PostController@show    api, auth:optional
-  PUT|PATCH  /api/posts/{post:slug}          posts.update   PostController@update  api, auth
-  DELETE     /api/posts/{post:slug}          posts.destroy  PostController@destroy api, auth
-  POST       /api/posts/{post:slug}/publish  posts.publish  PostController@publish api, auth
+  Method     URI                             Name           Action                  Middleware
+  ---------  ------------------------------  -------------  ----------------------  ---------------------------------
+  GET        /api/posts                      posts.index    PostController@index    csrf, auth:optional, throttle:api
+  POST       /api/posts                      posts.store    PostController@store    csrf, auth, throttle:api
+  GET        /api/posts/{post:slug}          posts.show     PostController@show     csrf, auth:optional, throttle:api
+  PUT|PATCH  /api/posts/{post:slug}          posts.update   PostController@update   csrf, auth, throttle:api
+  DELETE     /api/posts/{post:slug}          posts.destroy  PostController@destroy  csrf, auth, throttle:api
+  POST       /api/posts/{post:slug}/publish  posts.publish  PostController@publish  csrf, auth, throttle:api
+
+  Showing 6 of 8 routes.
 ```
 
 ## Common mistakes
@@ -593,7 +627,14 @@ This only happens when the name comes from a variable (otherwise it's a compile 
 
 ```text
 ✖ "Posts" is not a valid resource name.
-→ Use the plural, lower-case table-style name, for example Route.resource('posts', PostController).
+→ Use the plural, lower-case table-style name (Route.resource('posts', PostController)), or one level of nesting ('posts.comments').
+```
+
+### "A routes file declares Route.fallback() 2 times"
+
+```text
+✖ A routes file declares Route.fallback() 2 times.
+→ Keep one fallback per routes file: only one can answer.
 ```
 
 ## Next steps

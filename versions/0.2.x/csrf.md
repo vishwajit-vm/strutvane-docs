@@ -16,8 +16,8 @@ Three differences:
 - `csrf_field()` and `csrf.token()` take the request context (`csrf_field(ctx)`), because there are no global request facades.
 :::
 
-:::caution[Coming in 0.2]
-Everything on this page except the parts in their own "Coming in 0.2" boxes is **proven in a prototype** (spike 12, the application core, with attack-style tests). It is not released yet, and the import path inside `@strutvane/framework` may still change. Sessions and sign-in come with `@strutvane/auth`.
+:::note[What exists, and when]
+Everything on this page ships in `@strutvane/framework` 0.2.0-next.0, except the parts in their own "Coming in 0.2" boxes. Sessions and sign-in come with `@strutvane/auth`.
 :::
 
 ## The smallest example (nothing to do)
@@ -40,15 +40,17 @@ For each request, the `csrf` middleware decides in this order:
 
 | # | Situation | Result |
 |---|---|---|
-| 1 | The method is GET, HEAD or OPTIONS (these must never change anything) | **Pass** |
+| 1 | The method is GET, HEAD, OPTIONS or TRACE (these must never change anything) | **Pass** |
 | 2 | The test client switched the check off with `withoutCsrf()` (only when `APP_ENV=testing`) | **Pass** |
-| 3 | No session cookie (`strutvane_session`; `__Host-strutvane_session` over HTTPS), or an `Authorization: Bearer …` header | **Pass** (the browser attached nothing an attacker could borrow) |
+| 3 | No session cookie (`strutvane_session`, or `__Host-strutvane_session`; both names count) | **Pass** (the browser attached nothing an attacker could borrow) |
 | 4 | The path matches an app-wide exception from `validateCsrfTokens({ except })` | **Pass** |
 | 5 | `Sec-Fetch-Site: same-origin` | **Pass** |
 | 6 | `Sec-Fetch-Site` is `same-site` or `cross-site` | Not proof (a sibling subdomain is not your site); go on to rule 8 |
-| 7 | No `Sec-Fetch-Site` (or `none`), and `Origin` equals the origin of `APP_URL`, or a trusted origin, exactly | **Pass** (`Origin: null` never passes) |
+| 7 | No `Sec-Fetch-Site` (or `none`), and `Origin` equals the app's own origin (`APP_URL`, or the request's own trusted host) or a trusted origin, exactly | **Pass** (`Origin: null` never passes) |
 | 8 | A valid token in the `X-CSRF-TOKEN` or `X-XSRF-TOKEN` header, or in the `_token` field of a urlencoded form | **Pass** |
 | — | Anything else | **419** |
+
+The check runs before your route and before any request hook, so even a route that a package answers by itself (a sign-in form) is covered.
 
 The `Referer` header is never used: browsers often strip it, and a page on a sibling subdomain can shape it.
 
@@ -58,14 +60,10 @@ A failure is a problem response (the error format every Strutvane API uses). Eve
 HTTP/1.1 419
 content-type: application/problem+json
 
-{"type":"https://strutvane.dev/problems/csrf_token_mismatch","title":"Page expired","status":419,"code":"csrf_token_mismatch","detail":"This request could not be verified as coming from this site. Reload the page and try again."}
+{"type":"https://strutvane.dev/errors/csrf-token-mismatch","title":"Page expired","status":419,"code":"csrf_token_mismatch","detail":"This request could not be verified as coming from this site. Reload the page and try again.","traceId":"…","instance":"/api/posts"}
 ```
 
-When `APP_DEBUG=true` and `APP_ENV` is `local` or `testing`, the body also has a `hint`:
-
-```text
-Send the X-CSRF-TOKEN header (csrf.token(ctx)), a _token form field (csrf_field(ctx)), or make the request from the same origin as APP_URL.
-```
+The body is the same in every environment: it never says which proof was missing.
 
 ### What "419" means
 
@@ -73,9 +71,9 @@ Send the X-CSRF-TOKEN header (csrf.token(ctx)), a _token form field (csrf_field(
 
 ## Why bearer tokens skip the check
 
-A browser attaches cookies (and Basic credentials) to requests **by itself**, which is what makes CSRF possible. It never attaches an `Authorization: Bearer` header by itself: your code has to add it. So a request with a bearer token can't have been forged by another site.
+A browser attaches cookies to requests **by itself**, which is what makes CSRF possible. It never attaches an `Authorization: Bearer` header by itself: your code has to add it. So a script, a mobile app or another server that authenticates with a token, and sends **no session cookie**, can't have been forged by another site, and rule 3 lets it through.
 
-Only `Bearer` skips the check. `Authorization: Basic …` doesn't, because browsers *do* attach Basic credentials automatically. And a request with a bearer header is never signed in through the cookie, even if it also carries one, so a fake bearer can't ride on a real session.
+A request that carries the session cookie **is** checked, even when it also sends an `Authorization` header: the framework can't know which of the two credentials the auth layer will use, and a junk bearer next to a real cookie must not switch the check off.
 
 ```bash
 curl -X POST http://localhost:3000/api/posts \
@@ -84,7 +82,7 @@ curl -X POST http://localhost:3000/api/posts \
   -d '{"title":"From a script"}'
 ```
 
-**What you'll see:** `201 Created`. Scripts, mobile apps and other servers use tokens and never deal with CSRF.
+**What you'll see:** `201 Created` (once `@strutvane/auth` accepts the token). Scripts, mobile apps and other servers use tokens and never deal with CSRF.
 
 ## Every way to adjust it
 
@@ -131,11 +129,13 @@ export default Application.configure({ basePath: dirname(import.meta.dirname) })
 
 Patterns match the **full path**, as in Laravel, so routes in `routes/api.ts` need the `api/` prefix: `except: ['webhooks/*']` would only match `/webhooks/...`, never `/api/webhooks/...`.
 
-A pattern that can never match a registered route is almost always this mistake, so the app logs a warning naming the pattern when it starts.
+A pattern that can never match a registered route is almost always this mistake, so the app logs a warning naming the pattern when it starts:
 
-:::caution[Coming in 0.2]
-The start-up warning for a pattern that matches no route is decided but not built yet. The prototype (spike 12) already refuses an empty pattern or one with a space, and `security:check` warns about a pattern that matches every path.
-:::
+```text
+The CSRF exception "webhooks/*" matches no route. Patterns match the full path without the leading slash (for example "api/webhooks/*").
+```
+
+An empty pattern, or one with a space, stops the app at start-up, and `node strut security:check` warns about a pattern that matches every path.
 
 An origin must be exactly `scheme://host[:port]`. `null`, `*` and origins with a path are refused when the app starts, because any of them would accept pages you don't own.
 
@@ -177,11 +177,7 @@ export default defineRoutes([
 
 **What you'll see:** a forged post to `/inbound/mail` passes (200), and one to `/inbound/settings` gets 419. Adding a protection is always safe, so a route or controller that adds `csrf` keeps it even inside a group that opted out.
 
-`.group()` takes the routes from a callback, Laravel's shape, or directly as an array: `Route.middleware('csrf').group([...])`. Both give the same group. `Route.group({ prefix, name, middleware, withoutMiddleware: ['csrf'] }, [...])` does the same as the fluent form, together with a prefix and a name.
-
-:::caution[Coming in 0.2]
-The prototype (spike 12) takes the array form only; the callback form is decided but not built yet.
-:::
+`.group()` takes the routes from a callback, Laravel's shape (register them inside, or return an array as above), or directly as an array: `Route.middleware('csrf').group([...])`. All give the same group. `Route.group({ prefix, name, middleware, withoutMiddleware: ['csrf'] }, [...])` does the same as the fluent form, together with a prefix and a name.
 
 ### A controller
 
@@ -242,11 +238,7 @@ export class CommentController {
 
 When a request can't prove its origin with headers (a page served from another origin you trust, or an old browser), send the token. It's an HMAC of the session id under a key derived from your `APP_KEY`, so it's tied to one session and useless in any other.
 
-The key comes from the framework's keyring (`keyring.derive('csrf')`), which also accepts the keys in `APP_PREVIOUS_KEYS`, so `node strut key:rotate` doesn't break forms that are already open.
-
-:::caution[Coming in 0.2]
-The prototype (spike 12) derives the CSRF key from the current `APP_KEY` only, so after a rotation an open form needs one reload. Moving CSRF onto the keyring is decided but not built yet.
-:::
+The key comes from the framework's keyring (`keyring.derive('csrf')`), which also accepts the keys in `APP_PREVIOUS_KEYS`, so `node strut key:rotate` doesn't break forms that are already open. The `XSRF-TOKEN` cookie is reissued with the current key on the next response.
 
 ### From a server-rendered page or a plain HTML form
 
@@ -281,7 +273,7 @@ The form posts `_token` with the other fields (rule 8). The value is HTML-escape
 
 ### From your own JavaScript
 
-The framework sets an **`XSRF-TOKEN` cookie** that JavaScript can read (`SameSite=Lax`, not `HttpOnly`, on purpose). The generated API client and the `@strutvane/ui` forms copy it into an `X-XSRF-TOKEN` header for you. In a plain `fetch`, do the same:
+The framework sets an **`XSRF-TOKEN` cookie** that JavaScript can read (`SameSite=Lax`, not `HttpOnly`, on purpose) on responses to requests that carry a session, and refreshes it whenever the session cookie changes. In a plain `fetch`, copy it into an `X-XSRF-TOKEN` header:
 
 ```ts title="resources/ui/lib/xsrf.ts"
 export function xsrfToken(): string {
@@ -299,10 +291,6 @@ export async function publishPost(slug: string): Promise<Response> {
 ```
 
 **What you'll see:** the request passes rule 8. Reading the cookie is safe: another site can make the browser *send* it, but can't *read* it, so it can't copy it into a header.
-
-:::caution[Coming in 0.2]
-The `XSRF-TOKEN` cookie is decided but not built: the prototype (spike 12) accepts the `X-XSRF-TOKEN` header but doesn't set the cookie yet. Until then, read the token from the meta tag, as below.
-:::
 
 Or read the meta tag and send the header:
 
@@ -328,33 +316,30 @@ export async function createPost(title: string): Promise<Response> {
 
 ## In tests
 
-Feature tests post with a session cookie and no real browser, so they would get 419. Turn the check off for one request with `withoutCsrf()`:
+Feature tests post with a session cookie and no real browser, so they would get 419. A test can send a request straight into the app with `app.handle()` and prove both sides:
 
-```ts title="tests/feature/posts.test.ts"
-import { client } from '@strutvane/framework/testing'
-import { describe, it } from 'vitest'
+```ts title="tests/feature/csrf.test.ts"
+import { expect, it } from 'vitest'
 import app from '../../bootstrap/app.ts'
 
-describe('posts', () => {
-  it('creates a post', async () => {
-    const response = await client(app)
-      .withHeaders({ cookie: 'strutvane_session=test-session' })
-      .withoutCsrf()
-      .postJson('/api/posts', { title: 'Hello' })
-    response.assertStatus(201)
-  })
+it('refuses a forged post', async () => {
+  const response = await app.handle(
+    new Request('http://localhost/api/posts', {
+      method: 'POST',
+      headers: { cookie: 'strutvane_session=test-session', 'content-type': 'application/json', origin: 'https://evil.example' },
+      body: JSON.stringify({ title: 'Hello' }),
+    }),
+  )
+  expect(response.status).toBe(419)
+  expect((await response.json()).code).toBe('csrf_token_mismatch')
 })
 ```
 
-**What you'll see:** the test passes. `withoutCsrf()` works **only** with `APP_ENV=testing`; in `local`, `staging` or `production` it throws, so it can never switch CSRF off in a real deployment.
-
-Requests with an API token don't need it at all: `withToken(token)` sends an `Authorization: Bearer` header, and bearer requests skip the check (see [why](#why-bearer-tokens-skip-the-check)). To sign in as a user instead, `actingAs(user)` takes a user model.
+**What you'll see:** the test passes. Keep at least one test like this per app, so a refactor can't silently drop the check.
 
 :::caution[Coming in 0.2]
-`actingAs(user)` with a user model and `withToken(token)` are decided but not built. In the prototype (spike 12), `actingAs()` takes a bearer token. See [HTTP Tests](../http-tests/).
+The framework has a test client with `withoutCsrf()` (skip the check for one request), `actingAs(user)` and `assertStatus()`, but it isn't exported from `@strutvane/framework/testing` in 0.2.0-next.0. `withoutCsrf()` and `actingAs()` only work with `APP_ENV=testing`; anywhere else the app refuses the request, so they can never switch CSRF off in a real deployment. See [HTTP Tests](../http-tests/).
 :::
-
-Keep at least one test that proves a route **rejects** a forged request: post with the cookie and no token, and assert `419`. A dedicated assertion helper for this is designed but not built yet.
 
 ## Seeing every opt-out: `route:list --security`
 
@@ -403,12 +388,12 @@ CSRF is one example of a rule that runs through the whole framework: every prote
 
 | Protection | What it checks | Styles |
 |---|---|---|
-| `csrf` | the request came from your pages | proven in the prototype |
-| `auth` (`auth:optional`) | someone is signed in | proven: `auth()`, `withAuth()`, `auth.verify(ctx)` |
-| `can` | a named ability (`can:view-reports`) | proven: `can({ params: ['view-reports'] })`, `withCan(handler, 'view-reports')` |
-| `throttle` | the rate limit (`throttle:60,1`, `throttle:api`) | proven: `throttle({ params: ['10', '1'] })`, `withThrottle(handler, '10', '1')` |
-| `signed`, `idempotent` | a valid signed URL (403 `invalid_signature` / `signature_expired`), an idempotency key | proven: `withSigned(handler)`, `withIdempotency(handler)` |
-| `verified`, `password.confirm` | a verified email, a recent password | designed, not built yet |
+| `csrf` | the request came from your pages | all: `csrf()`, `withCsrf()`, `csrf.verify(ctx)` |
+| `auth` (`auth:optional`) | someone is signed in | all: `auth()`, `withAuth()`, `auth.verify(ctx)` |
+| `can` | a named ability (`can:view-reports`) | all: `can({ params: ['view-reports'] })`, `withCan(handler, 'view-reports')` |
+| `throttle` | the rate limit (`throttle:60,1`, `throttle:api`) | all: `throttle({ params: ['10', '1'] })`, `withThrottle(handler, '10', '1')` |
+| `signed`, `idempotent` | a valid signed URL (403 `invalid_signature` / `signature_expired`), an idempotency key | all: `withSigned(handler)`, `withIdempotency(handler)` |
+| `verified`, `password.confirm` | a verified email, a recent password | coming with `@strutvane/auth` 0.2 |
 
 ```ts title="app/http/controllers/report.controller.ts"
 import { auth, can, throttle, type HttpContext } from '@strutvane/framework'
@@ -451,7 +436,7 @@ Nothing changes. In Docker mode your browser still talks to `http://localhost:30
 ### My form post from another subdomain gets 419
 
 ```text
-{"type":"https://strutvane.dev/problems/csrf_token_mismatch","title":"Page expired","status":419,"code":"csrf_token_mismatch","detail":"This request could not be verified as coming from this site. Reload the page and try again."}
+{"type":"https://strutvane.dev/errors/csrf-token-mismatch","title":"Page expired","status":419,"code":"csrf_token_mismatch","detail":"This request could not be verified as coming from this site. Reload the page and try again.", …}
 ```
 
 **Why:** `admin.example.com` calling `api.example.com` is `same-site`, not `same-origin`, and Strutvane never trusts a sibling subdomain on headers alone.
@@ -502,12 +487,13 @@ There is no session on this request, so there is no CSRF token to give out.
 
 **Why:** the token is bound to a session, and this request has none yet (nobody has signed in). A token bound to nothing would protect nothing. The error code is `no_session_for_csrf`.
 
-**Fix:** render the token only on pages for signed-in users. Tokens for the sign-in and registration pages come with the session layer of `@strutvane/auth` (coming in 0.2).
+**Fix:** render the token only on pages that have a session. Sessions for the sign-in and registration pages come with `@strutvane/auth` (coming in 0.2).
 
 ### `withoutCsrf()` throws outside my tests
 
 ```text
-withoutCsrf() was used with APP_ENV=local.
+withoutCsrf()/actingAs() was used with APP_ENV=local.
+→ They are test helpers: they only work when APP_ENV=testing, so they can never weaken a real deployment.
 ```
 
 **Why:** it's a test helper, and it refuses to run unless `APP_ENV=testing`, so it can never switch CSRF off in a real deployment.
@@ -517,12 +503,12 @@ withoutCsrf() was used with APP_ENV=local.
 ### The app won't start after I added an exception or origin
 
 ```text
-  ✖ The app can't start: 1 security setting is unsafe or invalid.
-  - csrf origins: "*" must be an exact origin such as https://admin.example.com (no path, no "*", never "null").
-  → Fix them in bootstrap/app.ts (withMiddleware). Each line above says what is wrong and what is allowed.
+✖ The app can't start: 1 security setting is unsafe or invalid.
+  - csrf.origins: "*" must be an exact origin such as https://admin.example.com (no path, no "*", never "null")
+→ Fix them where the app configures security (bootstrap/app.ts, withMiddleware). Each line says what is wrong and what is allowed.
 ```
 
-**Why:** an origin was `*`, `null` or carried a path, or an `except` pattern was empty or contained a space (`csrf except: "api/web hooks/*" is not a path pattern (use something like "webhooks/*").`). Each would accept far more than you meant.
+**Why:** an origin was `*`, `null` or carried a path, or an `except` pattern was empty or contained a space (`csrf.except: "api/web hooks/*" is not a path pattern (e.g. "webhooks/*")`). Each would accept far more than you meant.
 
 **Fix:** list exact origins and plain path patterns. A leading slash is fine (it's ignored):
 

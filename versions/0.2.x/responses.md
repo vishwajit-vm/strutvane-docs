@@ -13,8 +13,9 @@ For errors, you don't build a response at all: you **throw** an HTTP error, and 
 | `return response()->json($data, 201)` | `return ctx.json(data, 201)` |
 | `return response()->noContent()` | `return ctx.noContent()` |
 | `return response($html)` | `return ctx.html(html)` |
-| `abort(404, 'No post')` | `throw new NotFoundError('No post')` |
-| `abort(403)` / `$this->authorize()` | `throw new ForbiddenError(…)` / `await authorize(…)` |
+| `abort(404)` | `throw new NotFoundError()` |
+| `abort(403)` | `throw new ForbiddenError()` |
+| `return redirect('/posts')` | `return redirect().to('/posts')` |
 
 There are no Blade views: web routes return the React app's HTML shell, and React renders the page.
 :::
@@ -47,7 +48,7 @@ return ctx.json({ data: post }, 201, { location: route('posts.show', { post }) }
 return ctx.json({ queued: true }, 202, { 'retry-after': '30' })
 ```
 
-`content-type: application/json` is always set for you. Models are turned into JSON through their `toJSON()`, so **hidden columns** (like `password` or `api_token`) never appear.
+`content-type: application/json` is always set for you (it wins over a `content-type` you pass in `headers`). Models are turned into JSON through their `toJSON()`, so **hidden columns** (like `password` or `api_token`) never appear.
 
 ### Created: 201 with `Location`
 
@@ -57,7 +58,7 @@ When you create something, answer `201` and say where it lives:
 async store(ctx: HttpContext): Promise<Response> {
   const input = await new StoreNoteRequest().validate(ctx)
   const note = await Note.create(input)
-  return ctx.json({ data: note }, 201, { location: route('notes.show', { note }) })
+  return ctx.json({ data: note }, 201, { location: route('notes.show', { note: note.id }) })
 }
 ```
 
@@ -75,7 +76,7 @@ content-type: application/json
 
 ### Lists: the `data` + `meta` envelope
 
-Resource lists use one shape everywhere, so a client can page through any of them the same way:
+Resource lists use one shape everywhere, `data` plus `meta`, so a client can page through any of them the same way. Something like:
 
 ```json
 {
@@ -83,6 +84,8 @@ Resource lists use one shape everywhere, so a client can page through any of the
   "meta": { "page": 1, "perPage": 25, "total": 3, "lastPage": 1, "from": 1, "to": 3 }
 }
 ```
+
+`ResourceController@index` always answers `{ data, meta }`; what goes into `meta` comes from the model's paginator (see [ORM Pagination](../orm-pagination/)).
 
 ## HTML: `ctx.html(markup, status?)`
 
@@ -171,7 +174,7 @@ HTTP/1.1 303 See Other
 location: /posts
 ```
 
-`to()` and `intended()` accept only paths on your own site, so a crafted link (`?intended=//evil.com`) can't turn your app into a springboard for phishing. `intended()` quietly falls back; `to()` throws, because an unsafe target there is a bug in your code. The default status is `302`; pass `301`, `303`, `307` or `308` when you need another. See [Helpers](../helpers/).
+`to()` and `intended()` accept only paths on your own site, so a crafted link (`?intended=//evil.com`) can't turn your app into a springboard for phishing. `intended()` reads the `intended` query parameter (from `ctx`, a `Request` or a `URL`) and quietly falls back; `to()` throws, because an unsafe target there is a bug in your code. `away()` takes only a full `http(s)` URL without a user name or password. The default status is `302`; pass `301`, `303`, `307` or `308` when you need another. See [Helpers](../helpers/).
 
 ## Coming in 0.2: downloads and files
 
@@ -206,21 +209,26 @@ Strutvane doesn't render HTML templates on the server. Pages are the React app (
 To stop with an error, **throw** an HTTP error. The exception handler turns it into a response, so the same error looks the same from every action, middleware and helper:
 
 ```ts
-import { ForbiddenError, HttpError, NotFoundError } from '@strutvane/framework'
+import { ConflictError, ForbiddenError, NotFoundError } from '@strutvane/framework/core'
 
-throw new NotFoundError('No post matches "hello".')
-throw new ForbiddenError('You may not delete this post.')
-throw new HttpError(409, 'conflict', 'Conflict', 'That slug is taken.')
+throw new NotFoundError()
+throw new ForbiddenError()
+throw new ConflictError('slug_taken')
 ```
 
-| Class | Status | `code` | When |
+| Class (from `@strutvane/framework/core`) | Status | `code` | When |
 |---|---|---|---|
-| `NotFoundError(detail, hint?)` | 404 | `not_found` | The route or record doesn't exist |
-| `UnauthenticatedError(detail?)` | 401 | `unauthenticated` | Nobody is signed in (adds `www-authenticate: Bearer`) |
-| `ForbiddenError(detail, hint?)` | 403 | `forbidden` | Signed in, but not allowed |
+| `NotFoundError()` | 404 | `not_found` | The route or record doesn't exist |
+| `UnauthenticatedError()` | 401 | `unauthenticated` | Nobody is signed in |
+| `ForbiddenError()` | 403 | `forbidden` | Signed in, but not allowed |
 | `ValidationError(issues)` | 422 | `validation_failed` | Input failed validation |
-| `TooManyRequestsError(seconds)` | 429 | `too_many_requests` | Rate limited (adds `retry-after`) |
-| `HttpError(status, code, title, detail, extras?)` | any | yours | Everything else |
+| `ConflictError(code?)` | 409 | `conflict`, or yours | The request clashes with the current state |
+| `DomainError(code, params?)` | 422 | yours | A business rule said no |
+| `RateLimitedError(seconds?)` | 429 | `rate_limited` | Rate limited (adds `Retry-After`) |
+| `ServiceUnavailableError(seconds?)` | 503 | `service_unavailable` | A dependency is down (adds `Retry-After`) |
+| `StrutvaneError(code, { status, params, headers })` | any | yours | Everything else |
+
+The words a client sees (`title`, `detail`) come from the message catalog, never from your code, so they are the same everywhere and can be translated: add `errors.<code>.title` and `errors.<code>.detail` for your own codes (see [Localization](../localization/)). The `ctx.requireUser()` 401 adds `WWW-Authenticate: Bearer`.
 
 ### The problem+json shape
 
@@ -233,23 +241,26 @@ content-type: application/problem+json
 
 ```json
 {
-  "type": "https://strutvane.dev/problems/not_found",
+  "type": "https://strutvane.dev/errors/not-found",
   "title": "Not found",
   "status": 404,
   "code": "not_found",
-  "detail": "No post matches \"hello\"."
+  "detail": "We couldn't find what you were looking for.",
+  "traceId": "0193a4f2-6b1c-7d3e-9f40-2a8b5c6d7e8f",
+  "instance": "/api/posts/hello"
 }
 ```
 
 | Field | Meaning |
 |---|---|
-| `type` | A URL built from `code` |
+| `type` | A URL built from `code` (`https://strutvane.dev/errors/` plus the code with dashes) |
 | `title` | A short, fixed summary of the kind of problem |
 | `status` | The HTTP status, repeated in the body |
 | `code` | A stable identifier your client can `switch` on |
-| `detail` | A sentence about this occurrence, for a person |
-| `issues` | Only for validation: one `{ path, field, code, message }` per problem (see below) |
-| `hint` | Only in local debug mode: how a developer can fix it. Never sent in production |
+| `detail` | A sentence for a person, when the catalog has one for this code |
+| `traceId` | The request id, the same as the `X-Request-Id` header: quote it to find the log entry |
+| `instance` | The request path (without the query string) |
+| `issues`, `fieldErrors` | Only for validation: one `{ path, field, code, message }` per problem (see below), and the messages grouped by field |
 
 ### One validation issue
 
@@ -266,38 +277,25 @@ Each entry in `issues` says where the problem is in two ways, so clients can use
 | `code` | A stable, lowercase `snake_case` code to `switch` on |
 | `message` | A sentence for a person |
 
-Every `code` in Strutvane, for problems and issues alike, is lowercase `snake_case`.
+Every `code` in Strutvane, for problems and issues alike, is lowercase `snake_case`. `field` is new in 0.2; `path` was already there in 0.1. An issue may also carry `params` (the values its message was built from).
 
-:::caution[Coming in 0.2]
-The application core prototype (spike 12) sends `{ field, code, message }`; `path` is added for 0.2.
-:::
-
-### Extra headers and developer hints
+### Extra headers and parameters
 
 ```ts
-throw new HttpError(409, 'conflict', 'Conflict', 'That slug is taken.', {
+import { StrutvaneError } from '@strutvane/framework/core'
+
+throw new StrutvaneError('slug_taken', {
+  status: 409,
+  params: { slug: 'hello-world' },          // usable in the catalog message: "{slug} is taken."
   headers: { 'retry-after': '5' },
-  hint: 'Pick another slug or let Strutvane generate one.',
 })
 ```
 
-The `hint` appears only when `APP_DEBUG=true` and `APP_ENV` is `local` or `testing`. See [Error Handling](../errors/).
+Headers are sent with the problem; `params` fill the catalog's `{placeholders}`. The `cause` option keeps the original error for the log, never for the client.
 
-### Browsers get a small HTML page
+### Browsers get problem+json too
 
-When the client doesn't want JSON (a browser on a web route), the same error is shown as a minimal HTML page with the status, title and detail.
-
-### The quick way: `abort()`
-
-For the three most common stops there's a one-liner:
-
-```ts
-import { abort } from '@strutvane/framework'
-
-abort(404, 'No such post.')    // NotFoundError
-abort(403)                     // ForbiddenError: "You are not allowed to do this."
-abort(401)                     // UnauthenticatedError
-```
+In 0.2.0-next.0, an HTTP error is problem+json for every client, browsers included. Only a bug in local debug mode shows an HTML page (the [developer error page](../errors/)). Your own HTML error pages are coming in 0.2; until then, a custom `render()` in `withExceptions()` can return any `Response`.
 
 ### Answering early from deep code: `ResponseError`
 
@@ -326,12 +324,14 @@ PostController@show returned nothing instead of a Response.
 
 ### My error shows up as a 500
 
-**Why:** you threw a plain `Error`. Only `HttpError` and its subclasses become 4xx responses; anything else is treated as a bug.
+**Why:** you threw a plain `Error`. Only `StrutvaneError` and its subclasses become 4xx responses; anything else is treated as a bug.
 
 **Fix:**
 
 ```ts
-throw new NotFoundError('No report for that month.')   // not: throw new Error('not found')
+import { NotFoundError } from '@strutvane/framework/core'
+
+throw new NotFoundError()   // not: throw new Error('not found')
 ```
 
 ### A secret column appears in my JSON
@@ -348,6 +348,15 @@ throw new NotFoundError('No report for that month.')   // not: throw new Error('
 ```
 
 **Fix:** use `redirect().away(url)` when leaving your site is intended.
+
+### `redirect().away()` throws
+
+```text
+✖ redirect().away() needs an absolute http(s) URL without credentials.
+→ Pass a full URL such as https://example.com/page.
+```
+
+**Fix:** pass a full URL, `https://` included.
 
 ### My header disappears or throws "immutable"
 
