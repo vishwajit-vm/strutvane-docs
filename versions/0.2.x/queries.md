@@ -28,6 +28,10 @@ console.log(drafts.length, drafts[0]?.title)
 
 `drafts` is a `Post[]`: each item is a model with typed columns.
 
+:::caution[Coming in 0.2]
+On framework `main`, models are connected to the database for you inside `node strut db:seed` (and `migrate --seed`). Connecting them when the HTTP app boots, so this code works in a controller as shown, arrives with 0.2; until then, see [Who opens the connection](../database/#who-opens-the-connection).
+:::
+
 ## How a query becomes SQL
 
 1. **You build.** Each method adds to a plain description of the query. Nothing runs yet, and column names are checked against your schema as you go (a typo fails right here, with a suggestion).
@@ -49,7 +53,7 @@ The builder is **mutable**: each method changes the query and returns it. To bra
 | `where(column, null)` | `where('body', null)` | `"posts"."body" IS NULL` |
 | `where((q) => …)` | `where((q) => q.where('a', 1).orWhere('b', 2))` | `("posts"."a" = $1 OR "posts"."b" = $2)` |
 | `orWhere(…)` | same forms as `where` | `… OR …` |
-| `whereIn(column, values)` | `whereIn('status', ['draft', 'published'])` | `"posts"."status" IN ($1, $2)` |
+| `whereIn(column, values)` | `whereIn('status', ['draft', 'published'])` | `"posts"."status" IN ($1, $2)`; an empty list matches nothing; at most 1,000 values |
 | `whereNotIn(column, values)` | `whereNotIn('status', ['draft'])` | NULL-safe: rows where `status` is empty also match |
 | `whereNull(column)` / `whereNotNull(column)` | `whereNull('published_on')` | `"posts"."published_on" IS NULL` |
 | `whereContains(column, text)` | `whereContains('title', '100%')` | case-insensitive "contains"; `%` and `_` are plain text |
@@ -65,11 +69,11 @@ These take **strings from a request** and check every column name, so they're sa
 
 | Method | Example | What it does |
 |---|---|---|
-| `search(term, columns)` | `search('hello world', ['title', 'body'])` | Case-insensitive search: **every word** must appear, each in **any** of the columns (at most 10 columns). A term that is an id or a UUID also matches that row exactly. Blank terms are ignored; at most 200 characters. |
+| `search(term, columns)` | `search('hello world', ['title', 'body'])` | Case-insensitive search: rows where **any** of the columns contains the whole term (`hello world` as one piece of text). Blank terms are ignored; at most 200 characters. |
 | `filter(column, operator, value)` | `filter('status', 'in', ['draft', 'published'])` | One filter. Operators: `eq`, `ne`, `gt`, `gte`, `lt`, `lte`, `in`, `contains`, `startsWith`, `null` (`true` = is empty, `false` = isn't). |
-| `sort(spec)` | `sort('-created_at,title')` | Comma-separated columns, `-` for descending. |
+| `sort(spec)` | `sort('-created_at,title')` | Comma-separated columns, `-` for descending; at most 8 columns. |
 
-The "every word" and "id or UUID" rules are decided (2026-11-15); the ORM prototype still looks for the whole term as one piece of text. A column that exists isn't automatically one users may filter on: the generated API also checks each name against the allow-lists in `.strutvane/resources.json`. Do the same in your own controllers (see [ORM: Querying](../orm-querying/#search-filter-and-sort-from-a-request)).
+Searching **word by word** (every word must appear, each in any column) and matching a row exactly when the term is its id or UUID are decided (2026-11-15) and coming in 0.2; on framework `main` the whole term is one piece of text. Hidden and secret columns can't be used in `search`, `filter` or `sort` at all. A column that exists isn't automatically one users may filter on: the generated API also checks each name against the allow-lists in `.strutvane/resources.json`. Do the same in your own controllers (see [ORM: Querying](../orm-querying/#search-filter-and-sort-from-a-request)).
 
 ### Order and size
 
@@ -101,14 +105,14 @@ The "every word" and "id or UUID" rules are decided (2026-11-15); the ORM protot
 | `find(id)` / `findOrFail(id)` | `Post \| undefined` / `Post` | By primary key, within the query's conditions. |
 | `count()` | `number` | `SELECT COUNT(*)`, ignoring order, limit and offset. |
 | `exists()` | `boolean` | Whether at least one row matches. |
-| `paginate(perPage?, page?)` | `{ data, total, perPage, currentPage, lastPage }` | Numbered pages. See [Pagination](../pagination/). |
-| `cursorPaginate(perPage?, cursor?)` | `{ data, perPage, nextCursor }` | Fast pages for long lists. |
+| `paginate(perPage?, page?)` | `{ data, total, perPage, currentPage, lastPage }` | Numbered pages; `perPage` defaults to the model's `perPage` (15), at most 100. See [Pagination](../pagination/). |
+| `cursorPaginate(perPage?, cursor?)` | `{ data, perPage, nextCursor }` | Fast pages for long lists; sort columns must be `NOT NULL`. |
 | `toSql()` | `{ sql, params }` | The SQL and its values, **without** running it. |
 | `clone()` | a new builder | An independent copy of the query so far. |
 
 ## SQL on each database
 
-The same query produces slightly different SQL per database. You never write these differences yourself; they matter when you read `toSql()` output or a slow-query log.
+The same query produces slightly different SQL per database (MariaDB writes the same SQL as MySQL). You never write these differences yourself; they matter when you read `toSql()` output or a slow-query log.
 
 | | MySQL 8.4+ | PostgreSQL | SQLite |
 |---|---|---|---|
@@ -117,7 +121,7 @@ The same query produces slightly different SQL per database. You never write the
 | NULL-safe `!=` | `NOT (a <=> b)` | `a IS DISTINCT FROM b` | `a IS NOT b` |
 | Contains / starts with | a position check on lower-cased text (never `LIKE`) | same | same |
 | `offset()` without `limit()` | adds a huge `LIMIT` | fine | adds `LIMIT -1` |
-| Reading back a new row | an extra `SELECT` by id (MySQL has no `RETURNING`) | `RETURNING *` | `RETURNING *` |
+| Reading back a new row | an extra `SELECT` by id (MySQL has no `RETURNING`; MariaDB 10.5+ uses `RETURNING`) | `RETURNING *` | `RETURNING *` |
 
 ```ts
 const { sql: text, params } = Post.query().where('status', '!=', 'draft').limit(5).toSql()
@@ -139,7 +143,7 @@ On PostgreSQL the same query uses `"posts"."status" IS DISTINCT FROM $1` and `LI
 Use `whereRaw` for one hand-written condition inside a model query, and the connection for a whole statement:
 
 ```ts title="app/reports/post-stats.ts"
-import { defaultConnection, sql } from '@strutvane/framework'
+import { defaultConnection, sql } from '@strutvane/framework/database'
 import { Post } from '../models/post.ts'
 
 // 1. One raw condition inside a model query: you still get Post models back.

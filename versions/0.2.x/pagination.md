@@ -44,19 +44,23 @@ Both are explained with every option on [ORM: Pagination](../orm-pagination/). T
 
 | Setting | Value | Change it |
 |---|---|---|
-| A model's default page size (your queries and its API) | 25 | `Model('posts', { fillable: [...], perPage: 50 })` |
+| A model's default page size (`paginate()` and `cursorPaginate()` without a size) | 15 | `Model('posts', { fillable: [...], perPage: 50 })` |
 | The admin screens' default | 25, with a choice of 10, 25, 50 or 100 | `pageSize: 50` in `resources/ui/posts.ui.ts` |
-| The largest page anyone may ask for | 100 | `configureOrm({ maxPerPage: 500 })` (think twice) |
+| The largest page anyone may ask for | 100 | `configureOrm({ maxPerPage: 500 })` from `@strutvane/framework/database` (think twice) |
 
 The limit protects your database: without it, `?perPage=1000000` would be a one-line attack.
 
 :::caution[Coming in 0.2]
-The API, the screens and `paginate()` all default to 25 (decided 2026-11-15). The ORM and API prototypes still default to 15.
+A default of 25 everywhere (the ORM, the generated API and the screens) is decided (2026-11-15). On framework `main`, `paginate()` and `cursorPaginate()` still default to 15; pass the size (`paginate(25, page)`) or set the model's `perPage` to get 25 today.
 :::
 
 ## The generated API
 
-Every generated list endpoint (see [Auto CRUD](../crud/)) takes the page from the URL:
+:::caution[Coming in 0.2]
+The migration-first CRUD API (the `?page` / `?perPage` parameters and the `{ data, meta }` answer below) is designed but not on framework `main` yet; it arrives with 0.2. Until then, page your own endpoints with `paginate()` as shown in [Your own endpoints, the same shape](#your-own-endpoints-the-same-shape).
+:::
+
+Every generated list endpoint (see [Auto CRUD](../crud/)) will take the page from the URL:
 
 ```text
 GET /api/posts?page=2&perPage=25
@@ -104,7 +108,7 @@ GET /api/posts?cursor=eyJmIjoi…&perPage=25
 The response's `meta` then carries `nextCursor` instead of `total` and `lastPage`; the client stops when it's `null`.
 
 :::caution[Coming in 0.2]
-Page-number pagination of the generated API is proven in the schema prototype (identical answers on SQLite and PostgreSQL over 108 requests). The cursor mode of the generated API, and capping `total` at 10,000 rows on very large tables (so counting never becomes the slow part), are designed and arrive with 0.2. Cursor pages in your own code (`cursorPaginate()`) already work in the ORM prototype.
+The cursor mode of the generated API, and capping `total` at 10,000 rows on very large tables (so counting never becomes the slow part), are designed and arrive with 0.2. Cursor pages in your own code (`cursorPaginate()`) work on framework `main` today.
 :::
 
 ## The admin screens
@@ -122,7 +126,7 @@ export default defineResourceUi('posts', {
 })
 ```
 
-See [Customising the CRUD](../crud-customising/) for every screen option.
+See [Customising the CRUD](../crud-customising/) for every screen option. The screens come from `@strutvane/ui` and read the generated API, so they arrive with it in 0.2.
 
 ## Your own endpoints, the same shape
 
@@ -164,7 +168,13 @@ export class FeedController extends Controller {
 }
 ```
 
-(The data is shortened to one post.) A bad page number such as `?page=0` or `?page=abc` makes `paginate()` throw an `OrmUsageError` with the code `invalid_page` before any SQL runs; answer it with a 400 (the generated API checks the page for you and answers 422).
+(The data is shortened to one post.)
+
+:::caution[Coming in 0.2]
+On framework `main`, the HTTP app doesn't connect the models to the database at boot yet, so a controller like this one needs the 0.2 release, or the manual connection shown in [Who opens the connection](../database/#who-opens-the-connection). `paginate()` itself works today, for example in a seeder or a script.
+:::
+
+A bad page number such as `?page=0` or `?page=abc` makes `paginate()` throw an `OrmUsageError` with the code `invalid_page` before any SQL runs; answer it with a 400 (the generated API checks the page for you and answers 422).
 
 :::note[Small, typical, advanced]
 - **Small:** `await Post.query().paginate()` gives page 1 at the model's default size.
@@ -184,6 +194,8 @@ export class FeedController extends Controller {
 ## Common mistakes
 
 ### The API answers 422 for my page size
+
+This is how the generated API (coming in 0.2) will answer:
 
 ```json
 {

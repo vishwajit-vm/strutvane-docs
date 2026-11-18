@@ -8,17 +8,19 @@ Almost every app keeps its data in a **database**: a program that stores tables 
 Most of the time you won't write SQL at all: [migrations](../migrations/) create your tables and [models](../orm/) read and write rows. This page is about the layer underneath.
 
 :::tip[Coming from Laravel?]
-It's `config/database.php` and `.env` again: `DB_CONNECTION`, `DB_HOST`, `DB_PORT`, `DB_DATABASE`, `DB_USERNAME`, `DB_PASSWORD` keep their names, as do `DB_URL`, `DB_SOCKET` and `DB_SSLMODE`, and `DB_CONNECTION` takes `mysql`, `mariadb`, `pgsql` or `sqlite`. Like Laravel, any server works: XAMPP, WAMP, MAMP, Laragon, Postgres.app, a normal install or the cloud; Docker (Strutvane's Sail) is optional. `DB::select('… where id = ?', [1])` becomes ``defaultConnection().run(sql`… WHERE id = ${1}`)``: the `sql` tag binds values for you, and there's deliberately no way to pass a plain string. `DB::transaction` becomes `transaction()`, and `DB::listen` becomes `onQuery()`.
+It's `.env` again: `DB_CONNECTION`, `DB_HOST`, `DB_PORT`, `DB_DATABASE`, `DB_USERNAME`, `DB_PASSWORD` keep their names, as do `DB_URL`, `DB_SOCKET` and `DB_SSLMODE`, and `DB_CONNECTION` takes `mysql`, `mariadb`, `pgsql` or `sqlite`. Like Laravel, any server works: XAMPP, WAMP, MAMP, Laragon, Postgres.app, a normal install or the cloud; Docker is optional. `DB::select('… where id = ?', [1])` becomes ``defaultConnection().run(sql`… WHERE id = ${1}`)``: the `sql` tag binds values for you, and there's deliberately no way to pass a plain string. `DB::transaction` becomes `transaction()`, and `DB::listen` becomes `onQuery()`.
 :::
 
 ## The smallest working setup
 
-A new app is already connected: the installer asked which database you want and wrote `.env` for you. For SQLite, the whole configuration is two lines:
+For SQLite, the whole configuration is two lines in `.env`:
 
 ```bash title=".env"
 DB_CONNECTION=sqlite
 DB_DATABASE=database/database.sqlite
 ```
+
+SQLite is built into Node.js 24 (`node:sqlite`), so there's nothing to install. The file is created the first time Strutvane opens it; its folder (`database/`) must exist.
 
 Check that it works:
 
@@ -26,107 +28,78 @@ Check that it works:
 node strut migrate:status
 ```
 
-**What you'll see:** a list of your migrations with "Ran" or "Pending". If the database can't be reached, you'll see what to fix instead (see [Common mistakes](#common-mistakes)).
+**What you'll see:** the connection Strutvane used (never the password), then one row per migration:
+
+```text
+Database: sqlite:C:\code\my-app\database\database.sqlite
+Migration                              Status
+2026_11_15_093000_create_posts_table   pending
+```
+
+After `node strut migrate`, the status says `ran (batch 1)`. If the database can't be reached, you'll see the error instead (see [Common mistakes](#common-mistakes)).
 
 ## Which database should I use?
 
-| | MySQL 8.4+ | MariaDB 11+ | PostgreSQL | SQLite |
+| | MySQL 8.4+ | MariaDB | PostgreSQL | SQLite |
 |---|---|---|---|---|
 | **Pick it when** | You want the default, the most hosting choices, or you know MySQL | You already have it (XAMPP, WAMP and many Linux systems ship MariaDB) | You have **teams**: PostgreSQL adds a second wall between teams' data (row-level security) | You want zero setup: a demo, a prototype, a tiny internal tool |
 | **`DB_CONNECTION`** | `mysql` | `mariadb` | `pgsql` | `sqlite` |
+| **Driver to install** | `npm install mysql2` | `npm install mysql2` | `npm install pg` | none (built into Node.js) |
 | **Runs as** | A server: your own, or Docker | A server: your own, or Docker | A server: your own, or Docker | A single file in your project |
 | **Production** | Yes | Yes | Yes | Small, single-server apps only |
-| **Failed migration** | May leave earlier steps of that migration applied | Same as MySQL | Rolled back completely | Rolled back completely |
+| **Failed migration** | Earlier statements of that migration stay applied; the next `migrate` resumes after them | Same as MySQL | Rolled back completely | Rolled back completely |
+
+The drivers are **optional peer dependencies** of `@strutvane/framework`: you install the one for your database, and the others never land in your `node_modules`.
 
 Your migrations, models and queries are the same on all of them; Strutvane smooths over the differences (booleans, decimals, dates, text length). Switching later means changing `.env` and running `node strut migrate` on the new database.
 
-**Docker is optional.** Every server database works with a server you already have (XAMPP, WAMP, MAMP, Laragon, Postgres.app, a normal install, or a cloud database) or with the Docker container the installer can set up for you. Pick whichever you like; nothing else in your app changes.
+**Docker is optional.** Every server database works with a server you already have (XAMPP, WAMP, MAMP, Laragon, Postgres.app, a normal install, or a cloud database) or with a database container. Pick whichever you like; nothing else in your app changes.
 
 ## Connection settings
 
-The settings live in `.env`, and `config/database.ts` reads them with typed defaults. See [Configuration](../configuration/) for how `.env` and `config/*.ts` work together.
+The settings live in `.env`. The database commands (`migrate`, `migrate:*`, `db:seed`) load `.env` from your project folder; a variable that is already set in your shell or your server's environment **wins** over the file, and `--env staging` loads `.env.staging` too. See [Configuration](../configuration/) for how `.env` works.
 
-| Key | What it is | Example |
-|---|---|---|
-| `DB_CONNECTION` | Which database: `mysql`, `mariadb`, `pgsql` or `sqlite` (`postgres` is accepted as another name for `pgsql`) | `mysql` |
-| `DB_HOST` | Where the server is: `127.0.0.1` for a server on your computer, `db` with Docker, a host name for a remote server | `127.0.0.1` |
-| `DB_PORT` | The server's port | `3306` (MySQL, MariaDB), `5432` (PostgreSQL), `8889` (MAMP) |
-| `DB_DATABASE` | The database's name, or the file for SQLite | `my_app`, `database/database.sqlite` |
-| `DB_USERNAME`, `DB_PASSWORD` | How the app signs in. An empty password is allowed for a server on your own computer, with a warning | `root` and an empty password (XAMPP) |
-| `DB_URL` | Everything above in one **connection string**; wins over the separate keys when set | `mysql://my_app:secret@db.example.com:3306/my_app` |
-| `DB_SOCKET` | A Unix **socket** file instead of host and port (macOS and Linux only) | `/Applications/MAMP/tmp/mysql/mysql.sock` |
-| `DB_SSLMODE` | Whether to encrypt the connection: `disable`, `prefer`, `require`, `verify-ca` or `verify-full` | `verify-full` for a cloud database |
-| `DB_SSL_CA` | The path to the server's certificate authority file, for `verify-ca` and `verify-full` | `storage/certs/ca.pem` |
-| `DB_TEST_DATABASE` | A separate database for `npm test`, so tests never touch your local data | `my_app_test` |
-| `DB_MIGRATION_USERNAME`, `DB_MIGRATION_PASSWORD` | PostgreSQL only: the **owner** role migrations run as (see [PostgreSQL: two database users](#postgresql-two-database-users)) | `my_app_owner` |
-| `FORWARD_DB_PORT` | Docker only: the port on **your computer** for a database client like TablePlus | `3306` |
+| Key | What it is | Default when empty | Example |
+|---|---|---|---|
+| `DB_CONNECTION` | Which database: `mysql`, `mariadb`, `pgsql` or `sqlite` (`postgres` and `postgresql` are accepted as other names for `pgsql`) | `mysql`, or the engine `DB_URL` names | `mysql` |
+| `DB_HOST` | Where the server is: `127.0.0.1` for a server on your computer, the service name with Docker, a host name for a remote server | `127.0.0.1` | `127.0.0.1` |
+| `DB_PORT` | The server's port | `3306` (MySQL, MariaDB), `5432` (PostgreSQL) | `8889` (MAMP) |
+| `DB_DATABASE` | The database's name, or the file for SQLite (relative to your project folder, or `:memory:`) | `strutvane`; for SQLite `database/database.sqlite` | `my_app` |
+| `DB_USERNAME` | The user the app signs in as | `root` (MySQL, MariaDB), `postgres` (PostgreSQL) | `my_app` |
+| `DB_PASSWORD` | Its password. Leave it empty for a local server without one (XAMPP, Laragon) | none | |
+| `DB_URL` | Everything above in one **connection string** (`mysql://`, `mariadb://`, `postgres://` or `postgresql://`); wins over the separate keys | none | `mysql://my_app:secret@db.example.com:3306/my_app` |
+| `DB_SOCKET` | A Unix **socket** instead of host and port: the MySQL/MariaDB socket file, or PostgreSQL's socket folder (macOS and Linux) | none | `/Applications/MAMP/tmp/mysql/mysql.sock` |
+| `DB_SSLMODE` | Whether to encrypt the connection: `disable`, `prefer`, `require`, `verify-ca` or `verify-full` (see [the table below](#a-remote-or-cloud-database-with-ssl)) | no encryption | `verify-full` |
+| `DB_SSL_CA` | The path to the server's certificate authority file, for `verify-ca` and `verify-full` (relative to your project folder) | none | `storage/certs/ca.pem` |
+| `DB_MIGRATION_LOCK_TIMEOUT` | PostgreSQL: how long one schema change in a migration may wait for a table that live traffic is using, before it fails instead of queueing every request behind it: `10s`, `30000` (milliseconds) or `2min`; `0` waits forever | `10s` | `30s` |
 
-A **socket** is a file the database server listens on when the app runs on the same machine; it skips the network. A **connection string** is the address of a database written as one line, the way cloud providers hand it to you. In a connection string, letters like `@`, `:` or `/` inside the password must be written in percent form (`@` is `%40`).
+A **socket** is a file the database server listens on when the app runs on the same machine; it skips the network. A **connection string** is the address of a database written as one line, the way cloud providers hand it to you. In a connection string, characters like `@`, `:` or `/` inside the password must be written in percent form (`@` is `%40`).
 
-```ts title="config/database.ts"
-import { defineConfig } from '@strutvane/framework'
+**Strutvane checks these settings before connecting** and lists **every** problem at once, naming the key but never printing a value. For example, with `DB_PORT=abc` and `DB_SSLMODE=on`:
 
-/** Database connections. MySQL is the default, as in Laravel. */
-export default defineConfig((env) => {
-  // Shared by MySQL and MariaDB: same keys, same defaults for a local server.
-  const mysqlLike = {
-    url: env.optional('DB_URL'),
-    host: env.string('DB_HOST', '127.0.0.1'),
-    port: env.integer('DB_PORT', 3306),
-    socket: env.optional('DB_SOCKET'),
-    database: env.string('DB_DATABASE', 'my_app'),
-    username: env.string('DB_USERNAME', 'root'),
-    password: env.optional('DB_PASSWORD'),
-    sslMode: env.optional('DB_SSLMODE'),
-    sslCa: env.optional('DB_SSL_CA'),
-  }
-  return {
-    default: env.oneOf('DB_CONNECTION', ['mysql', 'mariadb', 'pgsql', 'sqlite'], 'mysql'),
-    connections: {
-      mysql: { driver: 'mysql', ...mysqlLike },
-      mariadb: { driver: 'mariadb', ...mysqlLike },
-      pgsql: {
-        driver: 'postgres',
-        url: env.optional('DB_URL'),
-        host: env.string('DB_HOST', '127.0.0.1'),
-        port: env.integer('DB_PORT', 5432),
-        database: env.string('DB_DATABASE', 'my_app'),
-        username: env.string('DB_USERNAME', 'postgres'),
-        password: env.optional('DB_PASSWORD'),
-        sslMode: env.optional('DB_SSLMODE'),
-        sslCa: env.optional('DB_SSL_CA'),
-      },
-      sqlite: {
-        driver: 'sqlite',
-        database: env.string('DB_DATABASE', 'database/database.sqlite'),
-      },
-    },
-  }
-})
+```text
+error Invalid environment: 2 problems.
+  - DB_PORT: must be a port number from 1 to 65535
+  - DB_SSLMODE: must be disable, prefer, require, verify-ca or verify-full
+hint: Fix: set these keys in your .env file (see .env.example for every key and its meaning), then run the command again. `node strut env:check` compares the two.
 ```
 
-When the app starts, Strutvane checks these settings and lists **every** problem at once (a missing password, a port that isn't a number), before any request is served.
+The command stops with exit code **3** (a configuration problem), before anything touches the database.
 
 :::caution[Coming in 0.2]
-The application-core prototype reads `DB_CONNECTION` (`mysql`, `pgsql`, `sqlite`), `DB_HOST`, `DB_PORT`, `DB_DATABASE`, `DB_USERNAME` and `DB_PASSWORD`. These arrive with 0.2, as decided on 2026-11-15:
-
-- `mariadb` as its own value;
-- `DB_URL`, `DB_SOCKET`, `DB_SSLMODE` and `DB_SSL_CA`;
-- the installer's connection test, with plain-language errors.
-
-Two prototype details also change to what's shown above: the installer writes `DB_CONNECTION=postgres` (0.2 writes `pgsql` and keeps `postgres` as an alias), and the application core's SQLite default is `storage/database.sqlite` (0.2 uses `database/database.sqlite`). The exact accepted `DB_SSLMODE` values may still change.
+These keys are read by the database commands on framework `main` today. Still to come with 0.2: the installer's connection test with plain-language errors, `DB_TEST_DATABASE` (a separate database for `npm test`), and `DB_MIGRATION_USERNAME` / `DB_MIGRATION_PASSWORD` (see [PostgreSQL: two database users](#postgresql-two-database-users)). Until then, the framework does not read those three keys.
 :::
 
 ## Using your own database server (no Docker)
 
-This is the most common setup on a laptop: you already have a database server, and Strutvane uses it. The installer asks for the connection details, tests them, and creates the database if it's missing. You can also do every step by hand, as shown below.
+This is the most common setup on a laptop: you already have a database server, and Strutvane uses it.
 
 The general recipe, whatever your server:
 
 1. **Start the server** (each tool below says how).
-2. **Find its port, user and password.** The tables below list each tool's usual defaults; your install may differ.
-3. **Create the database** and the test database (or let the installer do it).
-4. **Fill in `.env`** with the values.
+2. **Find its port, user and password.** The sections below list each tool's usual defaults; your install may differ.
+3. **Create the database** (and a test database, if you want one).
+4. **Install the driver** (`npm install mysql2` for MySQL and MariaDB, `npm install pg` for PostgreSQL) and **fill in `.env`**.
 5. **Check it:** `node strut migrate:status`, then `node strut migrate`.
 
 ### XAMPP (Windows, macOS, Linux)
@@ -135,28 +108,31 @@ XAMPP ships **MariaDB** (shown as "MySQL" in its control panel).
 
 1. Open the **XAMPP Control Panel** and click **Start** next to **MySQL**. The row turns green.
 2. The usual defaults: user `root`, **empty password**, port `3306`.
-3. Create the databases in phpMyAdmin (`http://localhost/phpmyadmin`, the **SQL** tab) or let the installer do it:
+3. Create the databases in phpMyAdmin (`http://localhost/phpmyadmin`, the **SQL** tab):
 
    ```sql
    CREATE DATABASE my_app CHARACTER SET utf8mb4;
    CREATE DATABASE my_app_test CHARACTER SET utf8mb4;
    ```
 
-4. Fill in `.env`:
+4. Install the driver and fill in `.env`:
+
+   ```bash
+   npm install mysql2
+   ```
 
    ```bash title=".env"
    DB_CONNECTION=mariadb
    DB_HOST=127.0.0.1
    DB_PORT=3306
    DB_DATABASE=my_app
-   DB_TEST_DATABASE=my_app_test
    DB_USERNAME=root
    DB_PASSWORD=
    ```
 
-**What you'll see** on `node strut migrate`: the migration lines, plus a warning that the password is empty. That's fine on your own computer; never on a server.
+**What you'll see** on `node strut migrate`: `Database: mariadb://root@127.0.0.1:3306/my_app`, then one `✔ Migrated …` line per migration. An empty password is fine on your own computer; never on a server.
 
-`DB_CONNECTION=mysql` works too: Strutvane notices from the server's version that it's MariaDB and adapts.
+`DB_CONNECTION=mysql` works too: when Strutvane connects, it asks the server for its version (`SELECT VERSION()`), notices it's MariaDB and uses MariaDB's SQL. XAMPP's MariaDB 10.4 works; MariaDB 10.5 and newer also give Strutvane `INSERT … RETURNING`, which saves one query per new row.
 
 ### WAMP (Windows)
 
@@ -182,7 +158,6 @@ MAMP's MySQL listens on port **8889** by default, not 3306, and its user is `roo
    DB_HOST=127.0.0.1
    DB_PORT=8889
    DB_DATABASE=my_app
-   DB_TEST_DATABASE=my_app_test
    DB_USERNAME=root
    DB_PASSWORD=root
    ```
@@ -216,7 +191,6 @@ DB_CONNECTION=mysql
 DB_HOST=127.0.0.1
 DB_PORT=3306
 DB_DATABASE=my_app
-DB_TEST_DATABASE=my_app_test
 DB_USERNAME=my_app
 DB_PASSWORD=a-long-random-password
 ```
@@ -227,13 +201,13 @@ DB_PASSWORD=a-long-random-password
 
 **Windows:** the PostgreSQL installer asks for a password for the `postgres` user and installs a service. **macOS:** `brew install postgresql@17`, then `brew services start postgresql@17`. **Linux:** `sudo apt install postgresql`, then `sudo -u postgres psql` opens a shell as the `postgres` user.
 
-Then create the two roles and the databases, as in [PostgreSQL: two database users](#postgresql-two-database-users) below. **Don't connect the app as `postgres`**: it's a superuser, and a superuser switches off the protection between teams.
+Install the driver with `npm install pg`, then create the roles and the databases, as in [PostgreSQL: two database users](#postgresql-two-database-users) below. **Don't connect the app as `postgres`**: it's a superuser, and a superuser switches off the protection between teams.
 
 ### Postgres.app (macOS)
 
 1. Open Postgres.app and click **Initialize** (the first time), then **Start**.
 2. It listens on port `5432`, and its first user has **your macOS user name** and no password.
-3. Open a shell with `psql` (Postgres.app's "Open psql" button, or after adding its `bin` folder to your `PATH`) and create the two roles and databases below.
+3. Open a shell with `psql` (Postgres.app's "Open psql" button, or after adding its `bin` folder to your `PATH`) and create the roles and databases below.
 
 That first user is a **superuser**. Use it only to create the roles; the app connects as the app role.
 
@@ -255,23 +229,26 @@ DB_SSL_CA=storage/certs/rds-ca.pem
 Or, if your provider gives you one connection string:
 
 ```bash title=".env"
-DB_URL=postgresql://my_app_app:the-password@my-app.abc123.eu-west-1.rds.amazonaws.com:5432/my_app?sslmode=verify-full
+DB_URL=postgresql://my_app_app:the-password@my-app.abc123.eu-west-1.rds.amazonaws.com:5432/my_app
+DB_SSLMODE=verify-full
 DB_SSL_CA=storage/certs/rds-ca.pem
 ```
 
 | `DB_SSLMODE` | Encrypted | Checks the server is who it says | Use it for |
 |---|---|---|---|
-| `disable` | No | No | A server on your own computer |
-| `prefer` | If the server offers it | No | Local servers that may or may not have SSL |
+| `disable` (or empty) | No | No | A server on your own computer |
+| `prefer` | **No** (see below) | No | Local servers; treat it like `disable` |
 | `require` | Yes | No | A private network you trust |
-| `verify-ca` | Yes | The certificate is signed by `DB_SSL_CA` | Cloud databases |
-| `verify-full` | Yes | `verify-ca`, plus the host name matches | Cloud databases (best) |
+| `verify-ca` | Yes | Yes: the certificate is signed by `DB_SSL_CA`, **and** the host name matches | Cloud databases |
+| `verify-full` | Yes | Yes: the same checks as `verify-ca` | Cloud databases (best) |
+
+Two details differ from PostgreSQL's own tools, because Node.js drivers work differently. `prefer` connects **without** encryption (a Node.js driver can't try encryption first and fall back to plain text), so use `require` or `verify-full` for anything that crosses a network you don't own. And `verify-ca` behaves exactly like `verify-full`: Node.js always checks the host name too. The same modes apply to MySQL and MariaDB.
 
 Keep the certificate file out of git if your provider says it's private (most CA files are public). Allow your computer's IP address in the provider's firewall or "trusted sources", or the connection times out.
 
 ## Creating the databases by hand
 
-The installer creates the development database and the **test database** (`DB_TEST_DATABASE`, used by `npm test` so tests never touch your local data) if your user has the rights. If it hasn't, it prints the SQL for you to run. Here it is for each engine.
+Strutvane connects to a database that exists; it doesn't create one on a server. Here is the SQL for each engine.
 
 **MySQL and MariaDB:**
 
@@ -287,18 +264,18 @@ CREATE DATABASE my_app OWNER my_app_owner;
 CREATE DATABASE my_app_test OWNER my_app_owner;
 ```
 
-**SQLite:** nothing to create. `npm run setup` creates the files (`database/database.sqlite` and the test file).
+**SQLite:** nothing to create. The file is created the first time Strutvane opens it, as long as its folder exists.
 
 `utf8mb4` is full Unicode, so emoji and every alphabet are stored correctly; older MySQL defaults (`utf8`, `latin1`) can't store them.
 
 ### PostgreSQL: two database users
 
-On PostgreSQL, Strutvane uses two database **roles** (users):
+On PostgreSQL, Strutvane is designed to use two database **roles** (users):
 
-- **migrations** run as the **owner** role (`DB_MIGRATION_USERNAME`), which may create and change tables;
-- **the app** connects as a plain role (`DB_USERNAME`) that can read and write rows but can't change tables or switch off row-level security.
+- **migrations** run as the **owner** role, which may create and change tables;
+- **the app** connects as a plain role that can read and write rows but can't change tables or switch off row-level security.
 
-**Why it matters.** Row-level security (RLS) is the database rule that hides other teams' rows (see [Multi-tenancy](../tenancy/)). PostgreSQL **always skips** that rule for a **superuser** (like `postgres`, or Postgres.app's first user) and for a role with `BYPASSRLS`, and a table's **owner** can switch it off. So if the app connected as one of those, the second wall between teams would silently be gone. With Docker, the installer creates both roles and generates both passwords. Without Docker, it creates them when your account may create roles; otherwise it prints this SQL for you to run as a superuser:
+**Why it matters.** Row-level security (RLS) is the database rule that hides other teams' rows (see [Multi-tenancy](../tenancy/)); `node strut migrate` turns it on for every table with a `t.tenant()` column. PostgreSQL **always skips** that rule for a **superuser** (like `postgres`, or Postgres.app's first user) and for a role with `BYPASSRLS`, and a table's **owner** can switch it off. So if the app connected as one of those, the second wall between teams would silently be gone. Run this SQL as a superuser:
 
 ```sql
 -- 1. The two roles. Replace the passwords with long random ones.
@@ -319,58 +296,52 @@ ALTER DEFAULT PRIVILEGES FOR ROLE my_app_owner IN SCHEMA public
   GRANT USAGE, SELECT ON SEQUENCES TO my_app_app;
 ```
 
-(In the test database, write `GRANT CONNECT ON DATABASE my_app_test`.) Then:
+(In the test database, write `GRANT CONNECT ON DATABASE my_app_test`.)
 
-```bash title=".env"
-DB_CONNECTION=pgsql
-DB_HOST=127.0.0.1
-DB_PORT=5432
-DB_DATABASE=my_app
-DB_TEST_DATABASE=my_app_test
-DB_USERNAME=my_app_app
-DB_PASSWORD=app-password
-DB_MIGRATION_USERNAME=my_app_owner
-DB_MIGRATION_PASSWORD=owner-password
+Until the separate migration keys arrive, run `migrate` as the **owner** and give the app the plain role where it runs. Because a variable set in the environment wins over `.env`, a deploy script can pass the owner to the one command that needs it:
+
+```bash
+DB_USERNAME=my_app_owner DB_PASSWORD="$OWNER_PASSWORD" node strut migrate --force
 ```
 
-**What you'll see** if the app still connects as a superuser (something like this; the wording isn't final): `node strut security:check` reports that row-level security is bypassed because `DB_USERNAME` is a superuser, and keeps reporting it until you switch to the app role.
+(In PowerShell: `$env:DB_USERNAME='my_app_owner'; $env:DB_PASSWORD=$env:OWNER_PASSWORD; node strut migrate --force`.)
 
 :::caution[Coming in 0.2]
-Creating the roles from the installer without Docker, the printed SQL and the `security:check` warning are decided (2026-11-15) and arrive with 0.2. The two-role rule itself is ADR-0007 and is proven with Docker in the installer prototype.
+`DB_MIGRATION_USERNAME` and `DB_MIGRATION_PASSWORD` (migrations as the owner, the app as the plain role, from one `.env`), the installer creating both roles, and a `security:check` warning when the app connects as a superuser or a `BYPASSRLS` role are decided (2026-11-15) but not on framework `main` yet. The two-role rule itself is ADR-0007.
 :::
 
 ## MariaDB and MySQL: the differences
 
-MariaDB started as a copy of MySQL and is still very close, so the same migrations and queries work on both. Strutvane detects which one it's talking to from the server's version and adapts its SQL. The differences you might notice:
+MariaDB started as a copy of MySQL and is still very close, so the same migrations and queries work on both. Strutvane asks the server for its version when it connects and adapts its SQL, whatever `DB_CONNECTION` says. The differences you might notice:
 
-| | MySQL 8.4 | MariaDB 11 |
+| | MySQL 8.4 | MariaDB |
 |---|---|---|
-| Reading back a new row | No `RETURNING`: Strutvane reads the row again by its id | `RETURNING` on inserts: one query fewer |
-| `t.json()` columns | A real `JSON` type | Stored as text with a JSON check; works the same through Strutvane |
-| Enum `CHECK` constraints | Enforced (8.0.16+) | Enforced |
-| Default sorting rules for text (collations) | `utf8mb4_0900_ai_ci` | Different names; Strutvane picks the right ones in the tables it creates |
+| Reading back a new row | No `RETURNING`: Strutvane reads the row again by its id | `RETURNING` on inserts from 10.5 (one query fewer); 10.4 reads the row again, like MySQL |
+| `t.json()` columns | A real `JSON` type | `LONGTEXT` with a `CHECK (JSON_VALID(…))`; works the same through Strutvane |
+| Enum columns | Native `ENUM(…)` | Native `ENUM(…)` |
+| Slugs, UUIDs and identifier-like text columns (`email`, `username`, `token`, `…_email`, `…_token`) | Compared byte for byte (`utf8mb4_0900_bin`) | Compared byte for byte (`utf8mb4_nopad_bin`) |
 | Tools that ship it | MySQL Installer, Homebrew, Laragon, MAMP | XAMPP, WAMP (optional), many Linux distributions |
 
-In both, schema changes can't be rolled back, so a migration that fails halfway can leave some steps applied (see [Migrations](../migrations/#when-a-migration-fails)).
+Comparing identifier columns byte for byte means `JOHN@example.com` and `john@example.com` are two different values, as they are on PostgreSQL and SQLite. The servers' default rules would treat them as equal, which can let one person's lookup find another person's row.
 
-:::caution[Coming in 0.2]
-MariaDB as its own engine (`DB_CONNECTION=mariadb`, auto-detection, `RETURNING`, tests on MariaDB 11) is decided (2026-11-15). The ORM prototype is tested on MySQL 8.4, PostgreSQL and SQLite; MariaDB support arrives with 0.2. The table above describes MariaDB 11 in general terms (2026-11); check your version's notes for details.
-:::
+In both, schema changes can't be rolled back, so a migration that fails halfway can leave some statements applied; the next `node strut migrate` resumes after them (see [Migrations](../migrations/#when-a-migration-fails)).
 
 ## With Docker
 
-If you'd rather not install a database at all, answer **with Docker** in the installer. It adds a database container, generates its passwords, and sets `DB_HOST=db`.
+If you'd rather not install a database at all, run it in a container. `DB_HOST` is then the container's service name (for example `db`), and the rest of `.env` stays the same.
 
 | | With Docker | Your own server |
 |---|---|---|
-| Where the database runs | In a `db` container | XAMPP, WAMP, MAMP, Laragon, Postgres.app, a normal install, or the cloud |
-| `DB_HOST` | `db` | `127.0.0.1`, a socket, or the remote host |
-| Passwords | **Generated** by the installer, stored only in `.env` | Yours (empty is allowed locally, with a warning) |
-| Start it | `node strut services:up` | The tool's control panel, or the system service |
-| Connect a GUI client | `127.0.0.1` and `FORWARD_DB_PORT` | `DB_HOST` and `DB_PORT` |
-| Where `node strut migrate` runs | Inside the app container | On your computer |
+| Where the database runs | In a container | XAMPP, WAMP, MAMP, Laragon, Postgres.app, a normal install, or the cloud |
+| `DB_HOST` | The service name, for example `db` | `127.0.0.1`, a socket, or the remote host |
+| Start it | Docker Compose | The tool's control panel, or the system service |
+| Connect a GUI client | `127.0.0.1` and the port the container publishes | `DB_HOST` and `DB_PORT` |
 
-See [Docker](../docker/) for the containers themselves. If Docker isn't installed or isn't running, the installer offers, in this order: use your own database server, start Docker, or SQLite.
+See [Docker](../docker/) for the containers themselves.
+
+:::caution[Coming in 0.2]
+The installer's Docker option (a database container with generated passwords), `node strut services:up` / `services:down` / `services:status` / `services:logs`, `FORWARD_DB_PORT`, and `node strut` forwarding each command into the app container are designed but not on framework `main` yet.
+:::
 
 ## Windows, macOS and Linux
 
@@ -378,32 +349,64 @@ See [Docker](../docker/) for the containers themselves. If Docker isn't installe
 
 ## MySQL and MariaDB: strict and UTC
 
-Every MySQL or MariaDB connection Strutvane opens is set up the same way, so they behave like the other databases:
+Every MySQL or MariaDB connection Strutvane opens is set up the same way, so they behave like the other databases, whatever your server's own settings say:
 
-- a **strict mode**: a value that doesn't fit (text too long, a bad date) is an error, never silently cut;
+- a **strict mode** (`STRICT_ALL_TABLES` and friends): a value that doesn't fit (text too long, a bad date) is an error, never silently cut;
 - **UTC** as the time zone, so dates mean the same thing on every server;
-- full Unicode (`utf8mb4`).
+- full Unicode (`utf8mb4`);
+- exact numbers: `DECIMAL` values come back as strings (`'12.50'`), and big `BIGINT` values are never rounded.
 
 You don't configure any of this, and nothing needs changing on your server.
 
 ## How Strutvane talks to the database
 
-When your app starts, the framework opens one **connection** (a pool of sessions to the database, shared by all requests) from `config/database.ts` and hands it to the ORM. Every model, query and command uses it. Importing a model never opens a database; the connection is used only when a query runs.
+The [ORM](../orm/) uses one **connection** (a pool of sessions to the database, shared by every query). Every model, query and command uses it. Importing a model never opens a database; the connection is used only when a query runs.
 
 Queries go through three layers, like Laravel's:
 
 1. the **query builder** turns `Post.query().where('status', 'draft')` into a plain description of the query;
-2. a **grammar** (one per database) turns it into SQL with placeholders (`?` on MySQL and SQLite, `$1` on PostgreSQL);
+2. a **grammar** (one per database) turns it into SQL with placeholders (`?` on MySQL, MariaDB and SQLite, `$1` on PostgreSQL);
 3. the **connection** sends the SQL and the values **separately**.
 
 Because values never become part of the SQL text, **SQL injection is impossible by construction**. Before any SQL runs, a check also makes sure no query can reach another team's rows (see [Multi-tenancy](../tenancy/)).
+
+On PostgreSQL the pool keeps up to 10 sessions, and each statement may run for at most 5 seconds by default, so one runaway query can't hold the database. `migrate` and its friends use their own single connection without that limit.
+
+### Who opens the connection
+
+`node strut db:seed`, and `migrate`, `migrate:refresh` and `migrate:fresh` with `--seed`, open the connection from `.env` and connect your models to it, so seeders and factories just work.
+
+:::caution[Coming in 0.2]
+Opening the connection when the HTTP app boots (`node strut dev`, `node strut start`), so models work in routes and controllers without any code of yours, arrives with 0.2. On framework `main` today, code outside the database commands connects the models itself, as below.
+:::
+
+A stand-alone script (a one-off import, a report) connects the models like this. It's what `db:seed` does for you:
+
+```ts title="scripts/report.ts"
+import { readFileSync } from 'node:fs'
+import { databaseSettings, openDatabase, registerSchema, useConnection } from '@strutvane/framework/database'
+import { Post } from '../app/models/post.ts'
+
+// The table shapes `node strut migrate` wrote, and a connection from the DB_* variables.
+registerSchema(JSON.parse(readFileSync('.strutvane/schema.json', 'utf8')))
+const connection = await openDatabase(databaseSettings(process.env, process.cwd()))
+useConnection(connection)
+
+try {
+  console.log(await Post.query().count())
+} finally {
+  await connection.close()
+}
+```
+
+Run it from your project folder with the `DB_*` variables set (`node --env-file=.env scripts/report.ts`). **What you'll see:** the number of posts, for example `12`. *(This recipe is read from the framework's code; it isn't covered by a test of its own yet.)*
 
 ## Running your own SQL
 
 Use the ORM for everyday work. For the rare query it can't express (a report with a window function, a database-specific feature), write SQL with the `sql` tag:
 
-```ts title="app/http/controllers/stats.controller.ts (excerpt)"
-import { defaultConnection, sql } from '@strutvane/framework'
+```ts title="app/reports/post-stats.ts"
+import { defaultConnection, sql } from '@strutvane/framework/database'
 
 const since = new Date('2026-11-01T00:00:00Z')
 const { rows } = await defaultConnection().run(
@@ -423,7 +426,7 @@ How the `sql` tag works:
 | You write | It becomes | Why |
 |---|---|---|
 | `${value}` | a placeholder, with the value sent separately | Values can never become SQL |
-| `${sql.id('title')}` | a quoted name: `` `title` `` on MySQL, `"title"` elsewhere | Names are checked (letters, digits, `_`) and quoted for your database |
+| `${sql.id('title')}` | a quoted name: `` `title` `` on MySQL, `"title"` elsewhere | Names are checked (letters, digits, `_`, starting with a letter, at most 63 characters) and quoted for your database |
 | `${otherFragment}` | that fragment's SQL, spliced in | Fragments compose |
 | `sql.join([a, b], ' AND ')` | `a AND b` | Build lists of conditions |
 
@@ -433,8 +436,8 @@ There is **no** way to pass a plain string: `sql('SELECT 1')` and `run('SELECT 1
 
 To add one hand-written condition to an ORM query, use `whereRaw` with the same tag:
 
-```ts
-import { sql } from '@strutvane/framework'
+```ts title="app/reports/long-titles.ts"
+import { sql } from '@strutvane/framework/database'
 import { Post } from '../models/post.ts'
 
 const longTitles = await Post.query()
@@ -458,12 +461,15 @@ Use the ORM for team tables, or, for a deliberate cross-team job, the audited es
 
 A **transaction** groups several changes so they're saved all together or not at all:
 
-```ts
-import { transaction } from '@strutvane/framework'
+```ts title="app/actions/publish-post.ts"
+import { transaction } from '@strutvane/framework/database'
+import { Post } from '../models/post.ts'
 
 await transaction(async () => {
-  const post = await Post.forceCreate({ title: 'Launch', author_id: author.id })
-  await post.tags().attach([news.id])
+  const post = await Post.findOrFail(1)
+  post.status = 'published'
+  await post.save()
+  await Post.forceCreate({ title: 'Launch notes', status: 'draft', author_id: post.author_id })
 })
 ```
 
@@ -473,8 +479,8 @@ If anything inside throws, every change inside is undone. Nested `transaction()`
 
 To see each query with its time, for example while hunting a slow page, listen on the connection:
 
-```ts title="app/providers/app.provider.ts (excerpt)"
-import { defaultConnection } from '@strutvane/framework'
+```ts title="scripts/report.ts (excerpt)"
+import { defaultConnection } from '@strutvane/framework/database'
 
 const stop = defaultConnection().onQuery((event) => {
   console.log(`${event.durationMs.toFixed(1)} ms  ${event.sql}`)
@@ -489,30 +495,39 @@ stop()
 0.4 ms  SELECT `posts`.* FROM `posts` WHERE `posts`.`deleted_at` IS NULL ORDER BY `posts`.`created_at` DESC LIMIT ?
 ```
 
-`event.params` holds the values too. In a real app, log them through the logger, which hides secrets (see [Logging](../logging/)), never with `console.log` in production.
+`event.params` holds the values too. In a real app, write them through the logger, which hides secrets (see [Logging](../logging/)), never with `console.log` in production.
 
 ## Database commands
 
 | Command | What it does | Status |
 |---|---|---|
-| `node strut migrate` and friends | Run, check and undo migrations | See [Migrations](../migrations/#the-commands-at-a-glance) |
-| `node strut db:seed` | Run the seeders | See [Seeding](../seeding/) |
-| `node strut db:shell` | Open the database's own shell (`mysql`, `psql` or `sqlite3`), signed in with your `.env` settings; in the container with Docker | Coming in 0.2 |
-| `node strut services:up` / `services:down` / `services:status` / `services:logs` | Start, stop, check and read the logs of the Docker database (and other services) | Coming in 0.2 |
-| `node strut model:show Post` | A model's table, columns, relations and API settings, from `resources.json` (`--json` for tools) | Prototype |
+| `node strut migrate` and friends | Run, check and undo migrations | Available; see [Migrations](../migrations/#the-commands-at-a-glance) |
+| `node strut db:seed` | Run the seeders | Available; see [Seeding](../seeding/) |
+| `node strut sync` | Regenerate `.strutvane/` (types, metadata, SQL) from the migrations, without a database | Available |
+| `node strut db:shell` | Open the database's own shell (`mysql`, `psql` or `sqlite3`), signed in with your `.env` settings | Listed by `node strut list`, not built yet (coming in 0.2) |
+| `node strut db:wipe` | Drop every table, view and type | Listed, not built yet |
+| `node strut db:pull` | Read an existing database into migration files | Listed, not built yet |
+| `node strut db:backup` / `db:restore` | Dump the local database to a file and back | Listed, not built yet |
+| `node strut db:studio` | A local browser database explorer | Listed, not built yet |
+| `node strut services:up` / `services:down` / `services:status` / `services:logs` | Start, stop, check and read the logs of the Docker database | Coming in 0.2 |
 | `node strut db:show` | The database, its size, connections and tables | Coming in 0.3 |
 | `node strut db:table posts` | One table's columns, indexes and foreign keys | Coming in 0.3 |
 | `node strut db:monitor` | Warn when open connections pass a limit | Coming in 0.3 |
 
-`services:down --volumes` **deletes the database's data**, so it asks you to confirm first.
+A command that is listed but not built yet stops with:
+
+```text
+error The installed @strutvane/framework does not provide `node strut db:shell`.
+hint: Run `node strut doctor` to see why its commands were not loaded (e.g. a version mismatch), then `node strut upgrade`.
+```
 
 ## Coming later
 
 | Feature | Status |
 |---|---|
-| Several named connections (for example a second, read-only reporting database), and a model choosing its connection | Coming in 0.2 (designed; the prototype has one connection) |
+| Several named connections (for example a second, read-only reporting database), and a model choosing its connection | Coming in 0.2 (designed; `main` has one connection) |
 | Automatic retry of a transaction that hit a deadlock | Coming in 0.2 |
-| Read and write hosts (`read` / `write` in `config/database.ts`, `sticky: true`) | Coming before 1.0 |
+| Read and write hosts (`read` / `write`, `sticky: true`) | Coming before 1.0 |
 | Redis | The `@strutvane/redis` package, coming in 0.3 |
 | MongoDB and other non-SQL databases | Not planned: Strutvane focuses on relational databases |
 
@@ -520,54 +535,50 @@ stop()
 
 ### Connection errors at a glance
 
-The exact wording comes from the database driver; these are the messages you'll meet most, and what each one means.
+The wording comes from the database driver, after `error Unexpected error:` (see the next section). These are the messages you'll meet most, and what each one means.
 
 | You see | It means | Fix |
 |---|---|---|
-| `ECONNREFUSED` / "Cannot reach MySQL at 127.0.0.1:3306" | Nothing is listening there: the server isn't running, or it's on another port | Start the server (XAMPP/WAMP/MAMP/Laragon control panel, the system service, or `node strut services:up` with Docker); check `DB_PORT` (MAMP uses `8889`) |
+| `connect ECONNREFUSED 127.0.0.1:3306` | Nothing is listening there: the server isn't running, or it's on another port | Start the server (XAMPP/WAMP/MAMP/Laragon control panel, the system service, or the Docker container); check `DB_PORT` (MAMP uses `8889`) |
 | `Access denied for user 'root'@'localhost'` (MySQL, MariaDB) | Wrong user name or password, or the user may not connect from this host | Fix `DB_USERNAME` / `DB_PASSWORD`; XAMPP and Laragon use `root` with an **empty** password, MAMP `root` / `root` |
 | `password authentication failed for user "my_app_app"` (PostgreSQL) | Wrong password, or the role doesn't exist | Fix `DB_PASSWORD`, or create the role (see [two database users](#postgresql-two-database-users)) |
-| `Unknown database 'my_app'` / `database "my_app" does not exist` | The server is fine, the database isn't there | Create it (see [Creating the databases by hand](#creating-the-databases-by-hand)) or let `npm run setup` do it; with WAMP, check you're on the right engine's port |
-| `getaddrinfo ENOTFOUND db.example.com` | The host name doesn't exist (a typo, or `db` outside Docker) | Fix `DB_HOST`; `db` only works inside Docker |
+| `Unknown database 'my_app'` / `database "my_app" does not exist` | The server is fine, the database isn't there | Create it (see [Creating the databases by hand](#creating-the-databases-by-hand)); with WAMP, check you're on the right engine's port |
+| `getaddrinfo ENOTFOUND db.example.com` | The host name doesn't exist (a typo, or a Docker service name used outside Docker) | Fix `DB_HOST`; a service name like `db` only works inside Docker |
 | `ETIMEDOUT` | A firewall drops the connection (typical for cloud databases) | Allow your IP in the provider's firewall or "trusted sources" |
 | `Host '192.168.1.20' is not allowed to connect to this MySQL server` | The user exists only for `localhost` | `CREATE USER 'my_app'@'%' …` or the app's exact address, then `GRANT` again |
 | `no pg_hba.conf entry for host … no encryption` / "SSL connection is required" | The server only accepts encrypted connections | Set `DB_SSLMODE=require` (or `verify-full` with `DB_SSL_CA`) |
 | `self-signed certificate in certificate chain` / `unable to verify the first certificate` | Encryption is on, but the server's certificate can't be checked | Download your provider's CA file and set `DB_SSL_CA`; use `require` only on a network you trust |
-| `The server does not support SSL connections` | You asked for SSL on a server without it (most local servers) | `DB_SSLMODE=disable` or `prefer` for local servers |
+| `The server does not support SSL connections` | You asked for SSL on a server without it (most local servers) | `DB_SSLMODE=disable` for local servers |
 | `connect ENOENT /Applications/MAMP/tmp/mysql/mysql.sock` | The socket file isn't there (server stopped, or another path) | Start the server, or remove `DB_SOCKET` and use host and port |
-| "row-level security is bypassed" from `security:check` | PostgreSQL: the app connects as a superuser or a `BYPASSRLS` role | Connect as the app role (see [two database users](#postgresql-two-database-users)) |
+| `Cannot find package 'mysql2'` / `Cannot find package 'pg'` | The driver for your engine isn't installed | `npm install mysql2` (MySQL, MariaDB) or `npm install pg` (PostgreSQL) |
+| `unable to open database file` (SQLite) | The folder in `DB_DATABASE` doesn't exist, or it names a folder | Create the folder, or point `DB_DATABASE` at a file such as `database/database.sqlite` |
 
-### "Cannot reach MySQL at …"
-
-```text
-Cannot reach MySQL at 127.0.0.1:3306 (ECONNREFUSED). Start the database (Docker: node strut services:up), check DB_* in .env, then run: npm run setup
-```
-
-**Why:** the database server isn't running, or `DB_HOST` / `DB_PORT` point at the wrong place. The command exits with code **3**.
-**Fix:** with Docker, `node strut services:up`. Without Docker, start your MySQL or PostgreSQL service, then check `DB_HOST` and `DB_PORT` in `.env`.
-
-### "… refused the connection: … Check DB_USERNAME and DB_PASSWORD"
+### "Unexpected error: connect ECONNREFUSED …"
 
 ```text
-MySQL refused the connection: Access denied for user 'my_app'@'localhost' (using password: YES). Check DB_USERNAME and DB_PASSWORD in .env.
+Database: mysql://root@127.0.0.1:3306/my_app
+error Unexpected error: connect ECONNREFUSED 127.0.0.1:3306
+hint: Run again with --verbose for the stack trace, and report the bug.
 ```
 
-**Why:** the server is running, but the user name or password is wrong, or the user may not use that database.
-**Fix:** correct `DB_USERNAME` / `DB_PASSWORD`, or grant the user access to `DB_DATABASE` on your server.
+**Why:** the database server isn't running, or `DB_HOST` / `DB_PORT` point at the wrong place. The first line shows exactly where Strutvane tried to connect. The command exits with code **1**. (The "report the bug" hint is generic: a friendlier message for connection failures is planned.)
+**Fix:** start your MySQL, MariaDB or PostgreSQL service (or its container), then check `DB_HOST` and `DB_PORT` in `.env`.
 
-### "The SQLite file … does not exist"
+### "Invalid environment" naming a `DB_` key
 
 ```text
-The SQLite file C:\code\my-app\database\database.sqlite does not exist. Run: npm run setup
+error Invalid environment: 1 problem.
+  - DB_CONNECTION: must be mysql, mariadb, pgsql (or postgres) or sqlite, not "postgre"
+hint: Fix: set these keys in your .env file (see .env.example for every key and its meaning), then run the command again. `node strut env:check` compares the two.
 ```
 
-**Why:** the file was deleted, or `DB_DATABASE` points somewhere else.
-**Fix:** run `npm run setup`, which creates it, or fix the path in `.env` (relative paths start from your project folder).
+**Why:** a value Strutvane can't use. Other messages you may see: `DB_URL: is a PostgreSQL URL but DB_CONNECTION is mysql`, `DB_URL: must start with mysql://, mariadb://, postgres:// or postgresql://`, `DB_SSL_CA: cannot read the CA certificate file storage/certs/ca.pem`.
+**Fix:** correct the key the line names. With `DB_URL`, you may leave `DB_CONNECTION` empty: the URL says which engine it is.
 
 ### `DB_HOST=db` works in the app but not in my GUI client
 
-**Why:** `db` is the container's name, which only other containers know. Your computer reaches the database through a forwarded port.
-**Fix:** in TablePlus or DBeaver, use host `127.0.0.1` and the port in `FORWARD_DB_PORT`.
+**Why:** `db` is the container's name, which only other containers know. Your computer reaches the database through a published port.
+**Fix:** in TablePlus or DBeaver, use host `127.0.0.1` and the port the container publishes.
 
 ### "No database connection is set yet"
 
@@ -575,8 +586,8 @@ The SQLite file C:\code\my-app\database\database.sqlite does not exist. Run: npm
 OrmUsageError: No database connection is set yet. Call useConnection(connection) at boot (the framework does this for you).
 ```
 
-**Why:** a model was used before the app booted, for example from a stand-alone script that imports a model directly.
-**Fix:** run scripts as `node strut` commands, which boot the app first, instead of `node my-script.ts`.
+**Why:** a model was used before anything connected the ORM: from a stand-alone script, or (on framework `main`, until 0.2) from a route or controller of the HTTP app.
+**Fix:** put database work in a seeder (`node strut db:seed` connects for you), or connect the models yourself as in [Who opens the connection](#who-opens-the-connection).
 
 ### "sql must be used as a tagged template"
 
