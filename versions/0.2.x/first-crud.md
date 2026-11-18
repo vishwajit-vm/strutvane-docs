@@ -310,7 +310,7 @@ The exact options of `*.ui.ts` files are being finalised in the auto CRUD UI pro
 
 ## Step 5b: Let other people use Posts
 
-The generated policy, `app/policies/post.policy.ts`, lets **admins** do everything and **denies everyone else**. That's on purpose: a new feature is never open by accident. Open it and decide, method by method. For example, "members may list and read posts, and change their own":
+The generated policy, `app/policies/post.policy.ts`, lets **admins** do everything and **denies everyone else**. That's on purpose: a new feature is never open by accident. Open it and decide, method by method. For example, "members may list and read posts, and change their own" (in framework 0.2.0-next.0, `hasAdminRole`, `AuthUser` and `Policy` aren't exported yet; see the note at the top of [Authorization](../authorization/)):
 
 ```ts title="app/policies/post.policy.ts"
 import { hasAdminRole, type AuthUser, type Policy } from '@strutvane/framework'
