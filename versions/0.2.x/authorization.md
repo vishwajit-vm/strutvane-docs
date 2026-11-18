@@ -15,8 +15,12 @@ Two safer defaults: a **missing method denies** (in some Laravel tools a missing
 Gates map too: `Gate::define('view-stats', …)` becomes `defineAbility('view-stats', …)` in `bootstrap/app.ts`, and the `can:view-stats` middleware is the same.
 :::
 
-:::caution[Coming in 0.2]
-Policies, `before()`, `authorize()`, `allows()`, `visible()`, `indexConstraints()`, named abilities with the `can` middleware, deny-as-404 and the local-mode hints are **proven in the application-core prototype** (spike 12, including a planted-bug test where a missing method allowing makes three tests fail). They aren't released yet. Policy **row conditions compiled to SQL** (proven in spike 02 and built in 0.1), automatic policy discovery, the role map and the UI `can()` hook are designed for 0.2, not wired into the new core yet. Each section says which is which.
+:::caution[What exists, and when]
+**On framework `main` (0.2.0-next.0, not on npm yet):** policy classes in `app/policies/`, found automatically by name; `before()`; deny by default (a missing method denies); deny-as-404 in `ResourceController`, with `visible()` and `indexConstraints()`; named abilities with `defineAbility()`, the `can` middleware, `can()` and `withCan()`; the start-up checks for unknown abilities and policy-less resource controllers.
+
+**Known gap in 0.2.0-next.0:** the `Policy` and `AuthUser` types and the `authorize()`, `allows()` and `hasAdminRole()` helpers exist inside the framework (`ResourceController` uses them) but aren't exported from `@strutvane/framework` yet, so `import { authorize } from '@strutvane/framework'` doesn't compile against this build. The examples show the import they're meant to have. Until it lands, a policy class can leave out `implements Policy<Post>` and type `user` itself: discovery only needs the methods.
+
+**Coming in 0.2:** policy row conditions compiled to SQL (built in 0.1), the role map, the UI `can()` hook and local-mode hints on `403` answers. Each section says which is which.
 :::
 
 ## The smallest example
@@ -47,6 +51,8 @@ export class PostController extends ResourceController<typeof Post> {
 }
 ```
 
+In 0.2.0-next.0, `ResourceController` needs a model that implements its small `ResourceModel` contract; [ORM](../orm/) models don't yet (see [Controllers](../controllers/)). The table below is what the finished wiring answers.
+
 What you'll see:
 
 | Request | Result | Why |
@@ -70,10 +76,22 @@ Each method returns `true` or `false` (or a `Promise` of one). Anything other th
 
 `user` is `null` for guests, so write `user?.id` and decide what guests may do.
 
+**What type is `user`?** `AuthUser` is whatever your app declares as its user, once, in `bootstrap/app.ts`:
+
+```ts title="bootstrap/app.ts (excerpt)"
+import type { User } from '../app/models/user.ts'
+
+declare module '@strutvane/framework' {
+  interface UserRegistry { user: User }
+}
+```
+
+Until you declare it, `AuthUser` is the plain identity every package shares: `{ id: string, type, roles: string[], attrs }` (the contracts' `Actor`). The examples on this page assume the `User` model, so `user.id` is comparable with `post.author_id`.
+
 ### A complete policy (typical)
 
 ```ts title="app/policies/post.policy.ts"
-import type { AuthUser, Policy } from '@strutvane/framework'
+import { hasAdminRole, type AuthUser, type Policy } from '@strutvane/framework'
 import type { Post } from '../models/post.ts'
 
 /**
@@ -83,7 +101,7 @@ import type { Post } from '../models/post.ts'
 export class PostPolicy implements Policy<Post> {
   /** Admins may do everything; for everyone else, fall through to the methods below. */
   before(user: AuthUser | null): boolean | undefined {
-    return user?.is_admin === true ? true : undefined
+    return hasAdminRole(user) ? true : undefined
   }
 
   /** Anyone may list posts (the controller narrows the list to what they may see). */
@@ -125,7 +143,7 @@ A helper, `hasAdminRole(user)`, is `true` for a user with `is_admin: true` or `'
 ```ts
 import { authorize } from '@strutvane/framework'
 
-await authorize(this.policy, 'update', ctx.user, post, 'post')   // throws 403 if not allowed
+await authorize(this.policy, 'update', ctx.user, post)   // throws 403 if not allowed
 ```
 
 | Argument | Meaning |
@@ -134,7 +152,8 @@ await authorize(this.policy, 'update', ctx.user, post, 'post')   // throws 403 i
 | `'update'` | The action: `viewAny`, `view`, `create`, `update` or `delete` |
 | `ctx.user` | Who's asking (`null` for guests) |
 | `post` | The record (`undefined` for `viewAny` and `create`) |
-| `'post'` | A label for the message: "You are not allowed to update this post." |
+
+A denial throws `ForbiddenError`: status `403`, code `forbidden`, title "Not allowed", detail "You don't have permission to do this.". Why it was denied is kept on the error as its `cause` (a `PolicyDenial`), never sent to the client.
 
 When you only need a yes/no answer (to show or hide a button), use `allows()`:
 
@@ -151,8 +170,8 @@ Imagine Bob tries `PATCH /api/posts/alice-draft`. If he got `403 Forbidden`, he'
 
 | Bob may `view` it? | Bob may `update` it? | Bob gets |
 |---|---|---|
-| No | (not asked) | `404` `No post matches "alice-draft".` (same as a missing post) |
-| Yes | No | `403` `You are not allowed to update this post.` (honest) |
+| No | (not asked) | `404` `not_found`, "We couldn't find what you were looking for." (same as a missing post) |
+| Yes | No | `403` `forbidden`, "You don't have permission to do this." (honest) |
 | Yes | Yes | `200` |
 
 In your own actions, do the same with `visible()`:
@@ -160,7 +179,7 @@ In your own actions, do the same with `visible()`:
 ```ts title="app/http/controllers/post.controller.ts"
 async publish(ctx: HttpContext): Promise<Response> {
   const post = await this.visible(ctx)                               // 404 if they can't see it
-  await authorize(this.policy, 'update', ctx.user, post, 'post')    // 403 if they can't change it
+  await authorize(await this.resolvedPolicy(), 'update', ctx.user, post)   // 403 if they can't change it
   post.fill({ status: 'published' })
   await post.save()
   return ctx.json({ data: post })
@@ -172,8 +191,9 @@ async publish(ctx: HttpContext): Promise<Response> {
 `viewAny` answers "may this user list posts at all?". It doesn't filter **which** posts. Narrow the list in the controller with `indexConstraints()`:
 
 ```ts title="app/http/controllers/post.controller.ts"
+// Constraint is { column, equals } or { anyOf: Constraint[] } (the type isn't exported yet)
 protected override indexConstraints(ctx: HttpContext): Constraint[] {
-  if (ctx.user?.is_admin === true) return []
+  if (hasAdminRole(ctx.user)) return []
   const visible: Constraint[] = [{ column: 'status', equals: 'published' }]
   if (ctx.user !== null) visible.push({ column: 'author_id', equals: ctx.user.id })
   return [{ anyOf: visible }]
@@ -188,24 +208,25 @@ Writing the same rule twice (in `view()` and in `indexConstraints()`) is tempora
 
 ## Developers see why: hints in local mode
 
-In local debug mode (`APP_DEBUG=true`, `APP_ENV=local` or `testing`), every `403` explains itself:
+:::caution[Coming in 0.2]
+Designed, not built yet. In 0.2.0-next.0 every `403` from a policy or an ability is the same catalog problem, in every environment, with no `hint` member:
 
 ```json
 {
+  "type": "https://strutvane.dev/errors/forbidden",
+  "title": "Not allowed",
   "status": 403,
   "code": "forbidden",
-  "detail": "You are not allowed to delete this post.",
-  "hint": "PostPolicy has no delete() method, so this is denied (Strutvane denies by default). Add delete(user, post) to the policy to allow it."
+  "detail": "You don't have permission to do this.",
+  "traceId": "01a1ec64-21cf-76ad-b05f-41d90182c222",
+  "instance": "/api/posts/alice-draft"
 }
 ```
 
-When the method exists and said no:
+The reason (for example "PostPolicy has no delete() method, so this is denied (Strutvane denies by default). Add delete(user, model) to the policy to allow it.") is attached to the error as its `cause`, but it isn't sent, logged or shown on the debug page yet.
+:::
 
-```json
-{ "detail": "You are not allowed to update this post.", "hint": "PostPolicy.update() returned false for this user." }
-```
-
-In production the `hint` is never sent.
+The plan: in local debug mode (`APP_DEBUG=true`, `APP_ENV=local` or `testing`), a `403` carries that reason as a `hint`. In production the `hint` is never sent.
 
 ## Abilities that aren't about one record: `can`
 
@@ -213,17 +234,16 @@ Some checks have no record: "may this user see the stats page?", "may they run a
 
 ```ts title="bootstrap/app.ts"
 import { dirname } from 'node:path'
-import { Application, hasAdminRole } from '@strutvane/framework'
-// the rest of the file (config, providers, routing) is unchanged
+import { Application, hasAdminRole } from '@strutvane/framework'   // hasAdminRole: see the known gap above
+import api from '../routes/api.ts'
 
-export function createApp(): Application {
-  return Application.configure({ basePath: dirname(import.meta.dirname) })
-    .withMiddleware((middleware) => {
-      middleware.defineAbility('view-stats', (user) => user !== null && hasAdminRole(user))
-      middleware.defineAbility('import-posts', (user) => user?.is_admin === true)
-    })
-    .create()
-}
+export default Application.configure({ basePath: dirname(import.meta.dirname) })
+  .withRouting({ api })
+  .withMiddleware((middleware) => {
+    middleware.defineAbility('view-stats', (user) => user !== null && hasAdminRole(user))
+    middleware.defineAbility('import-posts', (user) => user?.roles.includes('editor') === true)
+  })
+  .create()
 ```
 
 Then guard routes with `can:<ability>`:
@@ -240,10 +260,10 @@ export default defineRoutes([
 **What you'll see** for a signed-in user who isn't an admin:
 
 ```json
-{ "status": 403, "code": "forbidden", "detail": "You are not allowed to do this.", "hint": "The \"view-stats\" ability denied this request." }
+{ "type": "https://strutvane.dev/errors/forbidden", "title": "Not allowed", "status": 403, "code": "forbidden", "detail": "You don't have permission to do this." }
 ```
 
-(The `hint` appears in local debug mode only.) A guest gets `401` from `auth` first, before the ability runs.
+(Shortened: the real body also has `traceId` and `instance`.) A guest gets `401` from `auth` first, before the ability runs. The check function receives `(user, ctx)`, so it can also look at the request.
 
 The same check, in the other styles every protection supports:
 
@@ -256,8 +276,8 @@ The same check, in the other styles every protection supports:
 **A typo can't slip through.** Start-up checks every `can:` reference. A route naming an ability that doesn't exist stops the app (and `node strut route:list`, and every test):
 
 ```text
-✖ GET /admin/stats uses can:view-stat, but no such ability is defined.
-→ Did you mean "view-stats"?
+error GET /admin/stats uses can:view-stat, but no such ability is defined.
+  → Did you mean "view-stats"?
 ```
 
 **Why abilities about one record stay in the controller:** route model binding runs after middleware. If a record check ran as middleware, a guest would learn whether the post exists before being told to sign in. So record checks use the policy and `authorize()` in the controller, as above.
@@ -337,7 +357,14 @@ A React `can()` hook for your own screens is planned (parity checklist: "a UI `c
 
 ## Where policies live
 
-One file per model, `app/policies/<model>.policy.ts`, exporting `<Model>Policy`. Policies are **discovered by name**, like Laravel: model `Post` → `app/policies/post.policy.ts`, with no registration. A controller that names a policy explicitly (`protected readonly policy = new PostPolicy()`) overrides discovery. Discovery is decided and coming in 0.2; the prototype needs the explicit line. `node strut make:policy` writes a deny-all policy.
+One file per model, `app/policies/<model>.policy.ts`, exporting the policy class as its **default export** or as `<Model>Policy`. Policies are **discovered by name**, like Laravel: model `Post` → `app/policies/post.policy.ts`, with no registration, found once and cached. A controller that names a policy explicitly (`protected readonly policy = new PostPolicy()`) overrides discovery. A `ResourceController` whose model has no policy file gets a policy that **denies everything**. A policy file that exports no policy stops the app at start-up:
+
+```text
+error app/policies/post.policy.ts exports no policy for Post.
+  → Export the policy class as the default export or as PostPolicy.
+```
+
+`node strut make:policy Post` exists, but in 0.2.0-next.0 it still writes the 0.1-style rule file (`definePolicy` from `@strutvane/auth`, for `app/models/post.model.ts`), not the policy class on this page. Write the class by hand for now.
 
 See which routes are protected by what:
 
@@ -383,7 +410,11 @@ Authorization works the same in both: policies are your own TypeScript, read by 
 
 ## Generated policies deny everything
 
-`node strut make:controller PostController --api` (or `--resource`, or `--model=Post`) writes `app/policies/post.policy.ts` if it doesn't exist:
+:::caution[Coming in 0.2]
+`node strut make:controller` isn't built yet (it isn't in `node strut list` for 0.2.0-next.0). When it lands, `make:controller PostController --api` (or `--resource`, or `--model=Post`) writes this file if it doesn't exist. Until then, copy it by hand.
+:::
+
+The deny-everything starting point:
 
 ```ts title="app/policies/post.policy.ts"
 import { hasAdminRole, type AuthUser, type Policy } from '@strutvane/framework'
@@ -428,15 +459,17 @@ export class PostPolicy implements Policy<Post> {
 
 **Why so strict?** A new endpoint should never be open by accident. You open each action deliberately, one method at a time.
 
-And a resource controller **without** a policy doesn't start at all (see Common mistakes).
+A `ResourceController` without a policy file falls back to denying everything. A plain controller that serves resource routes (`Route.apiResource()`) without a `policy` property doesn't start at all (see Common mistakes).
 
 ## Common mistakes
 
 ### Everyone gets 403 on create
 
 ```json
-{ "status": 403, "code": "forbidden", "detail": "You are not allowed to create a post.", "hint": "PostPolicy has no create() method, so this is denied (Strutvane denies by default). Add create(user) to the policy to allow it." }
+{ "type": "https://strutvane.dev/errors/forbidden", "title": "Not allowed", "status": 403, "code": "forbidden", "detail": "You don't have permission to do this." }
 ```
+
+**Why:** `PostPolicy` has no `create()` method, or there's no `app/policies/post.policy.ts` at all, so creating is denied (Strutvane denies by default).
 
 **Fix:** add the method:
 
@@ -449,9 +482,13 @@ create(user: AuthUser | null): boolean {
 ### "… serves resource routes but has no policy"
 
 ```text
-✖ PostController serves resource routes but has no policy.
-→ Give it a `protected readonly policy = new PostPolicy()` and call authorize() in every action (node strut make:controller --resource writes this for you).
+error PostController serves resource routes but has no policy.
+  → Give it a `protected readonly policy = new PostPolicy()` and call authorize() in every action, or extend ResourceController.
 ```
+
+**Why:** a plain controller (not a `ResourceController`) is routed with `Route.resource()` or `Route.apiResource()` and has no `policy` property, so nothing would guard its actions.
+
+**Fix:** extend `ResourceController`, or add the `policy` property and check it in every action.
 
 ### My update returns 404 for a post that exists
 
@@ -468,7 +505,7 @@ create(user: AuthUser | null): boolean {
 ### A guest gets 401, not the 403 I expected
 
 ```json
-{ "status": 401, "code": "unauthenticated", "detail": "Sign in first: send an \"Authorization: Bearer <token>\" header." }
+{ "type": "https://strutvane.dev/errors/unauthenticated", "title": "Sign-in required", "status": 401, "code": "unauthenticated", "detail": "Please sign in to continue." }
 ```
 
 **Why:** the route has the `auth` middleware, which runs before any policy. Someone who isn't signed in is asked to sign in first.
@@ -477,8 +514,8 @@ create(user: AuthUser | null): boolean {
 ### The app won't start: "no such ability is defined"
 
 ```text
-✖ GET /admin/stats uses can:view-stat, but no such ability is defined.
-→ Did you mean "view-stats"?
+error GET /admin/stats uses can:view-stat, but no such ability is defined.
+  → Did you mean "view-stats"?
 ```
 
 **Why:** the name in `can:` doesn't match any `defineAbility()`.

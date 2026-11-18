@@ -275,11 +275,11 @@ curl http://localhost:3000/api/posts
 
 ```json
 {
-  "type": "https://strutvane.dev/problems/unauthenticated",
-  "title": "Unauthenticated",
+  "type": "https://strutvane.dev/errors/unauthenticated",
+  "title": "Sign-in required",
   "status": 401,
   "code": "unauthenticated",
-  "detail": "Sign in first: send an \"Authorization: Bearer <token>\" header."
+  "detail": "Please sign in to continue."
 }
 ```
 

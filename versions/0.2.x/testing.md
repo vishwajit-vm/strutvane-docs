@@ -9,17 +9,18 @@ Strutvane apps use **Vitest**, a fast test runner for TypeScript (the installer 
 
 :::tip[Coming from Laravel?]
 It's Laravel's testing, in Vitest:
-- `php artisan test` → `npm test` (which runs `node strut test`);
+- `php artisan test` → `npm test` (which runs `vitest run`);
 - `tests/Feature` and `tests/Unit` → `tests/feature/` and `tests/unit/`;
-- `$this->getJson('/api/posts')->assertStatus(200)` → `await client(app).getJson('/api/posts')` then `.assertStatus(200)`;
-- `RefreshDatabase` → `refreshDatabase(app)`, `actingAs($user)` → `.actingAs(user)`, Sanctum's token helpers → `.withToken(token)`, `Mail::fake()` → `Mail.fake()`.
+- `$this->getJson('/api/posts')->assertStatus(200)` → `await app.handle(new Request(…))` today, and `await testClient(app).getJson('/api/posts')` then `.assertStatus(200)` once the test client is exported;
+- `actingAs($user)` → `.actingAs(user)`, `Http::fake()` → `Http.fake()`; `RefreshDatabase`, Sanctum's token helpers and `Mail::fake()` come later.
 
 What's different: every resource gets **generated** feature tests and **cross-tenant attack tests**, and tests run against your real engine (MySQL or PostgreSQL), not a different one.
 :::
 
 :::caution[What exists, and when]
-- **Proven in a prototype:** the request client and response assertions (`client(app)`, `assertStatus`, `assertJsonPath`, `assertProblem`, `withoutCsrf()`, and a bearer-token helper the prototype calls `actingAs(token)`; its decided name is `withToken(token)`), `refreshDatabase(app)` from a schema dump, and a generated app's feature test (spike 12). The installer writes the test setup (spike 13). Generated tests use **Vitest** only.
-- **Coming in 0.2:** the full testing kit: a transaction per test, a test database per worker on your app's engine, `actingAs(user)` with real sign-in, `asTenant(team)`, `Mail.fake()`, `Http.fake()`, time travel, console tests, and generated feature and attack tests per resource.
+- **On framework `main` (0.2.0-next.0, not on npm yet):** sending requests straight into your app with `app.handle()` (with the test-only switches `actingAs` and `withoutCsrf`, refused outside `APP_ENV=testing`); `Http.fake()` and `Http.preventStrayRequests()`; swapping any service in the container; ORM factories (`defineFactory` from `@strutvane/framework/database`).
+- **Built but not exported yet:** the test client `testClient(app)` with `assertStatus`, `assertJsonPath` and `assertProblem`. It lives in the framework (`src/testing/app-client.ts`) but `@strutvane/framework/testing` doesn't export it in 0.2.0-next.0. What that entry exports today (`createTestApp`, `refreshDatabase`, `actingAs`, its own `defineFactory`) is the 0.1 kit for `defineModel` apps.
+- **Coming in 0.2:** the rest of the testing kit: the exported test client, `withToken(token)`, `asTenant(team)`, `refreshDatabase` and `seed` for migration-first apps, a transaction per test, a test database per worker on your app's engine, `Mail.fake()`, time travel, console tests, and generated feature and attack tests per resource.
 - **Coming in 0.3:** fakes for queues, events, notifications and processes.
 - **Coming after 1.0:** browser tests with page objects, `@strutvane/browser-testing` (phase 7). Until then the installer offers `vitest` or `none` only.
 
@@ -49,51 +50,70 @@ Every line with a ✓ is a test file; the numbers are its tests and how long the
 
 ## Your first feature test
 
-A **feature test** checks one thing a user can do, through the same HTTP routes the UI uses. Here's a complete one for the posts API:
+A **feature test** checks one thing a user can do, through the same HTTP routes the UI uses. Here's a complete one, against the `/api/hello` route from [Routing](../routing/#the-smallest-example). It runs on framework `main` today:
 
-```ts title="tests/feature/posts.test.ts"
-import { randomBytes } from 'node:crypto'
-import { beforeEach, describe, it } from 'vitest'
-import type { Application } from '@strutvane/framework'
-import { client, refreshDatabase, seed } from '@strutvane/framework/testing'
-import { createApp } from '../../bootstrap/app.ts'
-import { demoTokens } from '../../database/seeders/database.seeder.ts'
+```ts title="tests/feature/hello.test.ts"
+import { describe, expect, it } from 'vitest'
+import app from '../../bootstrap/app.ts'
 
-let app: Application
-
-beforeEach(async () => {
-  app = createApp({ APP_ENV: 'testing', APP_KEY: 'base64:' + randomBytes(32).toString('base64'), DB_CONNECTION: 'sqlite', DB_DATABASE: ':memory:' })
-  await refreshDatabase(app)
-  await seed(app)
-})
-
-describe('posts', () => {
-  it('lists published posts for guests', async () => {
-    ;(await client(app).getJson('/api/posts')).assertStatus(200).assertJsonPath('meta.total', 3)
+describe('hello', () => {
+  it('answers guests', async () => {
+    const response = await app.handle(new Request('http://localhost/api/hello'))
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ message: 'Hello!' })
   })
 
-  it('lets an author write a post', async () => {
-    const response = await client(app).withToken(demoTokens.alice).postJson('/api/posts', { title: 'My second post' })
-    response.assertStatus(201).assertJsonPath('data.slug', 'my-second-post').assertJsonPath('data.status', 'draft')
-  })
-
-  it('stops other authors from editing it', async () => {
-    ;(await client(app).withToken(demoTokens.bob).patchJson('/api/posts/hello-world', { title: 'Mine now' })).assertProblem(403, 'forbidden')
+  it('answers 404 for an unknown path', async () => {
+    const response = await app.handle(new Request('http://localhost/api/nope'))
+    expect(response.status).toBe(404)
+    expect((await response.json()).code).toBe('not_found')
   })
 })
 ```
 
-This is the prototype's example-app test, written with the decided 0.2 names (the prototype calls `withToken()` `actingAs()`, and runs its seeder with `new DatabaseSeeder().run()`; `seed(app)` runs `database/seeders/database.seeder.ts`, a `defineSeeder()` file). Read it top to bottom:
+Read it top to bottom:
 
-1. `createApp({...})` builds **a fresh app** for each test, with test settings: `APP_ENV=testing` and an in-memory SQLite database.
-2. `refreshDatabase(app)` creates every table from the schema your migrations produce (in milliseconds, without replaying each migration).
-3. `seed(app)` runs the app's seeders: three published posts, two authors, and an API token for each (`demoTokens`, exported by this example app's seeder).
-4. `client(app)` sends requests directly into the app, and each response has assertions you can chain.
+1. `bootstrap/app.ts` is your app, the same one `node strut start` serves. Importing it builds it; nothing listens on a port.
+2. `app.handle(request)` boots the app on first use and sends the request **straight in**, through middleware, CSRF, routing and your controller, and gives back the `Response`.
+3. The assertions are Vitest's own `expect`.
+
+Tests must run with `APP_ENV=testing`. Set it for the whole run in `vitest.config.ts`:
+
+```ts title="vitest.config.ts"
+import { defineConfig } from 'vitest/config'
+
+export default defineConfig({
+  test: { env: { APP_ENV: 'testing' } },
+})
+```
 
 **What you'll see:**
 
 ```text
- ✓ tests/feature/posts.test.ts (3 tests) 61ms
+ ✓ tests/feature/hello.test.ts (2 tests) 41ms
+```
+
+### The same test with the test client (coming in 0.2)
+
+:::caution[Coming in 0.2]
+The test client is built (`testClient(app)`) but not exported from `@strutvane/framework/testing` in 0.2.0-next.0, so this import doesn't resolve yet. `withToken()`, `refreshDatabase(app)` and `seed(app)` for migration-first apps aren't built yet.
+:::
+
+```ts title="tests/feature/posts.test.ts"
+import { describe, it } from 'vitest'
+import { testClient } from '@strutvane/framework/testing'
+import app from '../../bootstrap/app.ts'
+
+describe('posts', () => {
+  it('lists posts for guests', async () => {
+    ;(await testClient(app).getJson('/api/posts')).assertStatus(200)
+  })
+
+  it('stops other authors from editing it', async () => {
+    const bob = { id: '2', type: 'user', roles: [], attrs: {} }
+    ;(await testClient(app).actingAs(bob).patchJson('/api/posts/hello-world', { title: 'Mine now' })).assertProblem(403, 'forbidden')
+  })
+})
 ```
 
 The leading `;` before `(await …)` is only there because the line starts with a parenthesis; it stops JavaScript from joining it to the line above.
@@ -113,24 +133,24 @@ Write mostly feature tests: they catch the most with the least code. Add unit te
 ### A unit test
 
 ```ts title="tests/unit/post.policy.test.ts"
-import { allows } from '@strutvane/framework'
+import { allows } from '@strutvane/framework'   // not exported yet in 0.2.0-next.0: see Authorization
 import { expect, it } from 'vitest'
 import { PostPolicy } from '../../app/policies/post.policy.ts'
 import type { Post } from '../../app/models/post.ts'
 
 it('hides drafts from other authors', async () => {
   const draft = { id: 10, status: 'draft', author_id: 1 } as unknown as Post
-  expect(await allows(new PostPolicy(), 'view', { id: 2, is_admin: false }, draft)).toBe(false)
+  expect(await allows(new PostPolicy(), 'view', { id: '2', type: 'user', roles: [], attrs: {} }, draft)).toBe(false)
 })
 ```
 
-**What you'll see:** `✓ tests/unit/post.policy.test.ts (1 test) 2ms`.
+**What you'll see:** `✓ tests/unit/post.policy.test.ts (1 test) 2ms`. Until `allows()` is exported, call the policy method directly: `expect(new PostPolicy().view(bob, draft)).toBe(false)`.
 
 ## Running tests
 
 | Command | What it runs |
 |---|---|
-| `npm test` | every test once (`node strut test`, as in CI) |
+| `npm test` | every test once (`vitest run`, as in CI) |
 | `npx vitest` | watch mode: re-runs the tests touched by each file you save |
 | `npx vitest tests/feature/posts.test.ts` | one file |
 | `npx vitest -t "lets an author"` | tests whose name contains that text |
@@ -141,18 +161,21 @@ it('hides drafts from other authors', async () => {
 
 Tests always run with `APP_ENV=testing`. That switches on a few test-only things:
 
-- the test client may skip the CSRF check with `withoutCsrf()` (it's refused in every other environment);
-- error responses include the developer `hint`;
-- mail goes nowhere real.
+- a test may skip the CSRF check and pick the signed-in user (`app.handle(request, { testing: { withoutCsrf: true, actor } })`, or the test client's `withoutCsrf()` and `actingAs()`); any other environment refuses the request with `withoutCsrf()/actingAs() was used with APP_ENV=local.`;
+- `APP_DEBUG=true` shows the debug page, as in `local`.
 
-Your tests never touch your development data. The installer creates a **separate test database** next to your development one and writes its name to `.env`:
+:::caution[Coming in 0.2]
+A separate test database written by the installer (`DB_TEST_DATABASE`), a database per Vitest worker and a transaction per test are designed, not built. Until then, point tests at their own database yourself; see [Database Testing](../database-testing/).
+:::
+
+The planned layout keeps your tests away from your development data with a **separate test database** next to your development one:
 
 | Database | `.env` key | Value |
 |---|---|---|
 | SQLite | `DB_TEST_DATABASE` | `database/testing.sqlite` |
 | MySQL or PostgreSQL | `DB_TEST_DATABASE` | `<app name>_test` (created with the right grants by the Docker setup) |
 
-In 0.2, each Vitest **worker** (Vitest runs files in parallel) gets its own copy of that database, and each test runs inside a **transaction that is rolled back** at the end. So tests never see each other's rows and can run in parallel. See [Database Testing](../database-testing/).
+The plan for 0.2: each Vitest **worker** (Vitest runs files in parallel) gets its own copy of that database, and each test runs inside a **transaction that is rolled back** at the end. So tests never see each other's rows and can run in parallel. See [Database Testing](../database-testing/).
 
 ## Console tests
 
@@ -211,25 +234,32 @@ Generated tests are part of the 0.2 testing kit (blueprint §5), not built yet.
 ### A test fails with "Expected status 201, got 419"
 
 ```text
-Error: Expected status 201, got 419. Body: {"type":"about:blank","title":"Page expired","status":419,"code":"csrf_token_mismatch",…}
+Error: Expected status 201, got 419. Body: {"type":"https://strutvane.dev/errors/csrf-token-mismatch","title":"Page expired","status":419,"code":"csrf_token_mismatch",…}
 ```
 
 **Why:** the request used a session cookie, so the CSRF check applies, as it does for a real browser.
-**Fix:** use a bearer token (`withToken(token)`), or skip the check in this test only:
+**Fix:** send the request without the cookie (a bearer token, once your auth package issues them), or skip the check in this test only:
 
 ```ts
-await client(app).withHeaders({ cookie: 'strutvane_session=abc' }).withoutCsrf().postJson('/api/posts', { title: 'Hi' })
+await app.handle(
+  new Request('http://localhost/api/posts', {
+    method: 'POST',
+    headers: { cookie: 'strutvane_session=abc', 'content-type': 'application/json' },
+    body: JSON.stringify({ title: 'Hi' }),
+  }),
+  { testing: { withoutCsrf: true } },
+)
 ```
 
 ### My tests pass alone but fail together
 
-**Why:** one test left rows, a fake or a changed setting behind that another test sees. Usually a shared `app` built once at the top of the file instead of in `beforeEach`.
-**Fix:** build the app and refresh the database in `beforeEach`, as in the example above.
+**Why:** one test left rows, a fake or a changed setting behind that another test sees: `bootstrap/app.ts` is one app shared by every test in a file, and the ORM connection is shared by the whole process.
+**Fix:** undo what a test changes (`afterEach`), give each test its own rows, and clean the tables a test writes to; see [Database Testing](../database-testing/).
 
 ### "was called outside a request or console command"
 
 ```text
-✖ route() was called outside a request or console command, so there is no current app.
+route() was called outside a request or console command, so there is no current app.
 → Call it from a controller, middleware or command, or wrap the code in app.run(() => …) (tests: await app.run(async () => …)).
 ```
 
@@ -238,8 +268,8 @@ await client(app).withHeaders({ cookie: 'strutvane_session=abc' }).withoutCsrf()
 
 ### Tests touch my development data
 
-**Why:** `DB_TEST_DATABASE` is missing from `.env`, or a test sets `DB_DATABASE` to the development file.
-**Fix:** restore the key (`DB_TEST_DATABASE=database/testing.sqlite`, or `<app>_test` for a server) and never point tests at the development database.
+**Why:** the tests use the `DB_*` settings from `.env`, which name your development database (`DB_TEST_DATABASE` isn't read yet in 0.2.0-next.0).
+**Fix:** give the test run its own database in `vitest.config.ts` (`test: { env: { APP_ENV: 'testing', DB_DATABASE: 'database/testing.sqlite' } }`), as on [Database Testing](../database-testing/).
 
 ### `npm test` says "no test files found"
 
@@ -250,5 +280,5 @@ await client(app).withHeaders({ cookie: 'strutvane_session=abc' }).withoutCsrf()
 
 - [HTTP Tests](../http-tests/): every request helper and assertion.
 - [Database Testing](../database-testing/): factories, seeders and checking rows.
-- [Mocking](../mocking/): fakes for mail, HTTP and time.
+- [Mocking](../mocking/): fakes for HTTP, the clock and any service.
 - [Browser Tests](../browser-tests/): testing the real UI.

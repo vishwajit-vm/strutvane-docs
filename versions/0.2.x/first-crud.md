@@ -246,11 +246,11 @@ curl -X POST http://localhost:3000/api/posts \
 
 ```json
 {
-  "type": "https://strutvane.dev/problems/validation_failed",
-  "title": "Some fields need attention",
+  "type": "https://strutvane.dev/errors/validation-failed",
+  "title": "Validation failed",
   "status": 422,
   "code": "validation_failed",
-  "detail": "Fix the fields listed in `issues` and try again.",
+  "detail": "Some fields need your attention.",
   "issues": [
     { "path": ["title"], "field": "title", "code": "invalid_type", "message": "Title is required." },
     { "path": ["status"], "field": "status", "code": "invalid_value", "message": "Status must be one of: draft, published." }
@@ -450,7 +450,7 @@ node strut make:migration create_posts_table
 ### The API answers 401
 
 ```text
-{"type":"https://strutvane.dev/problems/unauthenticated","title":"Unauthenticated","status":401,"code":"unauthenticated","detail":"Sign in first: send an \"Authorization: Bearer <token>\" header."}
+{"type":"https://strutvane.dev/errors/unauthenticated","title":"Sign-in required","status":401,"code":"unauthenticated","detail":"Please sign in to continue."}
 ```
 
 **Why:** the request carried no session and no token, and the API is deny by default.
@@ -459,7 +459,7 @@ node strut make:migration create_posts_table
 ### The API answers 415 when I create a post
 
 ```text
-{"type":"https://strutvane.dev/problems/unsupported_media_type","title":"Unsupported media type","status":415,"code":"unsupported_media_type","detail":"Send the body as JSON with \"Content-Type: application/json\"."}
+{"type":"https://strutvane.dev/errors/unsupported-media-type","title":"Unsupported media type","status":415,"code":"unsupported_media_type"}
 ```
 
 **Why:** the body was sent without `Content-Type: application/json` (curl's `-d` sends a form type by default).

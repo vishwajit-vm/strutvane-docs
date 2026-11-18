@@ -3,20 +3,21 @@ title: "Deployment"
 description: "Put your app on a real server: build it, set production settings, migrate safely, run it on any Node host or as a Docker image, check health with /up, shut down gracefully, and go through a production checklist before launch."
 ---
 
-**Deploying** means taking the app that runs on your laptop and running it on a server where your users can reach it. With Strutvane that's four steps: **build** the app into `build/`, give the server its **settings** (environment variables), **migrate** the database, and **start** `build/server.js`. This page walks through each, for a plain Node host and for a Docker image, and ends with a checklist to go through before launch.
+**Deploying** means taking the app that runs on your laptop and running it on a server where your users can reach it. With Strutvane that's four steps: **build** (check the app boots and build the UI), give the server its **settings** (environment variables), **migrate** the database, and **start** the server with `node strut start`. This page walks through each, for a plain Node host and for a Docker image, and ends with a checklist to go through before launch.
 
 :::tip[Coming from Laravel?]
 The flow is Laravel's: `composer install --no-dev` → `npm ci`, `php artisan migrate --force` → `node strut migrate --force`, `php artisan optimize` → `node strut optimize`, `php artisan down` / `up` keep their names, and Laravel 11's `/up` health route is there too.
 
 What's different:
-- There's a **build step** (`node strut build`) that bundles the server and the UI into `build/`, and the server is one long-running Node process (no PHP-FPM, no Octane needed).
+- There's a **build step** (`node strut build`) that checks the app boots and builds the UI with Vite, and the server is one long-running Node process (no PHP-FPM, no Octane needed).
 - The installer can write a **secure production `Dockerfile`** for you (question 35, "Where will you deploy?").
 - Deploy recipes replace Envoy and Forge-style scripts; any Node host or container platform works.
 :::
 
 :::caution[What exists, and when]
-- **Proven in the installer prototype (spike 13):** the deploy question, the deploy recipe in `deploy/README.md`, the `/up` route, the production `Dockerfile` and `.dockerignore` (their content is tested: non-root, no secrets, no `.env*`), and `node strut build` writing `build/server.js` (a stand-in build in the prototype).
-- **Coming in 0.2:** the real build, `migrate --isolated`, graceful shutdown, `optimize`, maintenance mode (`down`/`up`), `security:check`, `node strut docker:prod`, and the `Dockerfile` setting `LOG_CHANNEL=stderr` and `LOG_FORMAT=json` (decided; the prototype's template doesn't set them yet).
+- **On framework `main` (0.2.0-next.0, not on npm yet):** `node strut build` (checks the app boots, then runs your Vite build), `node strut start`, `migrate --force` and `--isolated`, graceful shutdown on `SIGTERM` (exit code 143), the `/up` route answering `{"status":"ok"}`, `optimize`, maintenance mode (`down`/`up`) and `security:check`.
+- **Proven in the installer prototype (spike 13), not released:** the deploy question, the deploy recipe in `deploy/README.md`, the production `Dockerfile` and `.dockerignore` (their content is tested: non-root, no secrets, no `.env*`).
+- **Coming in 0.2:** `node strut docker:prod`, and the `Dockerfile` setting `LOG_CHANNEL=stderr` and `LOG_FORMAT=json` (decided; the prototype's template doesn't set them yet). The prototype's `Dockerfile` and `npm start` still run a `build/server.js` that the framework's `node strut build` doesn't produce; they're being aligned with `node strut start`.
 - **Coming in 0.3:** queue workers and the scheduler, which production apps run as extra processes.
 
 The image itself hasn't been built and run end to end yet. Commands and output are "something like this".
@@ -28,17 +29,16 @@ On any server with Node 24.3 or newer, from a fresh copy of your repository:
 
 ```bash
 npm ci --ignore-scripts          # exact dependencies from package-lock.json, no install scripts
-node strut build                 # bundles the server and the UI into build/
+node strut build                 # checks the app boots, then builds the UI with Vite
 node strut migrate --force       # applies new migrations (--force: yes, this is production)
-npm start                        # runs node build/server.js
+node strut start --host 0.0.0.0  # serves the app (the default host is 127.0.0.1)
 ```
 
-**What you'll see** (something like this):
+**What you'll see** (something like this; the migration lines depend on your app):
 
 ```text
-Built build/server.js (start it with: npm start)
-  ✔ Migrations run (2 new, 14 total)
-Strutvane is listening on http://0.0.0.0:3000 (production)
+✔ Migrated 2026_11_18_015306_create_posts_table (batch 3)
+✔ Listening on http://0.0.0.0:3000 (APP_ENV=production)
 ```
 
 Check it's alive:
@@ -58,7 +58,7 @@ content-type: application/json
 
 Your load balancer or host calls `/up` the same way.
 
-This is exactly the recipe the installer writes to `deploy/README.md` when you pick "Any Node host".
+The installer writes a recipe like this to `deploy/README.md` when you pick "Any Node host" (its 0.2 version is being aligned with `node strut start`).
 
 ## Step 1: build
 
@@ -66,7 +66,7 @@ This is exactly the recipe the installer writes to `deploy/README.md` when you p
 node strut build
 ```
 
-`build/` then holds everything the server needs: the compiled server (`build/server.js`) and the React UI's static files. The server runs from `build/` with only **production dependencies**; it doesn't need the CLI, TypeScript, Vite or any dev tool. Build once and copy `build/` to several servers, or build on each; both work.
+`node strut build` checks that the app boots (models, config, routes), so a broken route or a missing setting fails the build instead of the deploy, and then runs your project's Vite build for the UI (`dist/web`). The server itself runs your TypeScript directly (Node strips the types), so there's no compiled server file: deploy the project folder with its `node_modules`.
 
 Build on the same Node major version you run in production, so native details match.
 
@@ -79,7 +79,7 @@ The keys that must change for production:
 | Key | Production value | Why |
 |---|---|---|
 | `APP_ENV` | `production` | turns off developer pages and hints |
-| `APP_DEBUG` | `false` | the app **refuses to start** with `APP_DEBUG=true` in production unless you pass `--force-debug` |
+| `APP_DEBUG` | `false` | the app **refuses to start** with `APP_DEBUG=true` in production (the app commands accept `--force-debug`; `node strut start` doesn't yet) |
 | `APP_KEY` | a new key, made with `node strut key:generate` (never the development one) | signs and encrypts everything. The same on every server |
 | `APP_PREVIOUS_KEYS` | old keys after a rotation | keeps old cookies, tokens and encrypted values working |
 | `APP_URL` | `https://app.example.com` | links in mails, cookie security, CSRF origin checks |
@@ -90,11 +90,11 @@ The keys that must change for production:
 The app checks every setting at start-up and lists **all** problems at once, so a missing key fails the deploy instead of the first request:
 
 ```text
-✖ The app refuses to start: APP_DEBUG=true with APP_ENV=production.
-→ Set APP_DEBUG=false in the production environment. To start anyway for a short investigation, pass --force-debug (the debug page stays off in production either way).
+error The app refuses to start: APP_DEBUG=true with APP_ENV=production.
+  → Set APP_DEBUG=false in the production environment. To start anyway for a short investigation, pass --force-debug (debug pages stay off in production either way).
 ```
 
-Want to commit production settings safely? `node strut env:encrypt` encrypts `.env.production` so the encrypted file can live in Git; the server decrypts it with a key you keep in the host's secrets (designed; see [Configuration](../configuration/)).
+Want to commit production settings safely? `node strut env:encrypt --env=production` encrypts `.env.production` so the encrypted file can live in Git, and `node strut env:decrypt` turns it back on the server with a key you keep in the host's secrets (see [Configuration](../configuration/)).
 
 ## Step 3: migrate safely
 
@@ -102,10 +102,10 @@ Want to commit production settings safely? `node strut env:encrypt` encrypts `.e
 node strut migrate --force --isolated
 ```
 
-- In production, `migrate` asks for confirmation, like Laravel; `--force` answers yes for you, which a deploy script needs because nobody is there to type it. (`--seed` in production also needs `--force`; nothing is seeded there otherwise.)
-- `--isolated` takes a lock, so when several servers deploy at the same moment, **only one** migrates and the others wait.
+- With `APP_ENV=production`, `migrate` refuses to change the database without `--force` (there's no question to answer, so deploy scripts always pass it). `--seed` in production also needs `--force`.
+- `--isolated`: when several servers deploy at the same moment, **only one** migrates; the others see the lock is taken, say so, and skip instead of waiting.
 - **PostgreSQL and SQLite** run each migration in a transaction: a failure leaves nothing behind.
-- **MySQL** commits schema changes as it goes. If a migration fails halfway, `migrate` tells you exactly what was applied and how to recover.
+- **MySQL and MariaDB** commit schema changes as they go. If a migration fails halfway, the next `migrate` resumes it from the failed statement. See [Migrations](../migrations/).
 
 Before a risky change, preview the SQL:
 
@@ -113,17 +113,17 @@ Before a risky change, preview the SQL:
 node strut migrate --pretend
 ```
 
-The pre-flight check flags dangerous changes before anything runs: a NOT NULL column without a default on a table with rows, a drop that looks like a rename, a dropped column still used in `resources/ui`. See [Migrations](../migrations/).
+The pre-flight check warns about a drop that looks like a rename before anything runs (`looks_like_rename`). See [Migrations](../migrations/).
 
 **Order matters for zero-downtime deploys:** migrate **before** switching traffic to the new code, and make each migration safe for the old code too (add columns first, remove them in a later release).
 
 ## Step 4: run it
 
 ```bash
-npm start
+node strut start --host 0.0.0.0 --port 3000
 ```
 
-That runs `node build/server.js`. Keep it running with whatever your host offers: the platform's process manager (Railway, Render, Fly, Cloud Run, Kubernetes), or systemd on a VPS:
+Keep it running with whatever your host offers: the platform's process manager (Railway, Render, Fly, Cloud Run, Kubernetes), or systemd on a VPS:
 
 ```ini title="/etc/systemd/system/my-app.service"
 [Unit]
@@ -134,7 +134,7 @@ After=network.target
 User=myapp
 WorkingDirectory=/srv/my-app
 EnvironmentFile=/etc/my-app/env
-ExecStart=/usr/bin/node build/server.js
+ExecStart=/usr/bin/node strut start --host 0.0.0.0
 Restart=always
 KillSignal=SIGTERM
 TimeoutStopSec=30
@@ -149,7 +149,7 @@ sudo systemctl enable --now my-app
 
 ### Graceful shutdown
 
-When the host stops or replaces your app, it sends `SIGTERM`. The server then stops accepting new requests, lets the requests in flight finish, flushes the log, closes database connections, and exits. Give it time: `TimeoutStopSec=30` above, or your platform's grace period. Don't `kill -9` it unless it's stuck.
+When the host stops or replaces your app, it sends `SIGTERM`. The server then stops accepting new requests, lets the requests in flight and their deferred work finish, shuts the app's providers down, and exits with code `143` (so a process manager can tell a requested stop from a crash). Give it time: `TimeoutStopSec=30` above, or your platform's grace period. Don't `kill -9` it unless it's stuck. On Windows, where `SIGTERM` can't be caught, process managers send the IPC message `shutdown` instead.
 
 ### Behind a proxy or load balancer
 
@@ -163,13 +163,13 @@ Both are covered in [Security Features](../security/).
 ### More than one server
 
 - Use the **same `APP_KEY`** (and `APP_PREVIOUS_KEYS`) everywhere, or sessions and signed links made by one server fail on another.
-- Rate limits and lockouts live in the **cache store** (the database by default, Redis if you chose it), so they hold across servers. A per-process store would multiply every limit by the number of servers.
+- Rate limits live in the **cache store**. In 0.2.0-next.0 the stores are `memory` (the default, one per process) and `file` (one per machine), so each server counts on its own and every limit is multiplied by the number of servers. Shared stores (database, Redis) come in 0.3. See [Cache](../cache/).
 - Files written to the local disk exist only on that server. Use shared storage or a cloud disk (`@strutvane/files`, planned) when several servers serve uploads.
-- Or run several Node processes on one machine: `node strut serve --workers=N` (cluster mode) is coming before 1.0.
+- Or run several Node processes on one machine: a cluster mode for `node strut start` is coming before 1.0.
 
 ## Health checks: `/up`
 
-`/up` answers `200 {"status":"ok"}` to `GET` and `HEAD` as soon as the app is running, and says nothing else (no versions, no settings), so it's safe to leave public. It stays reachable during [maintenance mode](../maintenance-mode/), so your platform doesn't restart a container that's down on purpose. Point your host's health check, your load balancer and the `Dockerfile`'s `HEALTHCHECK` at it. (The installer prototype's generated route still answers the text `up`; the JSON answer is decided for 0.2.)
+`/up` answers `200 {"status":"ok"}` to `GET` and `HEAD` as soon as the app is running, and says nothing else (no versions, no settings), so it's safe to leave public. It stays reachable during [maintenance mode](../maintenance-mode/), so your platform doesn't restart a container that's down on purpose. Point your host's health check, your load balancer and the `Dockerfile`'s `HEALTHCHECK` at it. The path is `withRouting({ health: '/up' })` in `bootstrap/app.ts`.
 
 :::caution[Coming in 0.3]
 A **readiness** route, `/ready`, that also runs the critical checks (the database and anything packages register, such as `@strutvane/health`), comes in 0.3 with the health-check registry. Until then, `/up` only tells you the process is alive.
@@ -226,7 +226,7 @@ Build and run it:
    node strut key:generate --show
    ```
 
-   (`--show` prints the key instead of writing it to `.env`; the flag name follows Laravel and isn't final.)
+   (`--show` prints the key instead of writing it to `.env`.)
 
 2. Build the image and run it, passing settings from your environment:
 

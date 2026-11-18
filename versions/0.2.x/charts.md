@@ -198,7 +198,7 @@ Every error is an RFC 9457 problem (`application/problem+json`) with a stable `c
 | 403 | `tenant_required` | A team resource was asked for without a current team. |
 | 422 | `invalid_aggregate` | Bad parameters. Every problem is listed at once in `issues`, each with a fix and only the names the user may use. |
 | 405 | `method_not_allowed` | Anything but GET. |
-| 500 | `server_error` | A bug. The details go to the log, never to the client. |
+| 500 | `internal_error` | A bug. The details go to the log, never to the client. |
 
 ## Security built in
 

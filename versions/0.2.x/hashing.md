@@ -18,8 +18,15 @@ What's different:
 - Every hasher has a `verifyDummy()` that takes as long as a real check, so the response time never reveals whether an email has an account.
 :::
 
-:::caution[Coming in 0.2]
-The scrypt hasher, rehash-on-login and legacy (bcrypt) import are **proven in the auth prototype** (spike 20: format, Unicode normalisation, rehash, legacy verifiers and absurd-parameter tests). They aren't released yet. Hashing lives in the **framework** (decided: a `Hash` accessor, which the auth package uses); the prototype has it inside the auth engine, so the code below imports from `@strutvane/framework`, as 0.2 will. argon2 is a later opt-in hasher package, not part of 0.2 (see [Why scrypt](#why-scrypt-and-not-argon2)).
+:::caution[What exists, and when]
+The scrypt hasher, rehash-on-login and legacy (bcrypt) import are **proven in the auth prototype** (spike 20: format, Unicode normalisation, rehash, legacy verifiers and absurd-parameter tests) and come with `@strutvane/auth`. **None of it is in `@strutvane/framework` 0.2.0-next.0:** `createScryptHasher`, `PasswordHasher` and `LegacyVerifier` aren't framework exports, and the framework's `Hash` facade (`@strutvane/framework/facades`) is a placeholder whose every member throws until 0.3:
+
+```text
+Hash.make() is not available yet: the Hash facade arrives in Strutvane 0.3.
+→ Password hashing belongs to @strutvane/auth (its Hash facade arrives in 0.3); until then let the auth package's identity adapter hash passwords, never a fast hash such as SHA-256.
+```
+
+Two sources disagree on where hashing lives: this page (written from the 0.2 blueprint) put it in the framework; the framework's code says it belongs to `@strutvane/auth`. The examples keep the import path they were written with, `@strutvane/framework`, and are a **planned API (a sketch: names and the import path may change)**. argon2 is a later opt-in hasher package, not part of 0.2 (see [Why scrypt](#why-scrypt-and-not-argon2)).
 :::
 
 ## The smallest example
@@ -76,15 +83,15 @@ Because the parameters live **inside** the hash, you can raise them later withou
 In app code you'll usually use the `Hash` accessor, which reads the app's configured hasher:
 
 ```ts title="app/http/controllers/import.controller.ts"
-import { Hash } from '@strutvane/framework'
+import { Hash } from '@strutvane/framework/facades'
 
 const stored = await Hash.make('a long sentence I can remember 42')
 await Hash.check('a long sentence I can remember 42', stored)   // → true
 Hash.needsRehash(stored)                                       // → false
 ```
 
-:::caution[Coming in 0.2]
-**Planned API (a sketch: names may change).** `Hash` is on the decided accessor list; its method names follow Laravel. The hasher methods in the next section are the prototype's.
+:::caution[Coming in 0.3]
+`Hash` is exported from `@strutvane/framework/facades` today, but every member throws `facade_not_available` until 0.3 (see the box above). Its method names follow Laravel. The hasher methods in the next section are the prototype's.
 :::
 
 ## The hasher's four methods

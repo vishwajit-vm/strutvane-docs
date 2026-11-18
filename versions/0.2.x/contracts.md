@@ -6,11 +6,11 @@ description: The interfaces behind the framework's services (`@strutvane/framewo
 A **contract** is an interface: a list of what a service can do, without saying how. The framework's logger, cache, mailer and clock are each described by a contract, and the app gets a concrete implementation through the [service container](../container/). Your code can depend on the contract, so you can switch the implementation (a different mailer, a fake in tests) without touching the code that uses it.
 
 :::tip[Coming from Laravel?]
-These are Laravel's `Illuminate\Contracts\…` interfaces, as TypeScript types in `@strutvane/framework/contracts`. Because TypeScript types vanish at runtime, each contract is paired with a **token** (`LoggerToken`), and that token, not the interface, is what you bind and inject.
+These are Laravel's `Illuminate\Contracts\…` interfaces, as TypeScript types in `@strutvane/framework/contracts`. Because TypeScript types vanish at runtime, each contract is paired with a **token** (`LoggerToken`, from `@strutvane/framework/core`), and that token, not the interface, is what you bind and inject.
 :::
 
-:::caution[Coming in 0.2]
-**Proven in a prototype** (spike 12): contracts as plain types with tokens, exported from the framework's main entry: `Logger` + `LoggerToken`, the clock (`ClockToken`), `RateLimitStore` + `RateLimitStoreToken`, `IdempotencyStore` + `IdempotencyStoreToken`, `UserProvider` + `UserProviderToken`, `SessionStore` + `SessionStoreToken`. **Being folded in for 0.2:** the separate `@strutvane/framework/contracts` entry point (from 0.1's `@strutvane/contracts` package), with the contracts of the cache, mail, queue, events, storage and the HTTP client arriving with those features.
+:::caution[What exists, and when]
+**On framework `main` (0.2.0-next.0, not on npm yet):** the `@strutvane/framework/contracts` entry point (0.1's `@strutvane/contracts`, folded in) with the shared types (`Logger`, `Actor`, `Problem`, `PermissionProvider`, `TenantContext`, the HTTP hook payloads), their tokens in `@strutvane/framework/core`, and the store contracts on the main entry (`CacheStore`, `SessionStore`, `IdempotencyStore`). **Coming with their features:** the contracts of mail, queues and storage drivers beyond `local`/`memory`. A rate-limit store and a user provider token, which the 0.2 prototype had, aren't public in this build.
 :::
 
 ## The smallest example
@@ -18,7 +18,8 @@ These are Laravel's `Illuminate\Contracts\…` interfaces, as TypeScript types i
 Depend on the `Logger` contract, not on a particular logger:
 
 ```ts title="app/services/report.service.ts"
-import { LoggerToken, type Logger } from '@strutvane/framework'
+import { LoggerToken } from '@strutvane/framework/core'
+import type { Logger } from '@strutvane/framework/contracts'
 
 export class ReportService {
   static readonly inject = [LoggerToken] as const
@@ -34,40 +35,51 @@ export class ReportService {
 }
 ```
 
-**What you'll see:** in the app, the line goes to your log files; in a test that binds a `MemoryLogger`, it's captured in memory where the test can read it. `ReportService` didn't change.
+**What you'll see:** in the app, the line is written as one JSON line on standard output (the framework's logger today; see [Logging](../logging/)); in a test that hands it a logger with its own sink, it's captured in memory where the test can read it. `ReportService` didn't change.
 
 ## The contracts
 
-| Contract | Token | What it promises | Default implementation |
-|---|---|---|---|
-| `Logger` | `LoggerToken` | `info`, `warn`, `error` with a context object (the full level list arrives with the logging channels) | the framework logger (channels from `.env`) |
-| clock: `() => Date` | `ClockToken` | the current time | the system clock |
-| `RateLimitStore` | `RateLimitStoreToken` | count hits per key in a window | the cache (memory in the prototype) |
-| `IdempotencyStore` | `IdempotencyStoreToken` | keep first responses per key | memory in the prototype |
-| `UserProvider` | `UserProviderToken` | find the user for a token | `@strutvane/auth` |
-| `SessionStore` | `SessionStoreToken` | sessions that can be flushed | `@strutvane/auth`'s database store |
-| cache, mailer, queue, event dispatcher, file storage, HTTP client | one token each | as their pages describe | arrive with each feature |
+| Contract | Import the type from | Token | What it promises | Default implementation |
+|---|---|---|---|---|
+| `Logger` | `/contracts` | `LoggerToken` (`/core`) | `trace`, `debug`, `info`, `warn`, `error`, `fatal` with a fields object, plus `child()`, `isLevelEnabled()` and `flush()` | JSON lines on standard output, secrets redacted |
+| `Clock` | `/core` | `ClockToken` (`/core`) | `now()`: milliseconds since 1970 | the system clock |
+| `EventBus` | `/core` | `EventBusToken` (`/core`) | publish and listen to domain events | in memory |
+| `PermissionProvider` | `/contracts` | `PermissionProviderToken` (`/core`) | decide permissions and row filters | `@strutvane/auth` |
+| `CacheStore`, `CacheManager` | root | `CacheManagerToken` (root) | get, put, forget, flush per store | `memory` and `file` stores |
+| `SessionStore` | root | `SessionStoreToken` (root) | sessions that can be flushed | files under `storage/framework/sessions` |
+| `IdempotencyStore` | root | `IdempotencyStoreToken` (root) | keep first responses per `Idempotency-Key` | in memory |
 
-The exact list for 0.2 will be in `@strutvane/framework/contracts`; `node strut about` will show what's bound.
+`node strut about` doesn't list bindings yet; the table above is the list for 0.2.0-next.0.
 
 ## Providing your own implementation
 
 1. Write a class that implements the contract:
 
    ```ts title="app/services/console-logger.ts"
-   import type { Logger } from '@strutvane/framework'
+   import type { Logger, LogFields, LogLevel } from '@strutvane/framework/contracts'
+
+   const write = (stream: NodeJS.WriteStream, msg: string, fields: LogFields = {}): void => {
+     stream.write(`${msg} ${JSON.stringify(fields)}\n`)
+   }
 
    export class ConsoleLikeLogger implements Logger {
-     info(message: string, context = {}): void { process.stdout.write(`${message} ${JSON.stringify(context)}\n`) }
-     warn(message: string, context = {}): void { process.stderr.write(`${message} ${JSON.stringify(context)}\n`) }
-     error(message: string, context = {}): void { process.stderr.write(`${message} ${JSON.stringify(context)}\n`) }
+     trace(msg: string, fields?: LogFields): void { write(process.stdout, msg, fields) }
+     debug(msg: string, fields?: LogFields): void { write(process.stdout, msg, fields) }
+     info(msg: string, fields?: LogFields): void { write(process.stdout, msg, fields) }
+     warn(msg: string, fields?: LogFields): void { write(process.stderr, msg, fields) }
+     error(msg: string, fields?: LogFields): void { write(process.stderr, msg, fields) }
+     fatal(msg: string, fields?: LogFields): void { write(process.stderr, msg, fields) }
+     child(_bindings: LogFields): Logger { return this }
+     isLevelEnabled(_level: LogLevel): boolean { return true }
+     async flush(): Promise<void> {}
    }
    ```
 
 2. Bind it to the contract's token in a provider's `register()`:
 
    ```ts title="app/providers/app.provider.ts"
-   import { LoggerToken, ServiceProvider, type Application } from '@strutvane/framework'
+   import { ServiceProvider, type Application } from '@strutvane/framework'
+   import { LoggerToken } from '@strutvane/framework/core'
    import { ConsoleLikeLogger } from '../services/console-logger.ts'
 
    export class AppServiceProvider extends ServiceProvider {
@@ -79,30 +91,28 @@ The exact list for 0.2 will be in `@strutvane/framework/contracts`; `node strut 
 
 **What you'll see:** everything that injects `LoggerToken` (the framework too) now writes through your class. If your class misses a method, it doesn't compile: `implements Logger` checks it.
 
-(This replaces the framework's logger entirely, losing channels and redaction; it's only an illustration. To change where logs go, configure channels instead: [Logging](../logging/).)
+(This replaces the framework's logger entirely, losing redaction; it's only an illustration. Logging channels configured from `.env` are [coming in 0.2](../logging/).)
 
 ## Contracts in tests
 
-```ts title="tests/feature/report.test.ts"
-import { randomBytes } from 'node:crypto'
+A class that depends on a contract takes any implementation, so a test can hand it one that keeps lines in memory. `createLogger()` from `/core` takes a `sink`, the function each JSON line is written to:
+
+```ts title="tests/unit/report.service.test.ts"
 import { expect, test } from 'vitest'
-import { LoggerToken, MemoryLogger } from '@strutvane/framework'
+import { createLogger } from '@strutvane/framework/core'
 import { ReportService } from '../../app/services/report.service.ts'
-import { createApp } from '../../bootstrap/app.ts'
 
-test('building a report logs it', async () => {
-  const app = createApp({ APP_ENV: 'testing', APP_KEY: `base64:${randomBytes(32).toString('base64')}`, DB_CONNECTION: 'sqlite' })
-  const log = new MemoryLogger()
-  app.container.instance(LoggerToken, log)
-  await app.boot()
+test('building a report logs it', () => {
+  const lines: string[] = []
+  const log = createLogger({ sink: (line) => lines.push(line) })
 
-  app.make(ReportService).build()
+  new ReportService(log).build()
 
-  expect(log.entries.map((entry) => entry.message)).toContain('Report built')
+  expect(lines.map((line) => JSON.parse(line).msg)).toContain('Report built')
 })
 ```
 
-**What you'll see** with `npm test`: the test passes, with nothing written to your log files. Bindings made before `boot()` win over the framework's defaults.
+**What you'll see** with `npm test`: the test passes, with nothing written to the terminal. In a booted app, bind the same logger before `boot()` (`app.container.value(LoggerToken, log)`) and everything that injects `LoggerToken` uses it: bindings made before `boot()` win over the framework's defaults.
 
 ## Contract or concrete class?
 
@@ -121,7 +131,7 @@ Rules of thumb:
 ### Your own contract
 
 ```ts title="app/contracts/notifier.ts"
-import { token } from '@strutvane/framework'
+import { token } from '@strutvane/framework/core'
 
 export interface Notifier {
   notify(message: string): Promise<void>
@@ -134,11 +144,10 @@ Bind an implementation per environment in a provider, and inject `NotifierToken`
 
 ## Common mistakes
 
-### "Nothing is bound to … in the container"
+### "No binding for … Register it in a service provider."
 
 ```text
-✖ Nothing is bound to "Notifier" in the container.
-→ Bind it in a service provider's register() method, for example: app.container.singleton(NotifierToken, () => …).
+No binding for "Notifier". Register it in a service provider.
 ```
 
 **Why:** a contract (a token) has nothing to build from, so it must be bound. (Classes are built automatically; tokens never are.)

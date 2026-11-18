@@ -14,7 +14,7 @@ Vite works like `laravel-vite-plugin`, but you don't run `npm run dev` *and* `ph
 :::
 
 :::caution[Coming in 0.2]
-The generated screens, sidebar, command palette and conveniences are **proven in a prototype** (spike 14: 133 tests, axe accessibility checks on 11 screens). In that prototype the UI runs on its own Vite server with a mock API; serving it inside `npm run dev` on the API's port, the generated API client (`.strutvane/client.gen.ts`) and owned page overrides are designed, not built yet.
+The generated screens, sidebar, command palette and conveniences are **proven in a prototype** (spike 14: 133 tests, axe accessibility checks on 11 screens) and come with `@strutvane/ui`. In that prototype the UI runs on its own Vite server with a mock API. In `@strutvane/framework` 0.2.0-next.0, `node strut dev` mounts the project's Vite on the API's port, and `node strut start` serves the built UI from `dist/web`, **only for 0.1-style projects** (`strutvane.config.ts`); an app built with `bootstrap/app.ts` is served API-only for now. The generated API client (`.strutvane/client.gen.ts`) and owned page overrides are designed, not built yet.
 :::
 
 ## The smallest example
@@ -76,7 +76,7 @@ import { Controller, config, type HttpContext } from '@strutvane/framework'
 export class SpaController extends Controller {
   show(ctx: HttpContext): Response {
     // The app name goes into HTML, so strip characters that could break out of the title.
-    const title = config('app.name').replace(/[<>&"]/g, '')
+    const title = String(config('app.name')).replace(/[<>&"]/g, '')
     return ctx.html(`<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${title}</title><script type="module" src="/build/app.js"></script></head><body><div id="root"></div></body></html>`)
   }
 }
@@ -254,11 +254,15 @@ export class PlainFormController extends Controller {
 ## Building for production
 
 ```bash
-npm run build      # bundles the UI and compiles the app into build/
-npm start          # runs build/server.js
+node strut build   # checks that the app boots (models, config, routes), then runs your Vite build
+node strut start   # serves the app
 ```
 
-**What you'll see:** Vite prints the bundles it wrote (JavaScript, CSS, fonts) with their sizes, then the server starts. In production there's no Vite server and no hot reload: the server sends the built files from `build/`. See [Deployment](../deployment/) and [Optimization](../optimization/).
+**What you'll see:** Vite prints the bundles it wrote (JavaScript, CSS, fonts) with their sizes; `start` then prints `✔ Listening on http://127.0.0.1:3000 (APP_ENV=production)`. In production there's no Vite server and no hot reload.
+
+:::caution[Coming in 0.2]
+Serving the built UI (`dist/web`) next to the API works for 0.1-style projects; for apps built with `bootstrap/app.ts`, `node strut start` serves the API only in 0.2.0-next.0. Until that lands, serve `dist/web` from your web server or CDN. The installer's `npm run build` / `npm start` scripts are still being aligned with these commands. See [Deployment](../deployment/) and [Optimization](../optimization/).
+:::
 
 ## With Docker or without
 
@@ -281,7 +285,7 @@ node strut install:ui
 It installs `@strutvane/ui` and a design, writes `resources/ui/`, `config/ui.ts` and `theme.css`, and generates screens for the tables you already have. See [Starter Kits](../starter-kits/).
 
 :::caution[Coming in 0.2]
-`install:<name>` is designed (the same installer protocol as `npm create`), not built yet.
+`install:<name>` is designed (the same installer protocol as `npm create`), not built yet. Today's command is `node strut add <package>`, which installs a package and runs its installer; `@strutvane/ui` 0.2 isn't published yet.
 :::
 
 ## What isn't included

@@ -8,23 +8,23 @@ An **event** is a short announcement that something happened: "post 42 was publi
 The point is that the code that **emits** (sends) the event doesn't know who listens. Your `PostController` says "a post was published" and moves on; the mail, the cache and the search index each subscribe on their own. Adding a fourth reaction doesn't touch the controller at all.
 
 :::tip[Coming from Laravel?]
-It's Laravel's event system: `Event::dispatch()` becomes `events.emit()`, `Event::listen()` becomes `events.on()`, `Event::fake()` becomes `Event.fake()`, and listeners can be queued and run only after the database commits (`ShouldDispatchAfterCommit` becomes `afterCommit: true`). `event:list`, `event:cache` and `event:clear` keep their names.
+It's Laravel's event system: `Event::dispatch()` becomes `Event.dispatch()` (or `Event.emit()`), `Event::listen()` becomes `Event.on()`, and listener classes in `app/listeners/` are discovered like Laravel 11's. `event:list`, `event:cache` and `event:clear` keep their names. `Event::fake()`, queued listeners and `ShouldDispatchAfterCommit` come later (see the boxes below).
 
 What's different:
 - An event is a **name plus plain data** (`'post.published'`, `{ postId }`), not a class. Names follow `resource.pastTenseVerb`.
 - **A failing listener never breaks the code that emitted the event, or the other listeners.** Its error is collected and logged.
 - Every event carries an id, the time, the team (tenant), the user who caused it and an **idempotency key**, so a listener that runs twice can tell.
-- Model events (`creating`, `saved`…) and observers belong to the ORM and come in 0.2; see [ORM: Getting Started](../orm/#model-events-and-observers).
+- Model events (`creating`, `saved`…) and observers belong to the ORM and aren't built yet; see [Events & Observers](../orm-events/).
 :::
 
-:::caution[Coming in 0.2]
-The **event bus** on this page (`on`, `once`, `emit`, `listenerCount`, error isolation, the event's id, time, tenant, actor and idempotency key) is **built in 0.1** (`@strutvane/core`, with tests) and is being moved into `@strutvane/framework`. It isn't released in its 0.2 form yet, so import paths may still move.
+:::caution[What exists, and when]
+**On framework `main` (0.2.0-next.0, not on npm yet):** the event bus (`on`, `once`, `emit`, `listenerCount`, error isolation, the event's id, time, tenant, actor and idempotency key) with `EventBusToken` and `createEventBus` in `@strutvane/framework/core`; the `Event` facade in `@strutvane/framework/facades`; listener classes discovered in `app/listeners/*.listener.ts`; and `node strut event:list`, `event:cache` and `event:clear`. Not yet: logging a failed listener (its error is only returned from `emit`).
 
 **What 0.2 promises, plainly:** the framework's own domain events (such as `post.created` from the generated API) are dispatched **in-process, after the transaction commits**. In-process means the listeners run inside the same app process, right away. If the process stops between the commit and the listener (a crash, a deploy), that listener's work is **lost**. The durable outbox, which stores each event with the data so it is delivered even after a crash ("never lost"), arrives **with the queue in 0.3**. Until then, don't rely on a listener for something that must happen; do it in the action itself.
 :::
 
 :::caution[Coming in 0.3]
-In **phase 2 (0.3)**, application events get: listener classes and **discovery** (listeners found by folder, cached with `event:cache`), **queued listeners**, **subscribers**, the durable outbox, the `afterCommit: true` option for events you emit yourself, the `Event.fake()` test fake, and the `model.changed` event with a redacted diff. **Planned API (a sketch: names may change before 0.3):** `make:listener`, the `app/listeners/` folder and the listener class shape below follow Laravel; they're marked where they appear.
+In **phase 2 (0.3)**, application events get: **queued listeners**, **subscribers**, the durable outbox, the `afterCommit: true` option for events you emit yourself, the `Event.fake()` test fake, `make:listener`, and the `model.changed` event with a redacted diff. **Planned API (a sketch: names may change before 0.3)**; they're marked where they appear.
 :::
 
 ## The smallest example
@@ -32,13 +32,13 @@ In **phase 2 (0.3)**, application events get: listener classes and **discovery**
 **Step 1: listen.** In a [service provider](../providers/), react to `post.published`:
 
 ```ts title="app/providers/app.provider.ts"
-import { EventBusToken, Log, ServiceProvider, type Application } from '@strutvane/framework'
+import { ServiceProvider, type Application } from '@strutvane/framework'
+import { Event, Log } from '@strutvane/framework/facades'
 
 export class AppServiceProvider extends ServiceProvider {
-  override boot(app: Application): void {
-    const events = app.container.make(EventBusToken)
-    events.on('post.published', (event) => {
-      Log.info('A post was published', { postId: (event.payload as { postId: string }).postId })
+  override boot(_app: Application): void {
+    Event.on('post.published', (event) => {
+      Log.info('A post was published', { postId: (event.payload as { postId: number }).postId })
     })
   }
 }
@@ -46,39 +46,36 @@ export class AppServiceProvider extends ServiceProvider {
 
 **Step 2: emit.** In the controller action that publishes a post:
 
-```ts title="app/http/controllers/post.controller.ts (excerpt)"
-import { app, authorize, EventBusToken, ResourceController, type HttpContext } from '@strutvane/framework'
+```ts title="app/http/controllers/publish-post.controller.ts"
+import { Controller, type HttpContext } from '@strutvane/framework'
+import { Event } from '@strutvane/framework/facades'
 import { Post } from '../../models/post.ts'
-import { PostPolicy } from '../../policies/post.policy.ts'
 
-export class PostController extends ResourceController<typeof Post> {
-  protected readonly model = Post
-  protected readonly policy = new PostPolicy()
-
-  async publish(ctx: HttpContext): Promise<Response> {
-    const post = await this.visible(ctx)
-    await authorize(this.policy, 'update', ctx.user, post, 'post')
-    await post.update({ status: 'published' })
-    await app().container.make(EventBusToken).emit('post.published', { postId: post.id })
+export class PublishPostController extends Controller {
+  async __invoke(ctx: HttpContext): Promise<Response> {
+    const post = await Post.findOrFail(Number(ctx.param('post')))
+    post.status = 'published'
+    await post.save()
+    await Event.emit('post.published', { postId: post.id })
     return ctx.json({ data: post })
   }
 }
 ```
 
-(In a class of your own you can also list `EventBusToken` in `static inject` and receive the bus in the constructor; see [Service Container](../container/).)
+(In a class of your own you can also list `EventBusToken` from `@strutvane/framework/core` in `static inject` and receive the bus in the constructor; see [Service Container](../container/). In 0.2.0-next.0 the ORM isn't connected when the server boots yet; see [ORM: Getting Started](../orm/#where-the-orm-gets-its-connection).)
 
-**What you'll see** in `storage/logs/`:
+**What you'll see** on standard output (the built-in logger writes one JSON line; something like this):
 
 ```text
-[2026-11-15 10:22:01] local.INFO: A post was published {"postId":"42","requestId":"01JD7Q…"}
+{"time":"2026-11-15T10:22:01.123Z","level":"info","msg":"A post was published","requestId":"01a1ec64-…","traceId":"01a1ec64-…","fields":{"postId":42}}
 ```
 
 And `emit` tells you what happened:
 
 ```ts
-const result = await app().container.make(EventBusToken).emit('post.published', { postId: post.id })
-// → { event: { id: '01JD7Q…', type: 'post.published', version: 1, payload: { postId: '42' },
-//              occurredAt: '2026-11-15T10:22:01.123Z', idempotencyKey: '01JD7Q…' },
+const result = await Event.emit('post.published', { postId: post.id })
+// → { event: { id: '01a1ec64-…', type: 'post.published', version: 1, payload: { postId: 42 },
+//              occurredAt: '2026-11-15T10:22:01.123Z', idempotencyKey: '01a1ec64-…' },
 //     delivered: 1, errors: [] }
 ```
 
@@ -88,23 +85,23 @@ Your listener receives the whole event, not just your data:
 
 | Field | What it is | Example |
 |---|---|---|
-| `id` | a unique, time-sortable id (UUIDv7) | `'01JD7Q6Y9X…'` |
+| `id` | a unique, time-sortable id (UUIDv7) | `'01a1ec64-21cf-76ad-…'` |
 | `type` | the name, `resource.pastTenseVerb` | `'post.published'` |
 | `version` | the version of the payload's shape (default 1); bump it when you change the shape incompatibly | `1` |
-| `payload` | your data | `{ postId: '42' }` |
+| `payload` | your data | `{ postId: 42 }` |
 | `occurredAt` | when it was emitted, ISO 8601 in UTC | `'2026-11-15T10:22:01.123Z'` |
 | `tenantId` | the team, when you pass it | `'7'` |
 | `actor` | who caused it: `{ id, type }`, when you pass it | `{ id: '3', type: 'user' }` |
 | `idempotencyKey` | the same for every delivery of one event, so a listener can ignore duplicates | defaults to `id` |
-| `correlationId` | links events caused by the same request or workflow | `'01JD7Q…'` |
+| `correlationId` | links events caused by the same request or workflow, when you pass it | `'01a1ec64-…'` |
 
 Pass the optional fields as a third argument:
 
 ```ts title="app/http/controllers/post.controller.ts (excerpt)"
-await app().container.make(EventBusToken).emit(
+await Event.emit(
   'post.published',
   { postId: post.id },
-  { tenantId: '7', actor: { id: ctx.requireUser().id, type: 'user' }, version: 1 },
+  { tenantId: '7', actor: { id: String(ctx.requireUser().id), type: 'user' }, version: 1 },
 )
 ```
 
@@ -119,7 +116,7 @@ Put **ids and small values** in a payload, never passwords, tokens, mail links o
 `on` returns a function that removes the listener again. Keep it when the listener should stop at some point (tests, a temporary feature):
 
 ```ts title="app/providers/app.provider.ts (excerpt)"
-const stop = events.on('post.published', async (event) => {
+const stop = Event.on('post.published', async (event) => {
   // runs for every post.published
 })
 // later:
@@ -129,7 +126,7 @@ stop()
 ### `once`: only the next one
 
 ```ts title="app/providers/app.provider.ts (excerpt)"
-events.once('post.published', (event) => {
+Event.once('post.published', () => {
   Log.info('The first post since the app started was published')
 })
 ```
@@ -141,11 +138,11 @@ events.once('post.published', (event) => {
 Every listener for the type runs, **at the same time** (concurrently), and `emit` waits for all of them to finish:
 
 ```ts title="app/providers/app.provider.ts (excerpt)"
-import { Cache } from '@strutvane/framework'
+import { Cache, Event } from '@strutvane/framework/facades'
 
-events.on('post.published', () => Cache.tags(['posts']).flush())          // fresh numbers
-events.on('post.published', (event) => notifyFollowers(event.payload))      // mail
-events.on('post.published', (event) => reindexForSearch(event.payload))     // search
+Event.on('post.published', () => Cache.forget('posts.count'))                // fresh numbers
+Event.on('post.published', (event) => notifyFollowers(event.payload))      // mail
+Event.on('post.published', (event) => reindexForSearch(event.payload))     // search
 ```
 
 Because they run concurrently, **don't rely on their order**. If one step needs another to finish first, put both in one listener, or chain [queued jobs](../queues/#chains-one-after-another).
@@ -153,25 +150,25 @@ Because they run concurrently, **don't rely on their order**. If one step needs 
 ### How many listeners are there?
 
 ```ts
-events.listenerCount('post.published')   // → 3
+Event.listenerCount('post.published')   // → 3
 ```
 
-Handy in tests and in `node strut event:list`.
+Handy in tests. (`node strut event:list` shows the listener **classes** in `app/listeners/`; listeners added with `on()` in code aren't in that list.)
 
 ## When a listener fails
 
 A listener that throws **doesn't** stop the others, and **doesn't** make `emit` throw. The error is collected and returned:
 
 ```ts title="app/http/controllers/post.controller.ts (excerpt)"
-const { delivered, errors } = await app().container.make(EventBusToken).emit('post.published', { postId: post.id })
+const { delivered, errors } = await Event.emit('post.published', { postId: post.id })
 // → delivered: 3, errors: [ Error: Search service unreachable ]
 ```
 
-**What you'll see:** the post is published, the response is `200`, the cache was flushed and the mail sent; only search indexing failed, and the framework logs it:
+**What you'll see:** the post is published, the response is `200`, the cache was cleared and the mail sent; only search indexing failed, and its error is in `errors`.
 
-```text
-local.ERROR: Listener failed for "post.published" {"eventId":"01JD7Q…","error":"Error: Search service unreachable"}
-```
+:::caution[Coming in 0.2]
+Logging every failed listener (a `Listener failed for "post.published"` line with the event id) is planned. In 0.2.0-next.0 the app's bus has no `onListenerError`, so a failure is **only** in `errors`: check it, or log it yourself.
+:::
 
 Why this default: an announcement is a side effect. A broken search index must not make "Publish" fail for the person clicking it. When a listener's work matters, make it a [queued listener](#queued-listeners) so it gets retries.
 
@@ -181,7 +178,7 @@ Sometimes a failure **should** stop everything: in tests, or for a listener that
 
 ```ts title="tests/unit/events.test.ts"
 import { describe, expect, it } from 'vitest'
-import { createEventBus } from '@strutvane/framework'
+import { createEventBus } from '@strutvane/framework/core'
 
 describe('post.published', () => {
   it('surfaces listener errors in tests', async () => {
@@ -200,11 +197,11 @@ describe('post.published', () => {
 AggregateError: 1 listener(s) failed for "post.published"
 ```
 
-`createEventBus<E>()` takes a map of event names to payload types, so on your own bus `events.emit('post.publish', …)` (a typo) or a payload of the wrong shape is a compile error. `onListenerError(error, event)` is the option that receives every listener error (the app's bus uses it to log them).
+`createEventBus<E>()` takes a map of event names to payload types, so on your own bus `events.emit('post.publish', …)` (a typo) or a payload of the wrong shape is a compile error. `onListenerError(error, event)` is the option that receives every listener error; pass it to log failures on a bus you create yourself.
 
 ## Events from the generated CRUD API
 
-The generated CRUD API emits an event after every write, named after the resource. In 0.1 it does this right after the write; in 0.2 these domain events are dispatched **after the transaction commits**, in-process (see the box at the top of this page):
+The generated CRUD API emits an event after every write, named after the resource, **after the transaction commits**, in-process (see the box at the top of this page). The 0.1-style API (`createHttpApp`) does this today; the 0.2 generated API is coming in 0.2.
 
 | Action | Event | Payload |
 |---|---|---|
@@ -216,7 +213,7 @@ The generated CRUD API emits an event after every write, named after the resourc
 So you can react to admin-screen changes without writing a controller:
 
 ```ts title="app/providers/app.provider.ts (excerpt)"
-events.on('post.created', (event) => {
+Event.on('post.created', (event) => {
   const { id, actorId } = event.payload as { id: string; actorId: string | null }
   Log.info('Post created from the admin screens', { id, actorId })
 })
@@ -231,15 +228,16 @@ For 0.3 the framework plans one **`model.changed`** event for every committed ch
 If you emit inside a [transaction](../orm-transactions/) and the transaction is rolled back, listeners would have reacted to something that never happened: a "welcome" mail for a user who was never saved. `afterCommit: true` holds the event until the commit and drops it on a rollback.
 
 ```ts title="app/services/publish-post.ts"
-import { app, EventBusToken, transaction } from '@strutvane/framework'
+import { transaction } from '@strutvane/framework/database'
+import { Event } from '@strutvane/framework/facades'
 import { Post } from '../models/post.ts'
 
-export async function publish(postId: string): Promise<void> {
-  const events = app().container.make(EventBusToken)
+export async function publish(postId: number): Promise<void> {
   await transaction(async () => {
     const post = await Post.findOrFail(postId)
-    await post.update({ status: 'published' })
-    await events.emit('post.published', { postId }, { afterCommit: true })
+    post.status = 'published'
+    await post.save()
+    await Event.emit('post.published', { postId }, { afterCommit: true })   // planned option
   })
 }
 ```
@@ -252,41 +250,43 @@ The `afterCommit` option for events you emit yourself is planned for 0.3 (Larave
 
 ## Listener classes and discovery
 
-:::caution[Coming in 0.3]
-**Planned API (a sketch: names may change before 0.3).** Listener classes in `app/listeners/`, found automatically and cached for production.
-:::
+For anything bigger than a few lines, give a listener its own file. Every `app/listeners/*.listener.ts` file that exports a class with `static readonly event` and a `handle()` method is a listener, found automatically at boot (like Laravel 11). `handle()` receives the payload first and the whole event second:
 
-For anything bigger than a few lines, give a listener its own file. A listener class names its event and has a `handle()` method:
-
-```ts title="app/listeners/notify-followers.ts"
-import type { DomainEvent } from '@strutvane/framework'
+```ts title="app/listeners/notify-followers.listener.ts"
+import type { DomainEvent } from '@strutvane/framework/contracts'
 
 /** Mails everyone who follows the author when a post is published. */
 export class NotifyFollowers {
   static readonly event = 'post.published'
 
-  async handle(event: DomainEvent<'post.published', { postId: string }>): Promise<void> {
+  async handle(payload: unknown, event: DomainEvent<string, unknown>): Promise<void> {
     // look up the followers, queue one mail each
   }
 }
 ```
 
+A listener class may list services in `static inject`, like a controller. Its module is imported on the first delivery, not at boot, so an app doesn't load listener code it never needs.
+
 ```bash
-node strut make:listener NotifyFollowers --event=post.published
 node strut event:list
 ```
 
-**What you'll see** from `event:list`:
+**What you'll see:**
 
 ```text
-  post.published
-    ⇂ app/listeners/notify-followers.ts (queued)
-    ⇂ closure in app/providers/app.provider.ts:12
-  post.created
-    ⇂ closure in app/providers/app.provider.ts:20
+Event           Listeners
+post.published  NotifyFollowers (app/listeners/notify-followers.listener.ts)
 ```
 
-In production, `node strut event:cache` stores the discovered list so the app doesn't scan folders at start-up; `event:clear` removes the cache. Both are part of `node strut optimize` and `optimize:clear`.
+In production, `node strut event:cache` stores the discovered list so the app doesn't scan the folder at start-up; `event:clear` removes the cache. Both are part of `node strut optimize` and `optimize:clear`:
+
+```text
+✔ 1 listener cached (bootstrap/cache/events.json, encrypted with an APP_KEY subkey).
+```
+
+:::caution[Coming in 0.3]
+`node strut make:listener NotifyFollowers --event=post.published` isn't built yet; write the file by hand.
+:::
 
 ## Queued listeners
 
@@ -297,14 +297,14 @@ A **queued listener** doesn't run during the request: the event is handed to the
 :::
 
 ```ts title="app/listeners/notify-followers.ts"
-import type { DomainEvent } from '@strutvane/framework'
+import type { DomainEvent } from '@strutvane/framework/contracts'
 
 export class NotifyFollowers {
   static readonly event = 'post.published'
   /** Run on a worker, after the commit, with up to 3 tries. */
   static readonly queued = { afterCommit: true, tries: 3 }
 
-  async handle(event: DomainEvent<'post.published', { postId: string }>): Promise<void> {
+  async handle(payload: unknown, event: DomainEvent<string, unknown>): Promise<void> {
     // mail the followers
   }
 }
@@ -327,7 +327,8 @@ The request's context (team, user, request id) travels with the event to the wor
 A **subscriber** is one class that listens to several events, so related reactions stay together:
 
 ```ts title="app/listeners/post-search-subscriber.ts"
-import type { DomainEvent, EventBus } from '@strutvane/framework'
+import type { DomainEvent } from '@strutvane/framework/contracts'
+import type { EventBus } from '@strutvane/framework/core'
 
 /** Keeps the search index in step with posts. */
 export class PostSearchSubscriber {
@@ -351,7 +352,7 @@ Strutvane has three similar-sounding tools. They do different jobs:
 | **Hook** | "I'm about to do this. Does anyone want to adjust or refuse it?" | Yes. A handler may change the payload, stop the chain, or throw to refuse (fail closed) | the auth package adds a row filter on `resource.beforeQuery` |
 | **Model event** | "This model is being saved / was saved" | `creating`, `updating`, `deleting` may refuse; the others react | `created` → write an audit entry |
 
-Use an event for reactions, a hook when packages must take part in a decision, and model events for rules that belong to one model. See [ORM: Getting Started](../orm/#model-events-and-observers).
+Use an event for reactions, a hook when packages must take part in a decision, and model events for rules that belong to one model (model events aren't built yet; see [Events & Observers](../orm-events/)).
 
 ## With Docker or without Docker
 
@@ -359,11 +360,11 @@ The event bus runs inside your app's process, so it behaves the same with or wit
 
 ## Testing
 
-To check that your code emits an event without running the real listeners, use the fake (planned with the other fakes):
+To check that your code emits an event without running the real listeners, use the fake (planned with the other fakes, coming in 0.3; until then, listen with `Event.on()` in the test and record what arrives):
 
 ```ts title="tests/feature/publish.test.ts"
 import { it } from 'vitest'
-import { Event } from '@strutvane/framework'
+import { Event } from '@strutvane/framework/facades'
 
 it('announces the publication', async () => {
   const events = Event.fake()
@@ -378,16 +379,16 @@ See [Mocking](../mocking/) for every fake.
 
 ### My listener never runs
 
-**Why:** the names don't match exactly (`post.publish` vs `post.published`), or the listener is registered in `register()` of a provider that builds the bus later, or after the event was already emitted.
+**Why:** the names don't match exactly (`post.publish` vs `post.published`), the listener was registered after the event was already emitted, or a listener file isn't named `*.listener.ts` (or is cached: run `node strut event:clear` after adding one).
 **Fix:** register in `boot()`, and check the names with `listenerCount`:
 
 ```ts
-Log.debug('post.published listeners', { count: events.listenerCount('post.published') })
+Log.debug('post.published listeners', { count: Event.listenerCount('post.published') })
 ```
 
 ### A listener failed, but my request still answered 200
 
-**Why:** that's on purpose: a listener's failure never breaks the action that emitted the event. The error is in `errors` and in the log.
+**Why:** that's on purpose: a listener's failure never breaks the action that emitted the event. The error is in `errors` (and, once failed listeners are logged, in the log).
 **Fix:** if the work must succeed, do it in the action itself (inside the transaction), or make it a queued listener so it's retried and lands in the failed-jobs list if it can't succeed.
 
 ### Followers got a mail for a post that was never published
@@ -397,9 +398,10 @@ Log.debug('post.published listeners', { count: events.listenerCount('post.publis
 
 ```ts
 await transaction(async () => {
-  await post.update({ status: 'published' })
+  post.status = 'published'
+  await post.save()
 })
-await events.emit('post.published', { postId: post.id })
+await Event.emit('post.published', { postId: post.id })
 ```
 
 ### My listeners run in a different order each time
@@ -413,7 +415,7 @@ await events.emit('post.published', { postId: post.id })
 **Fix:** put ids in payloads, and load what you need in the listener:
 
 ```ts
-await events.emit('user.registered', { userId: user.id })
+await Event.emit('user.registered', { userId: user.id })
 ```
 
 ## Next steps

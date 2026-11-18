@@ -826,7 +826,7 @@ curl -X POST http://localhost:3000/user/confirm-password -H "Content-Type: appli
 ### Requests from my script get 419
 
 ```text
-{"type":"https://strutvane.dev/problems/csrf_token_mismatch","title":"Page expired","status":419,"code":"csrf_token_mismatch","detail":"This request could not be verified as coming from this site. Reload the page and try again."}
+{"type":"https://strutvane.dev/errors/csrf-token-mismatch","title":"Page expired","status":419,"code":"csrf_token_mismatch","detail":"This request could not be verified as coming from this site. Reload the page and try again."}
 ```
 
 **Why:** a request that changes something, carries a session cookie and doesn't come from your own pages is refused by the [CSRF](../csrf/) check. Auth's routes give the same `419 csrf_token_mismatch` as every other route. (The prototype's routes still answer `403 FORBIDDEN` here.)

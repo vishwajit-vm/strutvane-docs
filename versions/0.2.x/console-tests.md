@@ -13,58 +13,54 @@ It's Laravel's console testing:
 - `->expectsQuestion('Name?', 'Post')`, `->expectsOutput('…')`, `->doesntExpectOutput('…')` and `->assertExitCode(0)` keep their names;
 - `->expectsConfirmation()` and `->expectsChoice()` cover prompts, like Laravel Prompts' test helpers.
 
-What's different: commands are typed objects made with `defineCommand()` (no `$signature` string to parse), and there's a lower-level `runConsole()` you can call today in the prototype.
+What's different: commands are typed objects made with `defineCommand()` (no `$signature` string to parse), and there's a lower-level `runCli()` you can call today.
 :::
 
 :::caution[What exists, and when]
-- **Proven in the application-core prototype (spike 12):** commands as `defineCommand({ name, description, arguments, options, run })`; `runConsole(app, argv, { output, now })`, which runs a command line in-process, returns its exit code and captures output into a buffer; typed options; friendly errors for unknown commands and options. Spike 12 has 14 console tests built this way, including real `node strut` processes.
-- **Coming in 0.2:** the fluent `strut()` test helper (`expectsQuestion()`, `expectsOutput()`, `assertExitCode()`…), the console prompts API with its test fake, and `make:command`.
+- **On framework `main` (0.2.0-next.0, not on npm yet):** commands as `defineCommand({ name, description, args, flags, run })` from `@strutvane/framework/console`, registered with `withCommands([...])` in `bootstrap/app.ts`; `node strut make:command`; and `runCli({ argv, builtins, streams })`, which runs a command line in-process, returns its exit code and captures output through your own streams; typed flags; friendly errors for unknown commands and options.
+- **Coming in 0.2:** the fluent `strut()` test helper (`expectsQuestion()`, `expectsOutput()`, `assertExitCode()`…) and the console prompts API with its test fake.
 
 **Planned API (a sketch: names may change).** The fluent helper's name comes from the parity checklist (`strut('cmd').expectsQuestion()…`); the rest follows Laravel.
 :::
 
-## The smallest example (works in the prototype)
+## The smallest example (works today)
 
-Run `route:list --json` and check its output:
+Run `route:list --json` in-process and check its output:
 
 ```ts title="tests/feature/route-list.test.ts"
-import { randomBytes } from 'node:crypto'
 import { expect, it } from 'vitest'
-import { runConsole, type Output } from '@strutvane/framework/console'
-import { createApp } from '../../bootstrap/app.ts'
+import { BUILTIN_COMMANDS, runCli } from '@strutvane/framework/console'
 
-/** Collects what a command prints, instead of writing to the terminal. */
-function buffer(): Output & { out: string[]; err: string[] } {
+it('lists the hello route as JSON', async () => {
   const out: string[] = []
   const err: string[] = []
-  return { out, err, line: (text = '') => out.push(text), error: (text) => err.push(text) }
-}
 
-it('lists the admin routes as JSON', async () => {
-  const app = createApp({ APP_ENV: 'testing', APP_KEY: 'base64:' + randomBytes(32).toString('base64'), DB_CONNECTION: 'sqlite', DB_DATABASE: ':memory:' })
-  const output = buffer()
-
-  const exitCode = await runConsole(app, ['route:list', '--json', '--name=admin'], { output })
+  const exitCode = await runCli({
+    argv: ['route:list', '--json', '--name=hello'],
+    builtins: BUILTIN_COMMANDS,
+    streams: { stdout: (text) => out.push(text), stderr: (text) => err.push(text) },
+  })
 
   expect(exitCode).toBe(0)
-  expect(JSON.parse(output.out.join('\n'))).toEqual([
-    { method: 'GET', uri: '/api/admin/stats', name: 'admin.stats', action: 'StatsController@show', middleware: 'api, auth, admin' },
-  ])
+  const result = JSON.parse(out.join(''))
+  expect(result.data.routes).toContainEqual(
+    expect.objectContaining({ method: 'GET', uri: '/api/hello', name: 'hello', middleware: ['csrf', 'throttle:api'] }),
+  )
 })
 ```
 
 **What you'll see:**
 
 ```text
- ✓ tests/feature/route-list.test.ts (1 test) 12ms
+ ✓ tests/feature/route-list.test.ts (1 test) 120ms
 ```
 
-`runConsole()` returns the exit code instead of ending the process, and writes into your buffer instead of the terminal: that's what makes commands testable.
+`runCli()` returns the exit code instead of ending the process, and writes into your streams instead of the terminal: that's what makes commands testable. With `--json`, every command prints one document: `{ "schemaVersion": 1, "ok": true, "command": "route:list", "exitCode": 0, "data": { … }, "warnings": [] }`. It runs in the current folder (pass `cwd` for another) with `APP_ENV` from the environment.
 
 ## The fluent helper: `strut()`
 
 :::caution[Coming in 0.2]
-**Planned API (a sketch).** `strut()` wraps `runConsole()` with Laravel-style expectations.
+**Planned API (a sketch).** `strut()` wraps `runCli()` with Laravel-style expectations.
 :::
 
 ```ts title="tests/feature/make-migration.test.ts"
@@ -73,10 +69,11 @@ import { it } from 'vitest'
 
 it('creates a posts migration, model, factory and seeder', async () => {
   await strut(app, 'make:migration create_posts_table --seeder')
-    .expectsOutput('Created database/migrations/2026_11_15_100000_create_posts_table.ts')
-    .expectsOutput('Created app/models/post.ts')
-    .expectsOutput('Created database/factories/post.factory.ts')
-    .expectsOutput('Created database/seeders/post.seeder.ts')
+    .expectsOutputToContain('database/migrations/2026_11_15_100000_create_posts_table.ts')
+    .expectsOutputToContain('app/models/post.ts')
+    .expectsOutputToContain('database/factories/post.factory.ts')
+    .expectsOutputToContain('database/seeders/post.seeder.ts')
+    .expectsOutput('Next: node strut migrate')
     .assertExitCode(0)
 })
 ```
@@ -95,26 +92,22 @@ it('creates a posts migration, model, factory and seeder', async () => {
 The chain runs when awaited. A failure shows everything the command printed, so you see what went wrong:
 
 ```text
-Error: Expected the output "Created app/models/post.ts", but the command printed:
-  Created database/migrations/2026_11_15_100000_create_posts_table.ts
-  ✖ app/models/post.ts already exists.
-  → Pick another name, or add --force to overwrite it (your changes in that file would be lost).
+Error: Expected the output "Next: node strut migrate", but the command printed:
+  error Missing required argument <name>.
+  hint: Usage: node strut make:migration <name> [flags]
 ```
 
 ### Fixed time for generated file names
 
-Migration file names start with the date and time. Freeze the clock so the name is the same on every run (the prototype's `runConsole` takes `now` for this):
+Migration file names start with the date and time (UTC), so they differ on every run. Until the fluent helper's `freezeTime()` lands (see [Mocking](../mocking/)), match the name with a pattern instead of the exact text:
 
 ```ts
-await runConsole(app, ['make:migration', 'create_posts_table'], { output, now: () => new Date('2026-11-15T10:00:00Z') })
-// → database/migrations/2026_11_15_100000_create_posts_table.ts
+expect(out.join('')).toMatch(/database\/migrations\/\d{4}_\d{2}_\d{2}_\d{6}_create_posts_table\.ts/)
 ```
-
-With the fluent helper, `freezeTime()` or `travelTo()` do the same (see [Mocking](../mocking/)).
 
 ## Testing your own command
 
-A command is a typed object. Here's one that archives old drafts:
+A command is a typed object. `node strut make:command ArchiveDrafts --command=posts:archive-drafts` writes the file; here it is filled in, archiving old drafts:
 
 ```ts title="app/console/commands/archive-drafts.command.ts"
 import { defineCommand } from '@strutvane/framework/console'
@@ -123,70 +116,81 @@ import { Post } from '../../models/post.ts'
 export const archiveDraftsCommand = defineCommand({
   name: 'posts:archive-drafts',
   description: 'Archive drafts not touched for a number of days',
-  options: {
-    days: { type: 'string', description: 'Age in days (default 90)' },
+  flags: {
+    days: { type: 'string', default: '90', description: 'Age in days' },
     dry: { type: 'boolean', description: 'Only count, change nothing' },
   },
-  async run({ options, output, now }) {
-    const days = Number(options.days ?? '90')
+  async run({ flags, out }) {
+    const days = Number(flags.days)
     if (!Number.isInteger(days) || days < 1) {
-      output.error(`--days must be a whole number of days, got "${options.days}".`)
-      return 1
+      out.warn(`--days must be a whole number of days, got "${flags.days}".`)
+      return { exitCode: 2 }
     }
-    const before = new Date(now().getTime() - days * 86_400_000)
-    const drafts = Post.query().where('status', 'draft').where('updated_at', '<', before)
-    const count = await drafts.count()
-    if (options.dry) {
-      output.line(`${count} drafts would be archived.`)
-      return 0
+    const before = new Date(Date.now() - days * 86_400_000)
+    const drafts = await Post.query().where('status', 'draft').where('updated_at', '<', before).get()
+    if (flags.dry) {
+      out.line(`${drafts.length} drafts would be archived.`)
+      return { data: { count: drafts.length } }
     }
-    await drafts.update({ status: 'archived' })
-    output.line(`Archived ${count} drafts.`)
-    return 0
+    for (const post of drafts) {
+      post.status = 'archived'
+      await post.save()
+    }
+    out.success(`Archived ${drafts.length} drafts.`)
+    return { data: { count: drafts.length } }
   },
 })
 ```
 
-Test the success path, the dry run and the failure path:
+Register it in `bootstrap/app.ts` with `.withCommands([archiveDraftsCommand])`. A command returns `{ data }` (what `--json` prints) and, when it needs attention, an `exitCode`.
+
+Test the dry run and the failure path with `runCli()` *(unverified: app commands through an in-process `runCli()` aren't covered by a framework test)*:
 
 ```ts title="tests/feature/archive-drafts.test.ts"
-import { strut } from '@strutvane/framework/testing'
-import { describe, it } from 'vitest'
+import { describe, expect, it } from 'vitest'
+import { BUILTIN_COMMANDS, runCli } from '@strutvane/framework/console'
+
+async function strut(...argv: string[]): Promise<{ exitCode: number; output: string }> {
+  const lines: string[] = []
+  const write = (text: string): void => {
+    lines.push(text)
+  }
+  const exitCode = await runCli({ argv, builtins: BUILTIN_COMMANDS, streams: { stdout: write, stderr: write } })
+  return { exitCode, output: lines.join('') }
+}
 
 describe('posts:archive-drafts', () => {
-  it('archives old drafts', async () => {
-    await Post.factory().count(3).create({ status: 'draft', updated_at: new Date('2026-01-01') })
-    await strut(app, 'posts:archive-drafts --days=30').expectsOutput('Archived 3 drafts.').assertExitCode(0)
-  })
-
   it('changes nothing in a dry run', async () => {
-    await strut(app, 'posts:archive-drafts --dry').expectsOutputToContain('would be archived').assertSuccessful()
+    const { exitCode, output } = await strut('posts:archive-drafts', '--dry')
+    expect(exitCode).toBe(0)
+    expect(output).toContain('would be archived')
   })
 
   it('refuses a bad --days', async () => {
-    await strut(app, 'posts:archive-drafts --days=soon')
-      .expectsError('--days must be a whole number of days, got "soon".')
-      .assertExitCode(1)
+    const { exitCode, output } = await strut('posts:archive-drafts', '--days=soon')
+    expect(exitCode).toBe(2)
+    expect(output).toContain('--days must be a whole number of days, got "soon".')
   })
 })
 ```
 
-Then check the database as in [Database Testing](../database-testing/).
+With the planned fluent helper, the same tests read `await strut(app, 'posts:archive-drafts --dry').expectsOutputToContain('would be archived').assertSuccessful()`. Then check the database as in [Database Testing](../database-testing/).
 
 ### Unknown commands and options
 
-The console already explains typos, and you can test that your command's options are spelled as you think. From the prototype:
+The console already explains typos, and you can test that your command's options are spelled as you think:
 
 ```text
-make:controller has no --resorce option.
-  → Did you mean --resource?
+error Unknown option '--pathh'.
+hint: Run `node strut help route:list` to see its flags.
 ```
 
 ```text
-make:migration needs <name>.
+error Missing required argument <name>.
+hint: Usage: node strut make:migration <name> [flags]
 ```
 
-Both exit with code `1`.
+Both exit with code `2` (a usage error; see the [CLI Reference](../cli-reference/) for every exit code).
 
 ## Prompts: questions, confirmations and choices
 
@@ -233,12 +237,12 @@ it('stops when the user says no', async () => {
 
 A question the test didn't expect fails the test (it never waits for a keyboard), and an expected question that's never asked fails it too.
 
-### Without a terminal: `--no-interaction`
+### Without a terminal: `--no-interactive`
 
-In CI and scripts there's nobody to answer. Commands then must not ask: they take every answer from arguments and options, and fail with a clear message when one is missing. Test that path too:
+In CI and scripts there's nobody to answer. Commands then must not ask: they take every answer from arguments and flags, and fail with a clear message when one is missing (`--no-interactive` is a global flag every command accepts). Test that path too:
 
 ```ts
-await strut(app, 'team:invite --no-interaction').expectsError('team:invite needs --email when it can\'t ask.').assertFailed()
+await strut(app, 'team:invite --no-interactive').expectsError('team:invite needs --email when it can\'t ask.').assertFailed()
 ```
 
 ## Testing a real process
@@ -252,15 +256,15 @@ import { expect, it } from 'vitest'
 it('node strut route:list works as a real process', () => {
   const result = spawnSync(process.execPath, ['strut.js', 'route:list', '--json'], { encoding: 'utf8', env: { ...process.env, APP_ENV: 'testing' } })
   expect(result.status).toBe(0)
-  expect(JSON.parse(result.stdout)).toContainEqual(expect.objectContaining({ name: 'posts.index' }))
+  expect(JSON.parse(result.stdout).data.routes).toContainEqual(expect.objectContaining({ name: 'hello' }))
 })
 ```
 
-These take about a second each (a cold `node strut` start), so keep them few.
+These take a second or more each (a cold `node strut` start), so keep them few. The prototype ran these for a few critical paths; on framework `main` the `--json` shape above is real.
 
 ## Platform and Docker differences
 
-- **In-process tests** (`runConsole`, `strut()`) behave the same on Windows, macOS and Linux: no shell, no quoting.
+- **In-process tests** (`runCli`, `strut()`) behave the same on Windows, macOS and Linux: no shell, no quoting.
 - **Real-process tests** use `process.execPath` (the running Node) and an argument **array**, never a shell string, so PowerShell, cmd and bash all behave the same. (Node 24.3 or newer is required: earlier 24.x releases break arguments in PowerShell.)
 - **Docker mode:** `npm test` runs inside the `app` container, so commands run there too, against the test database.
 
@@ -274,17 +278,17 @@ These take about a second each (a cold `node strut` start), so keep them few.
 ### Generated file names differ on every run
 
 **Why:** migration names contain the current time.
-**Fix:** pass a fixed clock (`now` in `runConsole`, or `freezeTime()`).
+**Fix:** match the name with a pattern today; the fluent helper's `freezeTime()` (planned) fixes it.
 
 ### `expectsOutput` fails, but the text is clearly printed
 
 **Why:** `expectsOutput` compares a **whole line**, and the command prints extra text on the same line (or the message went to the error stream).
-**Fix:** use `expectsOutputToContain()`, or `expectsError()` for messages printed with `output.error()`.
+**Fix:** use `expectsOutputToContain()`, or `expectsError()` for messages printed on the error stream (`out.info()`, `out.warn()`).
 
 ### My command works in the terminal but exits 1 in the test
 
 **Why:** the test app has `APP_ENV=testing` and a different database, so the command found no data, or a required `.env` key is missing in the test environment.
-**Fix:** create the data the command needs in the test, and pass the settings it reads to `createApp()`.
+**Fix:** create the data the command needs in the test, and set the settings it reads in `vitest.config.ts` (`test.env`).
 
 ## Next steps
 

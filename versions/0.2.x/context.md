@@ -11,8 +11,8 @@ Strutvane keeps it in Node's **`AsyncLocalStorage`**: a built-in way to attach a
 It's Laravel's `Context` facade: `Context::add()` becomes `Context.add()`, values appear in every log line of the request, `addHidden()` keeps a value out of the logs, and (from 0.3) the context travels with queued jobs. The base is different: Laravel gets one process per request; a Node server handles many requests at once, so the context is carried by `AsyncLocalStorage` instead of a global.
 :::
 
-:::caution[Coming in 0.2]
-**Proven in a prototype** (spike 12): the current-app context set around every request and every command, which `config()`, `route()`, `now()` and models read. **Designed for 0.2:** the request id, user and team in every log line, and `Log.withContext()` (see [Logging](../logging/)). **Planned:** the `Context` accessor (`add`, `get`, `addHidden`) and carrying context into queued jobs, which comes with the queue in 0.3.
+:::caution[What exists, and when]
+**On framework `main` (0.2.0-next.0, not on npm yet):** the current-app context set around every request and every command, which `config()`, `route()`, `now()`, `app()` and the [facades](../facades/) read; and the request context (request id, user, team, locale), which the logger adds to every line written during a request. **Coming in 0.2:** `Log.withContext()` with the logging channels (see [Logging](../logging/)) and the `Context` accessor (`add`, `get`, `addHidden`). **Coming in 0.3:** carrying context into queued jobs, with the queue.
 :::
 
 ## The smallest example
@@ -38,9 +38,9 @@ export class HomeController extends Controller {
 |---|---|---|
 | The current app (container, config, URLs) | Strutvane, around every request and command | `config()`, `route()`, `now()`, `app()`, models, [facades](../facades/) |
 | The request id | Strutvane, for every request | every log line of the request, error reports |
-| The signed-in user | the `auth` middleware | every log line (as an id), policies |
-| The current team | tenancy, when teams are on | the ORM tenant scope, every log line |
-| Your own values | you, with `Context.add()` | every log line, and queued jobs from 0.3 |
+| The signed-in user | the auth package's request hook, before your routes run | every log line (as `actorId`), policies |
+| The current tenant (team) | the same hook, when tenancy is on | every log line (as `tenantId`) |
+| Your own values | you, with `Context.add()` (coming in 0.2) | every log line, and queued jobs from 0.3 |
 
 Values that are about the **request itself** (the body, the bound models, the route) live on `ctx`, the request object every action receives. Context is for what **all** code should know without being handed `ctx`.
 
@@ -49,25 +49,22 @@ Values that are about the **request itself** (the body, the bound models, the ro
 Every log line written during a request carries its context, so you can find everything one request did:
 
 ```ts
-import { Log } from '@strutvane/framework'
+import { Log } from '@strutvane/framework/facades'
 
 Log.info('Post published', { postId: 42 })
 ```
 
-**What you'll see** in `storage/logs/strutvane-2026-11-15.log`:
+**What you'll see** on standard output (the framework's built-in logger writes one JSON line per call; something like this, on one line):
 
 ```text
-[2026-11-15 10:22:01.123] local.INFO: Post published {"postId":42,"requestId":"01JD7Q6Y9X3V2K8M4N5P6R7S8T","userId":1}
+{"time":"2026-11-15T10:22:01.123Z","level":"info","msg":"Post published","requestId":"01a1ec64-21cf-76ad-b05f-41d90182c222","traceId":"01a1ec64-21cf-76ad-b05f-41d90182c222","actorId":"1","fields":{"postId":42}}
 ```
 
-Add your own value for the rest of the request with `Log.withContext()`:
+The `requestId` is the same value as the response's `X-Request-Id` header and an error's `traceId`, so a user's error report leads straight to the request's log lines. Secrets are redacted from fields like from everything else that's logged.
 
-```ts
-Log.withContext({ orderId: 'ord_123' })
-Log.info('Charging the card')     // context: { orderId: 'ord_123', requestId: … }
-```
-
-Secrets are redacted from context like from everything else that's logged. See [Logging](../logging/).
+:::caution[Coming in 0.2]
+`Log.withContext({ orderId: 'ord_123' })`, which adds a value to every later line of the request, and the log files in `storage/logs` come with the logging channels (ADR-0022). Today, `Log.child({ orderId: 'ord_123' })` gives you a logger that adds the value to every line *it* writes. See [Logging](../logging/).
+:::
 
 ## Adding your own values (preview)
 
@@ -76,7 +73,7 @@ The `Context` accessor is planned (Laravel parity matrix); names follow Laravel 
 :::
 
 ```ts title="app/http/middleware/add-plan-context.ts"
-import { Context, type HttpContext, type Middleware, type Next } from '@strutvane/framework'
+import { Context, type HttpContext, type Middleware, type Next } from '@strutvane/framework'   // Context: planned
 
 export class AddPlanContext implements Middleware {
   async handle(ctx: HttpContext, next: Next): Promise<Response> {
@@ -114,20 +111,28 @@ When a request dispatches a job, its context (request id, user, team and your ow
 A standalone script or a test isn't a request, so there's no context until you create one. Helpers then stop with a clear message:
 
 ```text
-✖ config() was called outside a request or console command, so there is no current app.
+config() was called outside a request or console command, so there is no current app.
 → Call it from a controller, middleware or command, or wrap the code in app.run(() => …) (tests: await app.run(async () => …)).
 ```
+
+(It's a `BootError` with the code `no_current_application`; the second line is its hint.)
 
 Wrap the code in `app.run()`, which sets the context for everything inside it:
 
 ```ts title="tests/feature/context.test.ts"
 import { randomBytes } from 'node:crypto'
 import { expect, test } from 'vitest'
-import { config } from '@strutvane/framework'
-import { createApp } from '../../bootstrap/app.ts'
+import { Application, config, defineConfig } from '@strutvane/framework'
+
+const appConfig = defineConfig((env) => ({ name: env.string('APP_NAME', 'Strutvane') }))
 
 test('code inside app.run() sees the app', async () => {
-  const app = createApp({ APP_ENV: 'testing', APP_KEY: `base64:${randomBytes(32).toString('base64')}`, APP_NAME: 'Test App', DB_CONNECTION: 'sqlite' })
+  const app = Application.configure({
+    basePath: process.cwd(),
+    env: { APP_ENV: 'testing', APP_KEY: randomBytes(32).toString('base64url'), APP_NAME: 'Test App' },
+  })
+    .withConfig({ app: appConfig })
+    .create()
   await app.boot()
   expect(await app.run(async () => config('app.name'))).toBe('Test App')
 })

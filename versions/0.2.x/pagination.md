@@ -199,11 +199,11 @@ This is how the generated API (coming in 0.2) will answer:
 
 ```json
 {
-  "type": "https://strutvane.dev/problems/validation_failed",
-  "title": "Some fields need attention",
+  "type": "https://strutvane.dev/errors/validation-failed",
+  "title": "Validation failed",
   "status": 422,
   "code": "validation_failed",
-  "detail": "Fix the fields listed in `issues` and try again.",
+  "detail": "Some fields need your attention.",
   "issues": [{ "path": ["perPage"], "field": "perPage", "code": "invalid_integer", "message": "Page size must be a whole number from 1 to 100." }]
 }
 ```

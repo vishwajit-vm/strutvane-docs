@@ -15,7 +15,9 @@ What's different:
 :::
 
 :::caution[What exists, and when]
-- **Coming in 0.2:** the local and memory disks, `config/filesystems.ts`, streaming uploads with limits, `UploadedFile`, expiring signed links and the tenant-confined disk. These are **built in 0.1** (`@strutvane/framework`, with path-traversal, atomic-write and upload attack tests) and being moved into 0.2. The `Storage` accessor is new in 0.2 (in 0.1 you get the disks from the container with `StorageManagerToken`). `storage:link` and `storage:prune-temp` are designed, not built.
+- **On framework `main` (0.2.0-next.0, not on npm yet):** the local and memory disks, the storage manager, streaming uploads with limits, `UploadedFile`, expiring signed links, the tenant-confined disk (all with path-traversal, atomic-write and upload attack tests), and the `Storage` facade on `@strutvane/framework/facades`.
+- **Known gap in 0.2.0-next.0:** an app built with `bootstrap/app.ts` doesn't read `config/filesystems.ts` or bind the disks yet, and doesn't serve `/storage/<disk>/…` links; the 0.1-style runtime (`strutvane.config.ts` with the framework provider) does both. Until the wiring lands, bind the disks in a provider ([below](#disks-in-an-app-built-with-bootstrapappts)), or `Storage` throws `facade_not_bound`.
+- **Coming in 0.2:** how a controller receives uploads (`ctx.file()` below). `storage:link` and `storage:prune-temp` are designed, not built.
 - **Coming before 1.0:** S3, Azure Blob and Google Cloud disks, image fields and a virus-scan hook come with `@strutvane/files` (phase 3, which ends with 1.0). A media library is a separate package, coming after 1.0.
 :::
 
@@ -24,7 +26,8 @@ What's different:
 Save a text file and read it back:
 
 ```ts title="app/http/controllers/report.controller.ts"
-import { Storage, type HttpContext } from '@strutvane/framework'
+import type { HttpContext } from '@strutvane/framework'
+import { Storage } from '@strutvane/framework/facades'
 
 export class ReportController {
   async store(ctx: HttpContext): Promise<Response> {
@@ -55,12 +58,10 @@ The file is now at `storage/app/reports/2026-11.txt` in your project. You can re
 
 ## Disks
 
-A new app has one private disk called `local`, at `storage/app/`. You don't need a config file for that. To add more, create `config/filesystems.ts`:
+A new app has one private disk called `local`, at `storage/app/`. You don't need a config file for that. To add more, create `config/filesystems.ts` (read by the 0.1-style runtime today; see the known gap above):
 
 ```ts title="config/filesystems.ts"
-import { defineConfig } from '@strutvane/framework'
-
-export default defineConfig({
+export default {
   default: 'local',
   disks: {
     local: { driver: 'local', root: 'storage/app' },
@@ -68,7 +69,7 @@ export default defineConfig({
     public: { driver: 'local', root: 'storage/public', visibility: 'public', url: '/files' },
     scratch: { driver: 'memory' },
   },
-})
+}
 ```
 
 | Option | Meaning | Default |
@@ -77,7 +78,7 @@ export default defineConfig({
 | `root` | the folder, relative to the **project root** (never the current directory) | `storage/<disk name>` (`storage/app` for `local`) |
 | `visibility` | the default for new files: `private` or `public` | `private` |
 | `url` | the URL prefix for public files | — |
-| `signingSecret` | the secret for expiring links (32+ bytes) | `APP_KEY` |
+| `signingSecret` (top level, next to `disks`) | the secret for expiring links (32+ bytes) | `config/app.ts` `key`, else `APP_KEY` |
 
 The config is checked at start-up, and the app refuses to start when something is wrong:
 
@@ -101,6 +102,39 @@ config/filesystems.ts: the signing secret (signingSecret, app.key or APP_KEY) mu
 | `temporaryUrl(key, { expiresInSeconds? })` | a signed link that expires (default 5 minutes) | `string` |
 
 `put()` options: `contentType`, `visibility` (`private` or `public`) and `metadata` (a few small, non-secret strings).
+
+### Disks in an app built with `bootstrap/app.ts`
+
+Until `bootstrap/app.ts` apps read `config/filesystems.ts` themselves, bind the disks in a [service provider](../providers/). Every name here is exported by `@strutvane/framework` on `main`:
+
+```ts title="app/providers/storage.provider.ts"
+import { join } from 'node:path'
+import {
+  createLocalDisk,
+  createMemoryDisk,
+  createStorageManager,
+  ServiceProvider,
+  StorageManagerToken,
+  type Application,
+} from '@strutvane/framework'
+
+export class StorageServiceProvider extends ServiceProvider {
+  override register(app: Application): void {
+    const signingSecret = process.env['APP_KEY']
+    app.container.singleton(StorageManagerToken, () =>
+      createStorageManager({
+        default: 'local',
+        disks: [
+          createLocalDisk({ name: 'local', root: join(app.basePath, 'storage/app'), ...(signingSecret ? { signingSecret } : {}) }),
+          createMemoryDisk({ name: 'scratch' }),
+        ],
+      }),
+    )
+  }
+}
+```
+
+List it in `bootstrap/app.ts` with `.withProviders([StorageServiceProvider])`. *(unverified: this exact provider isn't covered by a framework test.)*
 
 ### Keys, not paths
 
@@ -168,23 +202,21 @@ Each file arrives as an **`UploadedFile`**:
 ### Validating and storing an upload
 
 ```ts title="app/http/controllers/post-attachment.controller.ts"
-import { authorize, Storage, ValidationError, type HttpContext } from '@strutvane/framework'
-import { uuidv7 } from '@strutvane/framework/support'
+import { app, StorageManagerToken, type HttpContext } from '@strutvane/framework'
+import { uuidv7, ValidationError } from '@strutvane/framework/core'
 import { Post } from '../../models/post.ts'
-import { PostPolicy } from '../../policies/post.policy.ts'
 
 export class PostAttachmentController {
-  readonly policy = new PostPolicy()
-
   async store(ctx: HttpContext): Promise<Response> {
     const post = ctx.model(Post)
-    await authorize(this.policy, 'update', ctx.user, post, 'post')
+    // check your policy here (see Authorization)
     const upload = await ctx.file('attachment')   // Planned: how a controller reads uploads in 0.2 isn't final
 
     const issues = upload.validate({ accept: ['image/png', 'image/jpeg', 'application/pdf'], maxSize: 10 * 1024 * 1024 })
     if (issues.length > 0) throw new ValidationError(issues)
 
-    const stored = await upload.store(`posts/${post.id}`, { storage: Storage, id: uuidv7 })
+    const storage = app().container.make(StorageManagerToken)
+    const stored = await upload.store(`posts/${post.id}`, { storage, id: uuidv7 })
     return ctx.json({ data: stored }, 201)
   }
 }
@@ -210,7 +242,7 @@ The stored key is `<folder>/<random id>.<extension from the real type>`. The use
 A file over the **request** limits (25 MB per file by default) is cut off while streaming and answered with `413`; see [Security Features](../security/).
 
 :::caution[Coming in 0.2]
-`UploadedFile`, `validate()`, `store()` and the streaming parser are built in 0.1. How a v2 controller receives uploads (`ctx.file()` above) and how upload rules join form requests are designed with the 0.2 request work, not final.
+`UploadedFile`, `validate()`, `store()` and the streaming parser (`parseMultipart`) are on framework `main`. How a 0.2 controller receives uploads (`ctx.file()` above) and how upload rules join form requests are designed with the 0.2 request work, not final. `store()` takes the storage **manager** (`StorageManagerToken`), not the `Storage` facade.
 :::
 
 ### Temporary files
@@ -226,7 +258,7 @@ const link = await Storage.disk().temporaryUrl('posts/42/0193a1f0-….pdf', { ex
 // → '/storage/local/posts/42/0193a1f0-….pdf?expires=1763202121&signature=Qm0z…'
 ```
 
-The app serves these links itself at `/storage/<disk>/…`, checking the signature on every request. In 0.2 the signature comes from the framework's **one signer** (the same one that signs routes and auth links): an HMAC over the path, the sorted query, the expiry and a purpose, so a link can't be extended or moved to another file. Links last from 1 second to 7 days, and are served for `GET` and `HEAD` only. (0.1's storage signer, which also covered the method, is being replaced by the one signer.)
+The app serves these links itself at `/storage/<disk>/…`, checking the signature on every request (the 0.1-style runtime does this today; `bootstrap/app.ts` apps don't serve them yet). The signature comes from the framework's **one signer** (`UrlSigner`, the same one that signs routes): an HMAC over the path, the sorted query, the expiry and a purpose, so a link can't be extended or moved to another file. Links last from 1 second to 7 days, and are served for `GET` and `HEAD` only.
 
 What a visitor sees:
 
@@ -248,7 +280,7 @@ For files everyone may see (a logo, published images), use a public disk with a 
 
 ```ts
 const file = await Storage.disk('public').put('logos/acme.png', bytes, { visibility: 'public', contentType: 'image/png' })
-await Storage.disk('public').url(file.key)   // → '/files/logos/acme.png'
+await Storage.disk('public').url(file.key)   // → '/files/logos/acme.png' (url() returns a Promise)
 ```
 
 `url()` on a private file throws `"logos/acme.png" has no public URL`. Serving the public folder at `/files` is the job of `node strut storage:link` (designed, Laravel's command) or your web server.
@@ -270,10 +302,10 @@ await disk.list('')                             // only this team's files, never
 A `memory` disk keeps files in RAM and disappears when the test ends:
 
 ```ts title="config/filesystems.ts"
-export default defineConfig({
-  default: process.env.APP_ENV === 'testing' ? 'scratch' : 'local',
+export default {
+  default: process.env['APP_ENV'] === 'testing' ? 'scratch' : 'local',
   disks: { local: { driver: 'local' }, scratch: { driver: 'memory' } },
-})
+}
 ```
 
 The planned `Storage.fake()` swaps a disk for a temporary one inside one test; see [Mocking](../mocking/).
@@ -311,7 +343,8 @@ The planned `Storage.fake()` swaps a disk for a temporary one inside one test; s
 **Fix:** save the returned `key` on your record and read with that:
 
 ```ts
-await post.update({ attachment_key: stored.key })
+post.attachment_key = stored.key
+await post.save()
 ```
 
 ### My PNG upload is refused as `file_type_not_allowed`
@@ -328,6 +361,16 @@ await post.update({ attachment_key: stored.key })
 
 **Why:** the app runs in a container, and `storage/` lives inside it.
 **Fix:** mount a persistent volume at `storage/`, or keep files on a cloud disk. See [Deployment](../deployment/).
+
+### "Storage.disk() needs the storage manager, but nothing is bound"
+
+```text
+Storage.disk() needs the storage manager, but nothing is bound to "strutvane.storage" in this app.
+→ Configure config/filesystems.ts; the framework provider binds the disks when the app boots.
+```
+
+**Why:** in 0.2.0-next.0, an app built with `bootstrap/app.ts` doesn't bind the disks yet.
+**Fix:** bind them in a provider, as in [Disks in an app built with `bootstrap/app.ts`](#disks-in-an-app-built-with-bootstrapappts).
 
 ### UnsafeKeyError for a key built from user input
 
