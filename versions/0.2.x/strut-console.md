@@ -1,14 +1,14 @@
 ---
 title: Strut Console
-description: How `node strut` works (listing, help, typo hints, exit codes, Docker forwarding), and how to write, register and test your own commands with typed arguments and options.
+description: How `node strut` works (listing, help, typo hints, exit codes, JSON output), and how to write, register and test your own commands with typed arguments and flags.
 ---
 
 `node strut` is your app's command line: Strutvane's `php artisan`. You use it to create files (`make:migration`), change the database (`migrate`), look inside the app (`route:list`, `about`) and run your own commands. This page explains how it works and how to add commands of your own. Every built-in command is listed in the [CLI Reference](../cli-reference/).
 
 :::tip[Coming from Laravel?]
-`php artisan <command>` is `node strut <command>`. `php artisan list` is `node strut list`, and commands are namespaced with a colon (`make:controller`, `route:list`) as in artisan.
+`php artisan <command>` is `node strut <command>`. `php artisan list` is `node strut list`, `php artisan make:command` is `node strut make:command`, and commands are namespaced with a colon (`make:migration`, `route:list`) as in artisan.
 
-The differences: a command is a plain object made with `defineCommand()`, not a class with a `$signature` string, so its arguments and options are **typed**; and inspection commands accept `--json` for scripts and AI agents.
+The differences: a command is a plain object made with `defineCommand()`, not a class with a `$signature` string, so its arguments and flags are **typed**; you register it with `.withCommands([...])` in `bootstrap/app.ts` (Laravel's `routes/console.php`); and every command accepts `--json` for scripts and AI agents.
 :::
 
 ## The smallest example
@@ -22,317 +22,369 @@ node strut list
 **What you'll see** (shortened):
 
 ```text
-Strutvane console. Usage: node strut <command> [arguments] [options]
+strutvane 0.2.0-next.0: the Strutvane command line
 
-Available commands:
-  about            Show the app name, environment, database, routes and providers
-  serve            Serve the application on the local HTTP server
- make
-  make:controller  Create a new controller class
-  make:migration   Create a migration (and the model, for create_*_table)
- model
-  model:show       Show a model's columns, casts and API behaviour
- route
-  route:list       List every registered route
+Usage: node strut <command> [arguments] [flags]
 
-Run `node strut help <command>` for details.
+Commands:
+  about        Show versions of the CLI, Node.js and installed Strutvane packages
+  migrate      Diff models with the database, write a migration and apply it
+  start        Start the app server (the API, and the built UI from dist/web when present)
+
+make:
+  make:command    Create a console command in app/console/commands
+  make:migration  Create a migration (and, for create_*_table, its model)
+
+route:
+  route:list   List every route of the app (--security: protections, opt-outs, warnings)
+
+Run `node strut help <command>` for details. Colon names also work with spaces: `node strut make model`.
 ```
 
-`node strut` with no command does the same as `node strut list`, and `help` is an alias for it.
+`node strut` with no command does the same as `node strut list`, and `help` with no command name is an alias for it.
 
 ## How `node strut` works
 
-`strut.js` is a small file in your project's root folder:
+The command line ships inside `@strutvane/framework`, as the `strutvane` program. So `npx strutvane <command>` works in any project that depends on the framework.
 
-```js title="strut.js"
-// The project's command line, like Laravel's `artisan`. Run it from this folder:
-//
-//   node strut                     list every command
-//   node strut route:list          show the routes
-//   node strut help make:controller
-//
-// It is a plain .js file so `node strut` works the same in PowerShell, cmd and bash.
-import { runConsole } from '@strutvane/framework/console'
-import app from './bootstrap/app.ts'
-
-process.exitCode = await runConsole(app, process.argv.slice(2))
-```
-
-Why a plain `.js` file run with `node`? It works the same in **PowerShell, cmd, bash and zsh**: there's no `.cmd` or `.ps1` wrapper, no PowerShell execution-policy prompt, no `--` rule, and no clash with a shell alias (0.1's `sv` clashed with PowerShell's built-in `sv`). `npx strutvane <command>` does exactly the same.
+:::caution[Coming in 0.2]
+`strut.js`, the small file in your project's root folder that makes `node strut` work, is written by the 0.2 installer (`create-strutvane`). It's a plain `.js` file run with `node`, so it works the same in **PowerShell, cmd, bash and zsh**: no `.cmd` or `.ps1` wrapper, no PowerShell execution-policy prompt, no `--` rule, and no clash with a shell alias (0.1's `sv` clashed with PowerShell's built-in `sv`). It hands every framework command to the installed framework's `strutvane` program, passing your arguments unchanged and returning its exit code; in Docker mode it first forwards the command into the app container (see [Docker](../docker/)). Until the installer ships, use `npx strutvane <command>`.
+:::
 
 What happens when you type a command:
 
-1. `runConsole` finds the command (core commands, then your app's and your packages', which may replace a core one with the same name).
-2. It checks the arguments and options against the command's declaration.
-3. It **boots** the app, the same boot a request gets: `.env` and config checked, providers run, routes compiled. Commands that only write files (`make:*`) skip this step, so they work before `.env` exists.
-4. It runs the command inside the app, so `config()`, `route()` and models work.
-5. It exits with the command's exit code.
+1. The command line finds your project (the nearest folder whose `package.json` lists `@strutvane/framework`).
+2. It collects the commands: the built-in ones, the ones your installed packages contribute (the framework itself adds `migrate`, `db:seed`, `start`, `dev`, `build` and `sync` this way), and your app's own, from `bootstrap/app.ts`. A package or app command with the same name as a built-in one replaces it.
+3. It checks the arguments and flags against the command's declaration, and stops with exit code `2` on a mistake.
+4. It runs the command and exits with its exit code.
+
+Commands that need the app (`route:list`, `optimize`, `down`…) boot it themselves, so a bad `.env` value or a weak `APP_KEY` stops them with a clear message. `make:*` commands don't, so they work before `.env` exists.
 
 ## Getting help
 
 ```bash
-node strut help make:controller
-node strut make:controller --help     # the same
+node strut help make:migration
+node strut make:migration --help     # the same
 ```
 
-**What you'll see:**
+**What you'll see** (shortened):
 
 ```text
-Create a new controller class
+make:migration
 
-Usage: node strut make:controller <name> [options]
+Create a migration (and, for create_*_table, its model)
+
+Usage: node strut make:migration <name> [flags]
 
 Arguments:
-  name                The class name, ending in Controller (PostController) (required)
+  name  snake_case, e.g. create_posts_table or add_subtitle_to_posts_table
 
-Options:
-  -r, --resource      Write all 7 resource actions (index, create, store, show, edit, update, destroy)
-  --api               Write the 5 API actions (no create/edit form pages)
-  -m, --model=<value> Inherit the API actions from ResourceController for this model
-  --force             Overwrite the file if it exists
+Flags:
+  --seeder         Also create the seeder and its factory, and register the seeder
+  --factory        Also create the factory
 
 Examples:
-  node strut make:controller ReportController
-  node strut make:controller PostController --resource
-  node strut make:controller PostController --api
-  node strut make:controller PostController --model=Post
+  node strut make:migration create_posts_table --seeder
+  node strut make:migration add_subtitle_to_posts_table
 ```
 
-Options with a value are written `--model=Post` or `--model Post`; short forms are `-m Post`.
+Flags with a value are written `--table=posts` or `--table posts`. A command group on its own lists the group: `node strut make`.
 
 ## Typos and mistakes
 
-Strutvane never answers a typo with a stack trace:
+Strutvane never answers a typo with a stack trace. Every mistake prints **what happened** (`error`) and **how to fix it** (`hint`):
 
 ```bash
-node strut rout:list
+node strut rotue:list
 ```
 
 ```text
-  ✖ There is no "rout:list" command.
-  → Did you mean `node strut route:list`?
-```
-
-Every developer mistake prints **what happened** (`✖`) and **how to fix it** (`→`):
-
-```text
-  ✖ make:controller has no --resouce option.
-  → Did you mean --resource?
+error Unknown command "rotue:list".
+  - Did you mean `node strut route:list`?
+hint: Run `node strut help` to see every command.
 ```
 
 ```text
-  ✖ make:migration needs <name>.
-  → Example: node strut make:migration <name>  (more: node strut help make:migration)
+error Unknown option '--pathh'.
+hint: Run `node strut help route:list` to see its flags.
 ```
+
+```text
+error Missing required argument <name>.
+hint: Usage: node strut make:migration <name> [flags]
+```
+
+An unambiguous abbreviation runs the command (`node strut m:st` runs `migrate:status`), except for destructive commands, which must be typed in full.
 
 ## Exit codes
 
 | Code | Means |
 |---|---|
 | `0` | Success |
-| `1` | A mistake you can fix (unknown command, bad option, a friendly error) |
-| `3` | `migrate` couldn't reach the database (so the installer can offer Retry) |
-| anything else | What your own command returned |
+| `1` | A general failure (an unexpected error, a failed child process) |
+| `2` | Invalid usage: an unknown command or flag, a bad or missing argument |
+| `3` | Validation failed: a bad `.env` value, a boot error, failed checks |
+| `4` | Conflict: a file you changed would be overwritten |
+| `5` | A database error |
+| `6` | Something is pending (a stale registry with `registry:build --check`) |
+| `7` | Incompatible package versions |
+| `130` | Interrupted with <kbd>Ctrl</kbd>+<kbd>C</kbd> |
 
 Scripts and CI can check them: `node strut route:list || echo "the app doesn't boot"`.
 
 ## Machine-readable output: `--json`
 
-Inspection commands print JSON for scripts and AI agents:
+Every command prints one JSON document with `--json`, for scripts and AI agents:
 
 ```bash
 node strut route:list --json
 node strut about --json
-node strut model:show Post --json
 ```
 
-**What you'll see** (for `about --json`, shortened):
-
-```json
-{
-  "application": { "name": "My App", "environment": "local", "debug": true, "url": "http://localhost:3000" },
-  "runtime": { "node": "v24.21.0", "platform": "linux" },
-  "http": { "routes": 15, "namedRoutes": 14 }
-}
-```
+The document is always the same envelope: `schemaVersion`, `ok`, `command`, `exitCode`, the command's `data` and any `warnings`. See the example under [Typical: arguments, flags and output](#typical-arguments-flags-and-output).
 
 `about` never prints secrets: no keys, no passwords, no full database URLs, so it's safe to paste into a bug report.
 
-## With Docker or without
-
-| | With Docker | Without Docker |
-|---|---|---|
-| `node strut migrate` | Forwarded into the `app` container for you | Runs on your computer |
-| `node strut shell` | A shell inside the app container (bash, or sh) | Not needed |
-| `node strut npm install x` | npm **inside** the container (also `npx` and `node`) | Use `npm install x` |
-| Arguments | Passed through exactly, with no shell (`a&b`, `$(…)`, `%PATH%` arrive as typed) | The same |
-| Exit codes | Passed back from the container | — |
-
-The forwarder in `strut.js` needs Node on your computer; nothing else does. See [Docker](../docker/).
-
 ## Writing your own command
 
-A command is an object made with `defineCommand()`. Arguments and options are **data**, so `help`, validation and the option types all come from one place.
+A command is an object made with `defineCommand()` from `@strutvane/framework/console`. Its arguments and flags are **data**, so `help`, validation and the TypeScript types all come from one place.
 
-### Small: a command with no input
+### Small: generate one
 
-```ts title="app/console/inspire.command.ts"
+```bash
+node strut make:command SendReports
+```
+
+**What you'll see:**
+
+```text
+  create app/console/commands/send-reports.command.ts
+Next: register it in bootstrap/app.ts with .withCommands([sendReportsCommand]), then run node strut app:send-reports
+```
+
+The file it writes:
+
+```ts title="app/console/commands/send-reports.command.ts"
 import { defineCommand } from '@strutvane/framework/console'
 
-export const inspire = defineCommand({
-  name: 'inspire',
-  description: 'Print a quote',
-  run({ output }) {
-    output.line('Simplicity is the soul of efficiency.')
+/**
+ * `node strut app:send-reports`: describe what it does here.
+ *
+ * Register it in bootstrap/app.ts: `.withCommands([sendReportsCommand])`.
+ * Run it with `node strut app:send-reports`; `node strut help app:send-reports` shows its arguments and flags.
+ */
+export const sendReportsCommand = defineCommand({
+  name: 'app:send-reports',
+  description: 'Describe what app:send-reports does',
+  args: {
+    // recipient: { required: true, description: 'Who gets the report' },
+  },
+  flags: {
+    // preview: { type: 'boolean', description: 'Print instead of sending' },
+  },
+  examples: ['node strut app:send-reports'],
+  async run({ out }) {
+    // ctx.args and ctx.flags are typed from the declarations above.
+    out.success('app:send-reports finished.')
+    return { data: {} }
   },
 })
 ```
 
-Register it in `bootstrap/app.ts` (Laravel's `routes/console.php`):
+`--command=reports:send` picks another name to run it by. Register it in `bootstrap/app.ts`, Laravel's `routes/console.php`:
 
 ```ts title="bootstrap/app.ts"
-import { inspire } from '../app/console/inspire.command.ts'
+import { dirname } from 'node:path'
+import { Application } from '@strutvane/framework'
+import { sendReportsCommand } from '../app/console/commands/send-reports.command.ts'
+import api from '../routes/api.ts'
+import web from '../routes/web.ts'
 
 export default Application.configure({ basePath: dirname(import.meta.dirname) })
-  // …the rest of your chain…
-  .withCommands([inspire])
+  .withRouting({ web, api, health: '/up' })
+  .withCommands([sendReportsCommand])
   .create()
 ```
 
 ```bash
-node strut inspire
+node strut app:send-reports
 ```
 
 **What you'll see:**
 
 ```text
-Simplicity is the soul of efficiency.
+✔ app:send-reports finished.
 ```
 
-### Typical: arguments, options and the app
+### Typical: arguments, flags and output
 
-```ts title="app/console/posts-publish.command.ts"
+```ts title="app/console/commands/posts-report.command.ts"
 import { defineCommand } from '@strutvane/framework/console'
-import { Post } from '../models/post.ts'
 
-export const publishPost = defineCommand({
-  name: 'posts:publish',
-  description: 'Publish a post by its slug',
-  arguments: [{ name: 'slug', description: 'The post to publish (its slug)', required: true }],
-  options: {
-    dryRun: { type: 'boolean', short: 'd', description: 'Show what would change, change nothing' },
-    note: { type: 'string', description: 'A note for the log' },
+export const postsReportCommand = defineCommand({
+  name: 'posts:report',
+  description: 'Print a report for one author',
+  args: {
+    author: { required: true, description: 'The author to report on' },
   },
-  help: ['Examples:', '  node strut posts:publish hello-world', '  node strut posts:publish hello-world --dryRun'],
-  async run({ args, options, output, now }) {
-    const post = await Post.query().where('slug', args[0] ?? '').first()
-    if (post === undefined) {
-      output.error(`  ✖ No post has the slug "${args[0] ?? ''}".`)
-      return 1
+  flags: {
+    format: { type: 'string', choices: ['text', 'csv'], default: 'text', description: 'How to print it' },
+    preview: { type: 'boolean', short: 'p', description: 'Show what would be printed, print nothing' },
+  },
+  examples: ['node strut posts:report ada', 'node strut posts:report ada --format=csv'],
+  run({ args, flags, out }) {
+    if (flags.preview) {
+      out.info(`Would print the ${flags.format} report for ${args.author}.`)
+      return
     }
-    if (options.dryRun) {
-      output.line(`  Would publish "${post.title}".`)
-      return 0
-    }
-    await post.update({ status: 'published' })
-    output.line(`  at ${now().toISOString()}`)
-    output.line(`  Published "${post.title}"${options.note === undefined ? '' : ` (${options.note})`}.`)
-    return 0
+    out.table(['Author', 'Format'], [[args.author, flags.format]])
+    out.success(`Report for ${args.author} printed.`)
+    return { data: { author: args.author, format: flags.format } }
   },
 })
 ```
 
-Inside `run`:
-
-| You get | Type |
-|---|---|
-| `args` | The positional arguments, as strings |
-| `options.dryRun` | `boolean` (a boolean option) |
-| `options.note` | `string \| undefined` (a string option) |
-| `output.line(text)` / `output.error(text)` | Write to stdout / stderr |
-| `now()` | The current time (fixed in tests) |
-| `app` | The booted application |
-
-The option types come from the declaration, so `options.nope` doesn't compile. Return a number to set the exit code; returning nothing means `0`.
+Add it to `.withCommands([...])` as above, then:
 
 ```bash
-node strut posts:publish hello-world --note "launch day"
+node strut posts:report ada
 ```
 
 **What you'll see:**
 
 ```text
-  at 2026-11-14T10:00:00.000Z
-  Published "Hello World" (launch day).
+Author  Format
+ada     text
+✔ Report for ada printed.
 ```
 
-### Commands that only write files
+And with `--json`:
 
-Set `needsBoot: false` when the command doesn't need the app booted (it only writes files). It then runs even when `.env` is incomplete, like the `make:*` commands.
+```json
+{
+  "schemaVersion": 1,
+  "ok": true,
+  "command": "posts:report",
+  "exitCode": 0,
+  "data": {
+    "author": "ada",
+    "format": "text"
+  },
+  "warnings": []
+}
+```
 
-### Advanced: a command from a package
+`node strut help posts:report` is built from the same declaration:
 
-A package adds its commands from its service provider:
+```text
+posts:report
 
-```ts title="node_modules/@acme/billing/src/billing.provider.ts"
-import { ServiceProvider, type Application } from '@strutvane/framework'
-import { billingSync } from './billing-sync.command.ts'
+Print a report for one author
 
-export class BillingServiceProvider extends ServiceProvider {
-  override register(app: Application): void {
-    app.addCommand(billingSync)
+Usage: node strut posts:report <author> [flags]
+
+Arguments:
+  author  The author to report on
+
+Flags:
+  --format <value>  How to print it (one of: text, csv; default: text)
+  -p, --preview     Show what would be printed, print nothing
+
+Global flags: --json --dry-run --diff --yes --force --cwd <path> --no-color (node strut help)
+
+Examples:
+  node strut posts:report ada
+  node strut posts:report ada --format=csv
+
+Provided by bootstrap/app.ts
+```
+
+What a declaration can say:
+
+| Field | What it does |
+|---|---|
+| `name` | The colon-separated name, lowercase (`posts:report`) |
+| `description` | One line, shown in `node strut list` |
+| `details` | Longer help, shown in `node strut help <name>` |
+| `args` | Positional arguments by name: `{ required?, variadic?, description? }` |
+| `flags` | Flags by name: `{ type: 'boolean' \| 'string', short?, default?, choices?, multiple?, description? }` |
+| `examples` | Example lines for the help |
+| `aliases` | Other names it answers to |
+| `destructive` | `true` applies the production guard (`--force --i-understand` outside local and test environments) |
+| `hidden` | `true` leaves it out of `node strut list` |
+
+What `run` receives, among other things:
+
+| You get | What it is |
+|---|---|
+| `args.author` | The argument's value, typed from `args`: `string` when `required`, `string \| undefined` otherwise, `string[]` when `variadic` |
+| `flags.format`, `flags.preview` | The flags, typed from `flags` (`string`, `boolean`) |
+| `out.line()`, `out.success()`, `out.info()`, `out.warn()`, `out.table()` | Output that respects `--quiet`, `--json` and `--no-color` |
+| `prompt` | Questions to ask the user (see [Prompts](../prompts/)) |
+| `appEnv` | `APP_ENV` as the app will see it |
+| `guardDestructive()` | Apply the production guard in a command that is only sometimes destructive |
+| `cwd`, `project` | The working folder and your project |
+
+Return nothing for exit code `0`, or `{ data, exitCode }`: `data` becomes the `data` of the `--json` document, and `exitCode` sets the exit code when the command finished but needs attention (for example `3` for failed checks). A value that breaks a rule is refused before `run` starts:
+
+```bash
+node strut posts:report ada --format=xml
+```
+
+```text
+error --format must be one of: text, csv (got "xml").
+```
+
+### Advanced: commands from a package
+
+A package contributes commands by declaring a module in its `package.json`, the same way the framework adds `migrate`:
+
+```json title="node_modules/@acme/billing/package.json (excerpt)"
+{
+  "name": "@acme/billing",
+  "strutvane": {
+    "commands": "./dist/commands.mjs",
+    "compat": "^0.2.0-next.0"
   }
 }
 ```
 
-An app or package command with the same name as a core command **replaces** it, on purpose. See [Service Providers](../providers/).
+The module's default export is a command or a list of commands. They're loaded only from direct dependencies with an `@strutvane/` or `strutvane-plugin-` name; a package outside `@strutvane/` must declare `strutvane.compat`, and one whose range doesn't match your framework version is skipped (`node strut doctor` says why). One broken package never stops the other commands from working.
 
 ## Testing a command
 
-`runConsole` returns the exit code instead of exiting, and takes an output buffer and a fixed clock:
+:::caution[Coming in 0.2]
+A console test helper is planned (Laravel's `expectsQuestion()`, `expectsOutput()`, `assertExitCode()`), as `strut('posts:report ada').expectsOutput('…').assertExitCode(0)`. Until then, run the command as a child process and check its output and exit code, as below. See [Console Tests](../console-tests/).
+:::
 
-```ts title="tests/console/inspire.test.ts"
-import { randomBytes } from 'node:crypto'
+```ts title="tests/console/posts-report.test.ts"
+import { execFileSync } from 'node:child_process'
 import { expect, test } from 'vitest'
-import { runConsole } from '@strutvane/framework/console'
-import { createApp } from '../../bootstrap/app.ts'
 
-test('inspire prints a quote', async () => {
-  const lines: string[] = []
-  const output = { line: (text = '') => lines.push(text), error: (text: string) => lines.push(text) }
-  const app = createApp({ APP_ENV: 'testing', APP_KEY: `base64:${randomBytes(32).toString('base64')}`, DB_CONNECTION: 'sqlite' })
+test('posts:report prints JSON for one author', () => {
+  const stdout = execFileSync(process.execPath, ['strut', 'posts:report', 'ada', '--json'], { encoding: 'utf8' })
+  const result = JSON.parse(stdout)
 
-  const code = await runConsole(app, ['inspire'], { output, now: () => new Date('2026-11-14T10:00:00Z') })
-
-  expect(code).toBe(0)
-  expect(lines).toEqual(['Simplicity is the soul of efficiency.'])
+  expect(result.ok).toBe(true)
+  expect(result.data).toEqual({ author: 'ada', format: 'text' })
 })
 ```
 
-**What you'll see** with `npm test`: the test passes.
-
-:::caution[Coming in 0.2]
-A friendlier console test API is planned (Laravel's `expectsQuestion()`, `expectsOutput()`, `assertExitCode()`), as `strut('posts:publish hello-world').expectsOutput('…').assertExitCode(0)`. Today, use `runConsole` as above.
-:::
+**What you'll see** with `npm test`: the test passes. `--json` makes the output easy to check without depending on colours or wording.
 
 ## Coming next
 
 :::caution[Coming in 0.2]
 In the 0.2 plan (Laravel parity matrix), not built yet:
-- `node strut make:command PostsPublish` writes a command file for you.
 - **Prompts** in your commands: text, select, search, confirm, spinner, progress bar and table, with a fake for tests. See [Prompts](../prompts/).
+- Commands a service provider registers with `app.addCommand()` in `register()`. Today only the app's own `.withCommands([...])` commands are in the CLI.
 - `node strut lint` and `node strut format` run the Biome config every app ships with (Laravel's Pint).
 - `node strut publish <package> --tag=config` (or `migrations`, `views`) copies a package's files into your app so you can change them (Laravel's `vendor:publish`).
-- Run with no arguments, `make:*` commands ask their questions interactively.
 :::
 
 :::caution[Coming in 0.3]
 **Isolated commands** (`isolated: true`): only one copy of the command runs at a time, guarded by a lock, so two cron jobs can't overlap. And handling **signals** (Ctrl+C, a container stop) in your own long-running commands, to finish cleanly.
 :::
-
-## Speed
-
-In the prototype, a cold `node strut route:list` takes 0.75 to 1.0 seconds, most of it loading TypeScript files. Loading command modules only when they run, and shipping the framework as compiled JavaScript, are the planned fixes; the target is under 300 ms *(unverified until built)*. See [Optimization](../optimization/).
 
 ## Common mistakes
 
@@ -347,19 +399,18 @@ Error: Cannot find module 'C:\Users\you\strut'
 
 ### My command isn't in `node strut list`
 
-**Why:** it isn't registered.
-**Fix:** add it to `.withCommands([...])` in `bootstrap/app.ts` (or `app.addCommand()` in a provider's `register()`).
+**Why:** it isn't registered, or `bootstrap/app.ts` can't be imported (a syntax error, a missing file).
+**Fix:** add it to `.withCommands([...])` in `bootstrap/app.ts`, then run `node strut list` again; an import error is printed there.
 
-### My command fails with environment errors, but it only writes a file
+### "Missing required argument"
 
 ```text
-  ✖ The app can't start: 1 environment variable needs attention.
-  - APP_KEY is required (a text value); add it to .env (read in config/app.ts)
-  → Fix the values in .env (see .env.example for every key) and start again.
+error Missing required argument <author>.
+hint: Usage: node strut posts:report <author> [flags]
 ```
 
-**Why:** commands boot the app by default, and boot checks `.env`.
-**Fix:** add `needsBoot: false` to a command that doesn't need the app.
+**Why:** the declaration marks `author` as `required`, and the command line didn't give it.
+**Fix:** pass it (`node strut posts:report ada`), or drop `required: true` and handle the missing value in `run`.
 
 ### `sv` or `strut` "is not recognized as a command"
 
@@ -369,11 +420,11 @@ Error: Cannot find module 'C:\Users\you\strut'
 ### PowerShell swallows my quotes
 
 **Why:** PowerShell and bash quote differently, and some characters (`&`, `|`, `$`) mean something to the shell before Node sees them.
-**Fix:** wrap such arguments in single quotes in PowerShell (`'a&b'`) and bash alike. `node strut` passes them on unchanged, also into Docker.
+**Fix:** wrap such arguments in single quotes in PowerShell (`'a&b'`) and bash alike. `node strut` passes them on unchanged.
 
 ## Next steps
 
 - [CLI Reference](../cli-reference/): every built-in command.
 - [Prompts](../prompts/): asking questions in your commands.
-- [Service Providers](../providers/): commands from packages.
+- [Console Tests](../console-tests/): testing commands.
 - [Task Scheduling](../scheduling/): running commands on a schedule.

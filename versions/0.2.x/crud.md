@@ -182,8 +182,8 @@ Turn on the opt-in ones in the resource's settings file: `actions: { export: tru
 |---|---|
 | No API and no screens for a model | `Model('posts', { fillable, api: false, ui: false })` in the model |
 | Screens but no API, or the other way round | `api: false` or `ui: false` alone |
-| Keep the screens, write the API yourself | `node strut make:controller PostController --model=Post`, route it in `routes/api.ts` |
-| Every line of the API in your file | `node strut make:controller PostController --api` |
+| Keep the screens, write the API yourself | write a controller that extends `ResourceController` and route it in `routes/api.ts` (`node strut make:controller PostController --model=Post` is planned) |
+| Every line of the API in your file | write the five actions in your own controller (`node strut make:controller PostController --api` is planned) |
 | Keep the API, change the screens | edit `resources/ui/posts.ui.ts` |
 | Hide only the sidebar entry | `navigation: { hidden: true }` in `posts.ui.ts` |
 
